@@ -10,22 +10,23 @@ The person's request is the text after `</skill>` at the end of this message.
 1. Write one prompt that says what happens, in order: who, what they do, where. One action is
    best for one shot. Leave camera words and quality words like "cinematic" or "4k" out of it.
    No real people, and nothing sexual: Hildegard refuses both.
-2. Run this command with the bash tool, in the foreground. The word after `make` is `video`;
-   change only the words in quotes:
+2. Call the bash tool now with this command. Put your prompt between the quotes and change
+   nothing else. You need nothing more: no image, no file, no other command first.
 
        hildegard make video "<your prompt>" --quality draft
 
-   Add `--seconds 5` for the length, `--aspect 9:16` for a vertical clip, and
-   `--from <image file>` to start from an image the person gave you. Use `--quality final`
-   only for the take the person picked. It waits until the video is rendered and checked.
-   That takes minutes. Do not run it in the background and do not set a short timeout (if
-   you must set one, use 3600 seconds).
+   It waits until the video is rendered and checked, which takes minutes. Run it in the
+   foreground. If you set a timeout, use 3600 seconds.
 3. Read the output. `Video: <path>` is the file. `Contact sheet to look at:` is a picture of
    nine frames. `Review passed` means the checks passed. The last line starts with NEXT: do
    what it says.
 4. If the review FAILED, change one thing in the prompt and run it again. After three tries,
    tell the person what is still wrong.
 5. Answer with the video path, the contact sheet path, and one sentence on what happens.
+
+Only if the person asked for it, add one of these to the command: `--seconds 8` for a longer
+clip, `--aspect 9:16` for a vertical one, `--from <image file>` with an image file the person
+named, or `--quality final` for the take they picked.
 
 If bash says `hildegard: command not found`, tell the person to install Hildegard from
 https://dbaney.com/hildegard/ and stop. Never install it yourself. If it says the video model

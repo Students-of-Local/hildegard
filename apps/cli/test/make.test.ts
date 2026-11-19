@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // `hildegard make`, the command Local Studio's plugin runs: it waits for the job, saves the file, reviews it, and
 // refuses to clone a voice. And `hildegard connect local-studio`, which puts the plugin where Local Studio reads it.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -168,6 +176,115 @@ describe('hildegard make', { timeout: 60_000 }, () => {
       expect(out.message).toMatch(/^Nothing was made\./);
       expect(out.steps.find((s) => s.id === 'image')).toMatchObject({ status: 'failed' });
     });
+
+    it('never reads a file it couldn’t check as passed, and gives prompt advice without asking the owner', async () => {
+      const home = mkdtempSync(join(tmpdir(), 'hg-make-unchecked-'));
+      const out = await hildegardEnv(
+        home,
+        { ...env(), HILDEGARD_PYTHON: join(home, 'no-python-here') },
+        'make',
+        'image',
+        'a red barn in snow, 8k masterpiece',
+        '--out',
+        join(home, 'made'),
+      );
+      expect(out.files).toHaveLength(1);
+      expect(out.reviews).toEqual([]);
+      expect(out.steps.find((s) => s.id === 'review')).toMatchObject({ status: 'skipped' });
+      expect(out.message).toMatch(
+        /1 file couldn’t be checked here\.\nNEXT: .*Hildegard’s checks couldn’t run, so they should look at it themselves\./,
+      );
+      expect(out.message).not.toContain('NEXT: give the person the file path and say');
+      // "8k" and "masterpiece" draw advice for the next try; that is not a question for the owner.
+      expect(out.steps.find((s) => s.id === 'prompt')).toMatchObject({ status: 'skipped' });
+      expect(out.needsOwner).toBe(false);
+    });
+
+    it('names a real video model and its install command when none is installed, and renders nothing', async () => {
+      const catalog = await (await fetch(`${srv.url}/api/catalog`)).text();
+      const asked: string[] = [];
+      const bare = createServer((req, res) => {
+        asked.push(`${req.method} ${req.url}`);
+        const json = (body: string) => res.writeHead(200, { 'content-type': 'application/json' }).end(body);
+        if (req.url === '/api/catalog') return json(catalog);
+        if (req.url === '/api/snapshot') return json('{"models":[]}');
+        res.writeHead(500).end();
+      });
+      await new Promise<void>((r) => bare.listen(0, '127.0.0.1', r));
+      try {
+        const home = mkdtempSync(join(tmpdir(), 'hg-make-nomodel-'));
+        const out = await hildegardEnv(
+          home,
+          { HILDEGARD_URL: `http://127.0.0.1:${(bare.address() as AddressInfo).port}` },
+          'make',
+          'video',
+          'a red barn in snow',
+        );
+        expect(out.ok).toBe(false);
+        expect(out.steps[0]).toMatchObject({ id: 'model', status: 'failed' });
+        expect(out.steps[0]!.detail).toMatch(/hildegard models install [a-z0-9][a-z0-9.-]+$/);
+        expect(out.message).not.toContain('undefined');
+        expect(asked.filter((a) => a.startsWith('POST'))).toEqual([]);
+      } finally {
+        bare.close();
+      }
+    });
+
+    it('speaks, designs and keeps a voice, and cleans a recording, each to a file it reviewed', async () => {
+      const home = mkdtempSync(join(tmpdir(), 'hg-make-voice-'));
+      const out = join(home, 'made');
+      const voices = await hildegardEnv(home, env(), 'make', 'voices');
+      expect(voices.ok).toBe(true);
+      expect(voices.message).toMatch(/^Voices: .*kokoro-heart/);
+
+      const speech = await hildegardEnv(
+        home,
+        env(),
+        'make',
+        'speech',
+        'The barn stood in the snow.',
+        '--voice',
+        'kokoro-heart',
+        '--out',
+        out,
+      );
+      expect(speech.message).toMatch(/^Spoke the script in kokoro-heart: /);
+      const wav = (speech.files as string[])[0]!;
+      expect(statSync(wav).size).toBeGreaterThan(0);
+      expect(speech.reviews).toHaveLength(1);
+
+      const design = await hildegardEnv(
+        home,
+        env(),
+        'make',
+        'voice',
+        'a warm older farmer, slow and kind',
+        '--text',
+        'The barn stood in the snow.',
+        '--count',
+        '2',
+        '--out',
+        out,
+      );
+      expect(design.files).toHaveLength(2);
+      const job = design.job as string;
+      expect(design.message).toContain(
+        `NEXT: give the person the file paths to listen to, ask which one to keep`,
+      );
+      expect(design.message).toContain(`hildegard make voice keep ${job} <number> --name`);
+
+      const keep = await hildegardEnv(home, env(), 'make', 'voice', 'keep', job, '2', '--name', 'Farmer');
+      expect(keep.ok).toBe(true);
+      expect(keep.message).toMatch(/^Kept “Farmer” as voice \S+\.\nNEXT: /);
+      const listed = await hildegardEnv(home, env(), 'make', 'voices');
+      expect(listed.message).toContain(keep.voice as string);
+
+      const clean = await hildegardEnv(home, env(), 'make', 'clean', wav, '--out', out);
+      expect(clean.message).toMatch(/^Cleaned the recording: /);
+      expect((clean.files as string[])[0]).toMatch(/-clean\.wav$/);
+      expect(clean.steps.find((s) => s.id === 'clean')).toMatchObject({ status: 'done' });
+      expect(clean.reviews).toHaveLength(1);
+    });
   });
 });
 
@@ -209,23 +326,91 @@ describe('hildegard connect local-studio', { timeout: 60_000 }, () => {
     expect(readFileSync(join(other, 'plugin.toml'), 'utf8')).toContain('someone-else');
   });
 
-  it('reports what Local Studio’s validator says about the copy', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'hg-ls-val-'));
+  // A stand-in for Local Studio's command line that says what the test needs it to.
+  const fakeValidator = (home: string, script: string) => {
     const bin = join(home, 'bin');
-    mkdirSync(bin);
+    mkdirSync(bin, { recursive: true });
     const fake = join(bin, 'local-studio');
-    writeFileSync(fake, '#!/bin/sh\necho "error: $3 is not valid" >&2\nexit 2\n', { mode: 0o755 });
-    if (process.platform === 'win32') return;
-    const out = await hildegardEnv(
-      home,
-      { LOCAL_STUDIO_DATA_DIR: join(home, 'ls-data'), LOCAL_STUDIO_CLI: fake },
-      'connect',
-      'local-studio',
-    );
-    expect(out.ok).toBe(false);
-    expect(out.steps[1]).toMatchObject({ id: 'validate', status: 'failed' });
-    expect(out.steps[1]!.detail).toContain('is not valid');
-  });
+    writeFileSync(fake, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+    return fake;
+  };
+
+  it.skipIf(process.platform === 'win32')(
+    'installs nothing Local Studio’s validator refuses, and keeps the copy already there',
+    async () => {
+      const home = mkdtempSync(join(tmpdir(), 'hg-ls-val-'));
+      const lsData = join(home, 'ls-data');
+      const plugins = join(lsData, 'plugins');
+      const refuse = fakeValidator(home, 'echo "error: $3 is not valid" >&2\nexit 2');
+
+      const first = await hildegardEnv(
+        home,
+        { LOCAL_STUDIO_DATA_DIR: lsData, LOCAL_STUDIO_CLI: refuse },
+        'connect',
+        'local-studio',
+      );
+      expect(first.ok).toBe(false);
+      expect(first.steps[0]).toMatchObject({ id: 'validate', status: 'failed' });
+      expect(first.steps[0]!.detail).toContain('is not valid');
+      expect(first.message).toBe('Nothing was installed.');
+      expect(existsSync(join(plugins, 'hildegard'))).toBe(false);
+
+      // A copy that is there stays when the update is refused, and no half-copied folder is left beside it.
+      const ok = await hildegardEnv(home, { LOCAL_STUDIO_DATA_DIR: lsData }, 'connect', 'local-studio');
+      expect(ok.ok).toBe(true);
+      writeFileSync(join(plugins, 'hildegard', 'marker'), 'first copy');
+      const again = await hildegardEnv(
+        home,
+        { LOCAL_STUDIO_DATA_DIR: lsData, LOCAL_STUDIO_CLI: refuse },
+        'connect',
+        'local-studio',
+      );
+      expect(again.ok).toBe(false);
+      expect(again.message).toMatch(/^Nothing was changed/);
+      expect(readFileSync(join(plugins, 'hildegard', 'marker'), 'utf8')).toBe('first copy');
+      expect(readdirSync(plugins)).toEqual(['hildegard']);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'reads a validator that doesn’t know the command as no verdict, not a refusal',
+    async () => {
+      const home = mkdtempSync(join(tmpdir(), 'hg-ls-noverdict-'));
+      const lsData = join(home, 'ls-data');
+      const older = fakeValidator(home, 'echo "Unknown option: plugin" >&2\nexit 2');
+      const out = await hildegardEnv(
+        home,
+        { LOCAL_STUDIO_DATA_DIR: lsData, LOCAL_STUDIO_CLI: older },
+        'connect',
+        'local-studio',
+      );
+      expect(out.ok).toBe(true);
+      expect(out.steps[1]).toMatchObject({ id: 'validate', status: 'skipped' });
+      expect(out.steps[1]!.detail).toContain('gave no verdict');
+      expect(existsSync(join(lsData, 'plugins', 'hildegard', 'plugin.toml'))).toBe(true);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'names the installed folder, not the staging one, in a pass',
+    async () => {
+      const home = mkdtempSync(join(tmpdir(), 'hg-ls-pass-'));
+      const lsData = join(home, 'ls-data');
+      const pass = fakeValidator(home, 'echo "OK $3"');
+      const out = await hildegardEnv(
+        home,
+        { LOCAL_STUDIO_DATA_DIR: lsData, LOCAL_STUDIO_CLI: pass },
+        'connect',
+        'local-studio',
+      );
+      expect(out.ok).toBe(true);
+      expect(out.steps[1]).toMatchObject({
+        id: 'validate',
+        status: 'done',
+        detail: `OK ${join(lsData, 'plugins', 'hildegard')}`,
+      });
+    },
+  );
 });
 
 describe('the Local Studio plugin', () => {

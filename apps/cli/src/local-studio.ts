@@ -55,12 +55,18 @@ function validate(dir: string): Step {
   const r = spawnSync(bin, ['plugin', 'validate', dir], { encoding: 'utf8', timeout: 20_000 });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim();
   if (r.status === 0) return { id: 'validate', title, status: 'done', detail: out };
-  if (/unknown argument|usage:/i.test(out) && !/error:/i.test(out))
+  // It didn't run, hung, or doesn't know the command (the app of the same name): no verdict, so not a refusal.
+  if (
+    r.error ||
+    r.signal ||
+    r.status === null ||
+    (/unknown (argument|option|command)|usage:/i.test(out) && !/error:/i.test(out))
+  )
     return {
       id: 'validate',
       title: 'Not checked by Local Studio',
       status: 'skipped',
-      detail: `${bin} has no plugin validator (an older Local Studio). Local Studio checks the plugin when it lists commands.`,
+      detail: `${bin} gave no verdict${r.error ? ` (${r.error.message})` : r.signal ? ` (${r.signal})` : ''}: it may be an older Local Studio or its app. Local Studio checks the plugin when it lists commands.`,
     };
   return { id: 'validate', title: 'Local Studio refused the plugin', status: 'failed', detail: out };
 }
@@ -127,21 +133,34 @@ export function connectLocalStudio(_ctx: Ctx, off = false): Result {
       ],
       'Nothing was changed.',
     );
-  // Copied beside the target and swapped in, so Local Studio never reads half a plugin.
+  // Copied beside the target, checked there, then swapped in, so Local Studio never reads half a plugin or one its
+  // validator refused. The staged copy sits in a folder named for the plugin, as the validator wants.
   mkdirSync(dir, { recursive: true });
-  const staging = join(dir, `.hildegard-install-${process.pid}`);
+  const stage = join(dir, `.hildegard-install-${process.pid}`);
+  const staging = join(stage, PLUGIN_ID);
   const old = join(dir, `.hildegard-old-${process.pid}`);
-  rmSync(staging, { recursive: true, force: true });
+  rmSync(stage, { recursive: true, force: true });
   cpSync(source, staging, { recursive: true });
+  const checked = validate(staging);
+  if (checked.status === 'failed') {
+    rmSync(stage, { recursive: true, force: true });
+    return result(
+      [checked],
+      existsSync(target)
+        ? 'Nothing was changed: the plugin already in Local Studio stays.'
+        : 'Nothing was installed.',
+    );
+  }
   const had = existsSync(target);
   if (had) renameSync(target, old);
   try {
     renameSync(staging, target);
   } catch (e) {
     if (had) renameSync(old, target);
-    rmSync(staging, { recursive: true, force: true });
+    rmSync(stage, { recursive: true, force: true });
     throw e;
   }
+  rmSync(stage, { recursive: true, force: true });
   rmSync(old, { recursive: true, force: true });
   const steps: Step[] = [
     {
@@ -150,7 +169,7 @@ export function connectLocalStudio(_ctx: Ctx, off = false): Result {
       status: 'done',
       detail: target,
     },
-    validate(target),
+    { ...checked, detail: checked.detail.replaceAll(staging, target) },
   ];
   return result(
     steps,

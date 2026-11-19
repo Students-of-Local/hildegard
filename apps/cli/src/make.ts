@@ -177,7 +177,8 @@ class Maker {
     this.steps.push({
       id: 'prompt',
       title: r.ok ? 'Prompt: judgment calls' : 'Prompt: fix these before the final render',
-      status: 'needs-owner',
+      // Advice for the next try, not a question for the owner: needsOwner keeps its meaning.
+      status: 'skipped',
       detail: r.findings
         .map(
           (f) =>
@@ -263,14 +264,18 @@ class Maker {
     });
   }
 
-  finish(made: string, extra: Record<string, unknown> = {}): Result {
+  finish(made: string, extra: Record<string, unknown> = {}, next?: string): Result {
     const bad = this.reviews.filter((r) => !r.passed).length;
+    const unchecked = this.files.length - this.reviews.length;
     const error = this.steps.find((x) => x.status === 'failed' && x.id !== 'review');
+    const paths = `path${this.files.length > 1 ? 's' : ''}`;
     const message = !this.files.length
       ? `Nothing was made. ${error ? `${error.title}: ${error.detail}` : ''}\nNEXT: tell the person what went wrong, in their words, and stop.`
       : bad
         ? `${made}: ${this.files.join(', ')}. ${plural(bad, 'file')} failed review.\nNEXT: change one thing in the prompt or settings and run the command again (three tries at most), or tell the person what is still wrong.`
-        : `${made}: ${this.files.join(', ')}.\nNEXT: give the person the file path${this.files.length > 1 ? 's' : ''} and say in one sentence what you made.`;
+        : unchecked
+          ? `${made}: ${this.files.join(', ')}. ${plural(unchecked, 'file')} couldn’t be checked here.\nNEXT: give the person the file ${paths}, say in one sentence what you made, and say Hildegard’s checks couldn’t run, so they should look at it themselves.`
+          : `${made}: ${this.files.join(', ')}.\nNEXT: ${next ?? `give the person the file ${paths} and say in one sentence what you made.`}`;
     return result(this.steps, message, { files: this.files, reviews: this.reviews, ...extra });
   }
 
@@ -335,6 +340,7 @@ class Maker {
       catalog,
       installed,
     );
+    // toRequest names the first video model when none is installed, so this always says which one to install.
     if (!request.model || !installed.has(request.model))
       return failed(
         'model',
@@ -468,7 +474,11 @@ class Maker {
         detail: `hildegard make voice keep ${j.id} <1-${done.audio.length}> --name "<name>"`,
         command: `hildegard make voice keep ${j.id} 1 --name "<name>"`,
       });
-    return this.finish(`Designed ${plural(this.files.length, 'candidate voice')}`, { job: j.id });
+    return this.finish(
+      `Designed ${plural(this.files.length, 'candidate voice')}`,
+      { job: j.id },
+      `give the person the file paths to listen to, ask which one to keep and its name, then run: hildegard make voice keep ${j.id} <number> --name "<name>"`,
+    );
   }
 
   async keep(rest: string[]): Promise<Result> {
@@ -522,7 +532,7 @@ class Maker {
     });
     job = await this.wait(
       () => this.client.cleanJob(job.id),
-      (x) => x.status !== 'running',
+      (x) => x.status === 'done' || x.status === 'failed',
       (x) => `cleaning: ${x.stage ?? 'working'}`,
     );
     if (job.status === 'failed' || !job.recording?.url)
