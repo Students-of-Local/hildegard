@@ -117,6 +117,7 @@ copy('tools/review_mesh.py', 'tools/review_mesh.py');
 copy('tools/review_web.js', 'tools/review_web.js');
 copy('tools/voice_clean.py', 'tools/voice_clean.py');
 copy('skills', 'skills');
+copy('local-studio', 'local-studio');
 copy('deploy/runpod/boot.sh', 'deploy/runpod/boot.sh');
 copy('licenses', 'licenses');
 for (const f of ['LICENSE', 'LICENSE-APACHE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md']) copy(f, f);
