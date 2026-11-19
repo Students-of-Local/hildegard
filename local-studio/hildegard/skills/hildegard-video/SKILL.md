@@ -9,7 +9,7 @@ The person's request is the text after `</skill>` at the end of this message.
 
 1. Write one prompt that says what happens, in order: who, what they do, where. One action is
    best for one shot. Leave camera words and quality words like "cinematic" or "4k" out of it.
-   No real people, and nothing sexual: Hildegard refuses both.
+   Only made-up people, and nothing sexual.
 2. Call the bash tool now with this command. Put your prompt between the quotes and change
    nothing else. You need nothing more: no image, no file, no other command first.
 

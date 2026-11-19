@@ -472,6 +472,15 @@ describe('the Local Studio plugin', () => {
     expect(toml).toMatch(new RegExp(`^version = "${version.replace(/\./g, '\\.')}"$`, 'm'));
   });
 
+  it('gives no word in the prompt-writing step that a small model copies into its prompt', () => {
+    // The live /video smoke: with "Hildegard refuses both" in step 1, LFM2.5 8B wrote "A painter refuses to create a scene".
+    for (const skill of ['hildegard-image', 'hildegard-video']) {
+      const text = readFileSync(join(dir, 'skills', skill, 'SKILL.md'), 'utf8');
+      const step1 = text.slice(text.indexOf('1. '), text.indexOf('2. '));
+      expect(step1, skill).not.toMatch(/refuse/i);
+    }
+  });
+
   it('carries the marker that tells connect and disconnect the folder is Hildegard’s', () => {
     expect(existsSync(join(dir, '.hildegard-plugin'))).toBe(true);
   });
