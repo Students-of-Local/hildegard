@@ -13,7 +13,8 @@ Hildegard Studio, where the speaker gives consent live. You can never clone a vo
 
 1. Write a description: age, timbre, accent, pace, mood. For example
    "a weathered baritone in his sixties, slow and kind, Irish accent".
-2. Run one command with the bash tool, in the foreground:
+2. Run this command with the bash tool, in the foreground. The word after `make` is
+   `voice`; change only the words in quotes or angle brackets:
 
        hildegard make voice "<description>" --text "<a line for the candidates to read>"
 
@@ -24,7 +25,7 @@ Hildegard Studio, where the speaker gives consent live. You can never clone a vo
 
        hildegard make voice keep <job id> <candidate number> --name "<name>"
 
-   It prints the new voice id. Use it with `hildegard make speech "<script>" --voice <id>`.
+   It prints the new voice id. Give it to the person: `/speak` can read a script in it.
 
 If bash says `hildegard: command not found`, tell the person to install Hildegard from
 https://dbaney.com/hildegard/ and stop. Never install it yourself.

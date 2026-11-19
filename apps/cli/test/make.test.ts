@@ -258,6 +258,22 @@ describe('the Local Studio plugin', () => {
     expect(toml).not.toMatch(/clone/i);
   });
 
+  it('names only its own command in each single-purpose skill, so a small model runs the right one', () => {
+    // The live smoke: an 8B model under /video ran `make image`, the other command its skill named.
+    const own: Record<string, string[]> = {
+      'hildegard-image': ['image'],
+      'hildegard-video': ['video'],
+      'hildegard-speech': ['speech', 'voices'],
+      'hildegard-voice': ['voice'],
+      'hildegard-clean': ['clean'],
+    };
+    for (const [skill, kinds] of Object.entries(own)) {
+      const text = readFileSync(join(dir, 'skills', skill, 'SKILL.md'), 'utf8');
+      const named = new Set([...text.matchAll(/hildegard make ([a-z-]+)/g)].map((m) => m[1]));
+      expect([...named].sort(), skill).toEqual([...kinds].sort());
+    }
+  });
+
   it('tells the agent in every voice skill that it never clones, and where the person does', () => {
     for (const skill of ['hildegard-media', 'hildegard-speech', 'hildegard-voice']) {
       const text = readFileSync(join(dir, 'skills', skill, 'SKILL.md'), 'utf8');

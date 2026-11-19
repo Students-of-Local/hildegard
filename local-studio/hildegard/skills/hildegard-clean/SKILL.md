@@ -9,7 +9,8 @@ The person's request is the text after `</skill>` at the end of this message. It
 recording: a WAV, MP3, M4A, OGG, FLAC, WebM or MP4 file.
 
 1. Find the file. If you can't, ask the person for its path.
-2. Run one command with the bash tool, in the foreground:
+2. Run this command with the bash tool, in the foreground. The word after `make` is
+   `clean`; change only the words in quotes or angle brackets:
 
        hildegard make clean "<path to the recording>"
 

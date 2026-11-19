@@ -10,7 +10,8 @@ The person's request is the text after `</skill>` at the end of this message.
 1. Write one prompt in plain, concrete words: who or what, doing what, where, in what light.
    Leave out quality words like "8k", "masterpiece" or "highly detailed". No real people, and
    nothing sexual: Hildegard refuses both.
-2. Run one command with the bash tool, in the foreground:
+2. Run this command with the bash tool, in the foreground. The word after `make` is
+   `image`; change only the words in quotes or angle brackets:
 
        hildegard make image "<your prompt>"
 

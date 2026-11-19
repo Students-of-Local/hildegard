@@ -10,15 +10,16 @@ The person's request is the text after `</skill>` at the end of this message.
 1. Write one prompt that says what happens, in order: who, what they do, where. One action is
    best for one shot. Leave camera words and quality words like "cinematic" or "4k" out of it.
    No real people, and nothing sexual: Hildegard refuses both.
-2. Run one command with the bash tool, in the foreground:
+2. Run this command with the bash tool, in the foreground. The word after `make` is `video`;
+   change only the words in quotes:
 
-       hildegard make video "<your prompt>"
+       hildegard make video "<your prompt>" --quality draft
 
    Add `--seconds 5` for the length, `--aspect 9:16` for a vertical clip, and
-   `--from <image path>` to start from an image (for example one `hildegard make image` made).
-   Use `--quality draft` first; use `--quality final` only for the take the person picked.
-   It waits until the video is rendered and checked. That takes minutes. Do not run it in the
-   background and do not set a short timeout (if you must set one, use 3600 seconds).
+   `--from <image file>` to start from an image the person gave you. Use `--quality final`
+   only for the take the person picked. It waits until the video is rendered and checked.
+   That takes minutes. Do not run it in the background and do not set a short timeout (if
+   you must set one, use 3600 seconds).
 3. Read the output. `Video: <path>` is the file. `Contact sheet to look at:` is a picture of
    nine frames. `Review passed` means the checks passed. The last line starts with NEXT: do
    what it says.
