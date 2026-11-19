@@ -13,14 +13,19 @@ import {
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { layout } from '@hildegard/runtime';
 import { fileStore, parseArgs, startServer } from '@hildegard/server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hildegardEnv, hildegardWithStdin, main, run } from './harness.ts';
 
 const root = join(import.meta.dirname, '..', '..', '..');
-// The review runs Hildegard's Python checks (PyAV, numpy, Pillow), as CI installs them.
-const python = process.env.HILDEGARD_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
+// The review runs Hildegard's Python checks (PyAV, numpy, Pillow): the Python CI installs them in, or, against an
+// installed release (HILDEGARD_CLI is <data>/app/hildegard.mjs), the one that release installed.
+const installed = process.env.HILDEGARD_CLI ? layout(dirname(dirname(process.env.HILDEGARD_CLI))).python : '';
+const python =
+  process.env.HILDEGARD_PYTHON ??
+  (installed && existsSync(installed) ? installed : process.platform === 'win32' ? 'python' : 'python3');
 
 // Each test runs the CLI one or more times, as the other CLI tests do: give them the same room.
 describe('hildegard make', { timeout: 60_000 }, () => {
@@ -121,13 +126,20 @@ describe('hildegard make', { timeout: 60_000 }, () => {
   describe('against a running Hildegard', () => {
     let srv: Awaited<ReturnType<typeof startServer>>;
     const data = mkdtempSync(join(tmpdir(), 'hg-make-data-'));
+    const hadPython = process.env.HILDEGARD_PYTHON;
     beforeAll(async () => {
+      // The server in this process cleans recordings with HILDEGARD_PYTHON when its data has no Python of its own.
+      process.env.HILDEGARD_PYTHON = python;
       srv = await startServer(
         { ...parseArgs(['--fake-gpu', '--data', data]), port: 0 },
         { fakeTickMs: 20, secrets: fileStore(join(data, 'secret.json')) },
       );
     });
-    afterAll(() => srv?.close());
+    afterAll(() => {
+      srv?.close();
+      if (hadPython === undefined) delete process.env.HILDEGARD_PYTHON;
+      else process.env.HILDEGARD_PYTHON = hadPython;
+    });
     const env = () => ({ HILDEGARD_URL: srv.url, HILDEGARD_PYTHON: python, PATH: process.env.PATH ?? '' });
 
     it('waits for an image, saves it, reviews it, and says what to do next', async () => {
