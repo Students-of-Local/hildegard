@@ -1,0 +1,35 @@
+id = "hildegard"
+version = "0.1.17"
+description = "Hildegard for Local Studio: make images, video, speech, designed voices and cleaned audio on your own GPU, each one checked before you see it"
+skills = "skills"
+capabilities = []
+
+[[commands]]
+name = "hildegard"
+description = "Make media with Hildegard: pick the right command for the request"
+skill = "hildegard-media"
+
+[[commands]]
+name = "image"
+description = "Draw an image on your GPU with Hildegard"
+skill = "hildegard-image"
+
+[[commands]]
+name = "video"
+description = "Render a video shot on your GPU with Hildegard"
+skill = "hildegard-video"
+
+[[commands]]
+name = "speak"
+description = "Turn a script into speech in one of your voices"
+skill = "hildegard-speech"
+
+[[commands]]
+name = "design-voice"
+description = "Design a new voice from a description, then keep the one you like"
+skill = "hildegard-voice"
+
+[[commands]]
+name = "clean-audio"
+description = "Clean a voice recording: hum, noise and level fixed, loudness set"
+skill = "hildegard-clean"

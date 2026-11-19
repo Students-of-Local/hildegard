@@ -42,7 +42,7 @@ export type Out = {
   ok: boolean;
   needsOwner: boolean;
   message: string;
-  steps: { id: string; status: string; detail: string; command?: string }[];
+  steps: { id: string; title?: string; status: string; detail: string; command?: string }[];
   [k: string]: unknown;
 };
 

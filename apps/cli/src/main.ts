@@ -52,6 +52,9 @@ const HELP = `${bold('hildegard')} ${VERSION}: your own film studio, on your own
                              found, with its skills (--no-skills to skip) and how to sign it in within its terms
   hildegard connect <app> --remote <link> --key-stdin
                              Let an app here use the Hildegard on another device, with a key from it
+  hildegard connect local-studio
+                             Put Hildegard's commands in Local Studio: /image, /video, /speak, /design-voice,
+                             /clean-audio (disconnect local-studio takes them out)
   hildegard disconnect <app>
   hildegard hf login         Link your Hugging Face account (hf status, hf logout). The token goes to
                              your system keychain; pipe one in with --token-stdin
@@ -114,6 +117,9 @@ const HELP = `${bold('hildegard')} ${VERSION}: your own film studio, on your own
                              (cloud runpod key --key-stdin | status | down [--delete])
   hildegard review <file>    Check a video, image or sound for the marks of slop (--final, --seconds N,
                              --audio, --film, --sheet out.jpg for a contact sheet)
+  hildegard make image|video|speech|voice|clean "<what>"
+                             Make one thing and wait for it: prints the file and its review (--out DIR,
+                             --model, --voice, --file; make voices lists the voices you can use)
   hildegard loop run <codex|claude-code|omp> "<what to make>"
                              A coding agent makes it in rounds: generate, render, critique, refine
                              (--kind model|web|image|video|audio, --print, --size 40x40x120, --rounds N)
@@ -202,6 +208,17 @@ const valued = new Set([
   'max',
   'from',
   'to',
+  'aspect',
+  'quality',
+  'count',
+  'seed',
+  'voice',
+  'direction',
+  'language',
+  'text',
+  'lufs',
+  'peak',
+  'out',
 ]);
 /** Flags that take a value only when one follows: `--accept-license` alone still means the model named before it. */
 const optional = new Set(['accept-license']);
@@ -280,6 +297,7 @@ async function main(): Promise<Result | null> {
     case 'choir':
       return choir(ctx, rest);
     case 'connect':
+      if (rest[0] === 'local-studio') return (await import('./local-studio.ts')).connectLocalStudio(ctx);
       if (opts.has('remote')) return (await import('./remote.ts')).connectRemote(ctx, rest);
       return connect(ctx, rest);
     case 'agents':
@@ -288,6 +306,8 @@ async function main(): Promise<Result | null> {
       return skills(ctx, rest);
     case 'review':
       return review(ctx, rest);
+    case 'make':
+      return (await import('./make.ts')).make(ctx, rest);
     case 'lint':
       await (await import('./lint.ts')).lint(ctx, rest);
       return null;
@@ -303,6 +323,8 @@ async function main(): Promise<Result | null> {
     case 'figma':
       return (await import('./sites.ts')).figma(ctx, rest);
     case 'disconnect':
+      if (rest[0] === 'local-studio')
+        return (await import('./local-studio.ts')).connectLocalStudio(ctx, true);
       return connect(ctx, rest, true);
     case 'mcp': {
       if (opts.has('remote')) {
