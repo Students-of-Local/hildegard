@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileStore, parseArgs, startServer } from '@hildegard/server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hildegardEnv, main, run } from './harness.ts';
+import { hildegardEnv, hildegardWithStdin, main, run } from './harness.ts';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 // The review runs Hildegard's Python checks (PyAV, numpy, Pillow), as CI installs them.
@@ -27,7 +27,10 @@ describe('hildegard make', { timeout: 60_000 }, () => {
   it('refuses every way of asking to clone a voice, before anything reaches Hildegard', async () => {
     const hits: string[] = [];
     const standIn = createServer((req, res) => {
-      hits.push(`${req.method} ${req.url} ${req.headers['user-agent'] ?? ''}`);
+      // The CLI runs on Node; other programs on a developer's computer scan local ports (a Bun one asked for /v1/models).
+      const ua = req.headers['user-agent'] ?? '';
+      if (ua === 'node' || ua === '' || req.headers['x-hildegard'] !== undefined)
+        hits.push(`${req.method} ${req.url} ${ua}`);
       res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
     });
     await new Promise<void>((r) => standIn.listen(0, '127.0.0.1', r));
@@ -253,6 +256,27 @@ describe('hildegard make', { timeout: 60_000 }, () => {
       expect(statSync(wav).size).toBeGreaterThan(0);
       expect(speech.reviews).toHaveLength(1);
 
+      // As the /speak skill sends it: on stdin, so quotes and dollar signs reach Hildegard as written.
+      const script = 'It costs $20. She said "go" and `left`.';
+      const piped = await hildegardWithStdin(
+        home,
+        script,
+        'make',
+        'speech',
+        '-',
+        '--voice',
+        'kokoro-heart',
+        '--port',
+        new URL(srv.url).port,
+        '--out',
+        out,
+      );
+      expect(piped.message).toMatch(/^Spoke the script in kokoro-heart: /);
+      const sent = (await (await fetch(`${srv.url}/api/voice/jobs/${piped.job as string}`)).json()) as {
+        request: unknown;
+      };
+      expect(JSON.stringify(sent.request)).toContain(JSON.stringify(script).slice(1, -1));
+
       const design = await hildegardEnv(
         home,
         env(),
@@ -324,6 +348,13 @@ describe('hildegard connect local-studio', { timeout: 60_000 }, () => {
     const off = await hildegardEnv(home, env, 'disconnect', 'local-studio');
     expect(off.ok).toBe(false);
     expect(readFileSync(join(other, 'plugin.toml'), 'utf8')).toContain('someone-else');
+
+    // Any plugin in that folder has the id hildegard, as Local Studio requires: without Hildegard's marker it stays.
+    writeFileSync(join(other, 'plugin.toml'), 'id = "hildegard"\nversion = "9.0.0"\n');
+    expect((await hildegardEnv(home, env, 'connect', 'local-studio')).ok).toBe(false);
+    expect((await hildegardEnv(home, env, 'disconnect', 'local-studio')).ok).toBe(false);
+    expect(readFileSync(join(other, 'plugin.toml'), 'utf8')).toContain('9.0.0');
+    expect(existsSync(join(other, '.hildegard-plugin'))).toBe(false);
   });
 
   // A stand-in for Local Studio's command line that says what the test needs it to.
@@ -341,7 +372,8 @@ describe('hildegard connect local-studio', { timeout: 60_000 }, () => {
       const home = mkdtempSync(join(tmpdir(), 'hg-ls-val-'));
       const lsData = join(home, 'ls-data');
       const plugins = join(lsData, 'plugins');
-      const refuse = fakeValidator(home, 'echo "error: $3 is not valid" >&2\nexit 2');
+      // As Local Studio refuses one: exit 1, `error:` lines on stdout.
+      const refuse = fakeValidator(home, 'echo "error: $3 is not valid"\nexit 1');
 
       const first = await hildegardEnv(
         home,
@@ -375,19 +407,30 @@ describe('hildegard connect local-studio', { timeout: 60_000 }, () => {
   it.skipIf(process.platform === 'win32')(
     'reads a validator that doesn’t know the command as no verdict, not a refusal',
     async () => {
-      const home = mkdtempSync(join(tmpdir(), 'hg-ls-noverdict-'));
-      const lsData = join(home, 'ls-data');
-      const older = fakeValidator(home, 'echo "Unknown option: plugin" >&2\nexit 2');
-      const out = await hildegardEnv(
-        home,
-        { LOCAL_STUDIO_DATA_DIR: lsData, LOCAL_STUDIO_CLI: older },
-        'connect',
-        'local-studio',
-      );
-      expect(out.ok).toBe(true);
-      expect(out.steps[1]).toMatchObject({ id: 'validate', status: 'skipped' });
-      expect(out.steps[1]!.detail).toContain('gave no verdict');
-      expect(existsSync(join(lsData, 'plugins', 'hildegard', 'plugin.toml'))).toBe(true);
+      for (const [how, script] of [
+        ['GLib', 'echo "Unknown option: plugin" >&2\nexit 2'],
+        [
+          'clap',
+          'echo "error: unrecognized subcommand \'plugin\'" >&2\necho "Usage: local-studio" >&2\nexit 2',
+        ],
+        [
+          'argparse',
+          'echo "usage: local-studio" >&2\necho "local-studio: error: invalid choice: \'plugin\'" >&2\nexit 2',
+        ],
+      ] as const) {
+        const home = mkdtempSync(join(tmpdir(), 'hg-ls-noverdict-'));
+        const lsData = join(home, 'ls-data');
+        const out = await hildegardEnv(
+          home,
+          { LOCAL_STUDIO_DATA_DIR: lsData, LOCAL_STUDIO_CLI: fakeValidator(home, script) },
+          'connect',
+          'local-studio',
+        );
+        expect(out.ok, how).toBe(true);
+        expect(out.steps[1], how).toMatchObject({ id: 'validate', status: 'skipped' });
+        expect(out.steps[1]!.detail, how).toContain('gave no verdict');
+        expect(existsSync(join(lsData, 'plugins', 'hildegard', 'plugin.toml')), how).toBe(true);
+      }
     },
   );
 
@@ -427,6 +470,17 @@ describe('the Local Studio plugin', () => {
     expect(toml).toMatch(/^id = "hildegard"$/m);
     const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
     expect(toml).toMatch(new RegExp(`^version = "${version.replace(/\./g, '\\.')}"$`, 'm'));
+  });
+
+  it('carries the marker that tells connect and disconnect the folder is Hildegard’s', () => {
+    expect(existsSync(join(dir, '.hildegard-plugin'))).toBe(true);
+  });
+
+  it('hands the speech script over on stdin, never inside shell quotes', () => {
+    // In double quotes, the shell changes $20 or "go" before Hildegard sees the script.
+    const text = readFileSync(join(dir, 'skills', 'hildegard-speech', 'SKILL.md'), 'utf8');
+    expect(text).not.toMatch(/make speech "/);
+    expect(text).toContain("hildegard make speech - --voice <voice id> <<'SCRIPT'");
   });
 
   it('asks for no capabilities: its skills run the hildegard command', () => {

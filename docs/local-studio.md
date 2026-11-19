@@ -7,7 +7,7 @@ short skill that a small model can follow:
 | --- | --- | --- |
 | `/image` | `hildegard make image "<prompt>"` | `Image: <path>` and the review |
 | `/video` | `hildegard make video "<prompt>"` | `Video: <path>`, the review and a contact sheet |
-| `/speak` | `hildegard make speech "<script>" --voice <id>` | `Audio: <path>` and the review |
+| `/speak` | `hildegard make speech - --voice <id>`, the script on stdin | `Audio: <path>` and the review |
 | `/design-voice` | `hildegard make voice "<description>" --text "<line>"` | the candidates, then `make voice keep` |
 | `/clean-audio` | `hildegard make clean <file>` | `Cleaned: <path>` and the review |
 | `/hildegard` | picks one of the above | |

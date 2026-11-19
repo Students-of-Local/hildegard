@@ -10,11 +10,14 @@ The person's request is the text after `</skill>` at the end of this message.
 1. Run `hildegard make voices` with the bash tool. It lists the voices you may use. Pick the
    one the person named, or the one that fits the script.
 2. Run this command with the bash tool, in the foreground. The word after `make` is
-   `speech`; change only the words in quotes or angle brackets:
+   `speech`. Change only `<voice id>`, and put the script, exactly as written, on the lines
+   between the two `SCRIPT` lines:
 
-       hildegard make speech "<the script>" --voice <voice id>
+       hildegard make speech - --voice <voice id> <<'SCRIPT'
+       <the script>
+       SCRIPT
 
-   Separate paragraphs with a blank line. Add `--direction "warm, close to the mic"` for how
+   The script goes in as it is, quotes and dollar signs too. Separate paragraphs with a blank line. Add `--direction "warm, close to the mic"` for how
    to read it. It waits until the audio is made and checked.
 3. Read the output. `Audio: <path>` is the file. The last line starts with NEXT: do what it
    says.

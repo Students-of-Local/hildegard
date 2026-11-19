@@ -24,9 +24,15 @@ export function pluginsDir(env = process.env, home = homedir()): string {
 /** The plugin as shipped with this Hildegard. */
 export const pluginSource = () => resource(join('local-studio', PLUGIN_ID));
 
+/** Shipped inside the plugin. Any plugin in `plugins/hildegard` has the id hildegard, so the id alone can't say whose it is. */
+const MARKER = '.hildegard-plugin';
+
 const isOurs = (dir: string) => {
   try {
-    return /^id\s*=\s*"hildegard"\s*$/m.test(readFileSync(join(dir, 'plugin.toml'), 'utf8'));
+    return (
+      existsSync(join(dir, MARKER)) &&
+      /^id\s*=\s*"hildegard"\s*$/m.test(readFileSync(join(dir, 'plugin.toml'), 'utf8'))
+    );
   } catch {
     return false;
   }
@@ -55,20 +61,16 @@ function validate(dir: string): Step {
   const r = spawnSync(bin, ['plugin', 'validate', dir], { encoding: 'utf8', timeout: 20_000 });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim();
   if (r.status === 0) return { id: 'validate', title, status: 'done', detail: out };
-  // It didn't run, hung, or doesn't know the command (the app of the same name): no verdict, so not a refusal.
-  if (
-    r.error ||
-    r.signal ||
-    r.status === null ||
-    (/unknown (argument|option|command)|usage:/i.test(out) && !/error:/i.test(out))
-  )
-    return {
-      id: 'validate',
-      title: 'Not checked by Local Studio',
-      status: 'skipped',
-      detail: `${bin} gave no verdict${r.error ? ` (${r.error.message})` : r.signal ? ` (${r.signal})` : ''}: it may be an older Local Studio or its app. Local Studio checks the plugin when it lists commands.`,
-    };
-  return { id: 'validate', title: 'Local Studio refused the plugin', status: 'failed', detail: out };
+  // Local Studio refuses a plugin with exit 1 and `error:` lines on stdout. Anything else (a usage message, another
+  // program of the same name, a hang) is no verdict, so not a refusal.
+  if (r.status === 1 && /^error: /m.test(r.stdout ?? ''))
+    return { id: 'validate', title: 'Local Studio refused the plugin', status: 'failed', detail: out };
+  return {
+    id: 'validate',
+    title: 'Not checked by Local Studio',
+    status: 'skipped',
+    detail: `${bin} gave no verdict${r.error ? ` (${r.error.message})` : r.signal ? ` (${r.signal})` : ''}: it may be an older Local Studio or its app. Local Studio checks the plugin when it lists commands.`,
+  };
 }
 
 export function connectLocalStudio(_ctx: Ctx, off = false): Result {
