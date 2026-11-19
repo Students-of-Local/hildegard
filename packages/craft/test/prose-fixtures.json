@@ -590,6 +590,12 @@
       "ok": true
     },
     {
+      "name": "\"here's what\" announcing a list is a chatty opener: it warns, never fails alone",
+      "text": "Rain is due Friday. Here’s what to bring: boots, a dry bag and a thermos.",
+      "warns": ["chatty-openers"],
+      "ok": true
+    },
+    {
       "name": "\"the good news is\" still stacks with a different kind of weak tell",
       "text": "The good news is the roof is done. Experts agree the rest can wait until spring.",
       "fails": ["stacked-tells"]

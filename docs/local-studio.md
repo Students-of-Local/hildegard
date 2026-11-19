@@ -6,7 +6,7 @@ short skill that a small model can follow:
 | Command | What the agent runs | What comes back |
 | --- | --- | --- |
 | `/image` | `hildegard make image "<prompt>"` | `Image: <path>` and the review |
-| `/video` | `hildegard make video "<prompt>"` | `Video: <path>`, the review and a contact sheet |
+| `/video` | `hildegard make video "<prompt>" --move <camera move>` | `Video: <path>`, the review and a contact sheet |
 | `/speak` | `hildegard make speech - --voice <id>`, the script on stdin | `Audio: <path>` and the review |
 | `/design-voice` | `hildegard make voice "<description>" --text "<line>"` | the candidates, then `make voice keep` |
 | `/clean-audio` | `hildegard make clean <file>` | `Cleaned: <path>` and the review |

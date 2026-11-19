@@ -14,6 +14,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { loadCatalog } from '@hildegard/presets';
 import { layout } from '@hildegard/runtime';
 import { fileStore, parseArgs, startServer } from '@hildegard/server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -242,6 +243,67 @@ describe('hildegard make', { timeout: 60_000 }, () => {
         expect(asked.filter((a) => a.startsWith('POST'))).toEqual([]);
       } finally {
         bare.close();
+      }
+    });
+
+    it('sends the camera move it is given, and refuses one Hildegard lacks before anything is sent', async () => {
+      const catalog = await (await fetch(`${srv.url}/api/catalog`)).text();
+      const video = (JSON.parse(catalog) as { models: { id: string; kind: string }[] }).models.find(
+        (m) => m.kind === 'video',
+      )!.id;
+      const posted: unknown[] = [];
+      const take = {
+        id: 't1',
+        number: 1,
+        status: 'failed',
+        quality: 'draft',
+        width: 1,
+        height: 1,
+        seconds: 5,
+        seed: 1,
+      };
+      const stub = createServer((req, res) => {
+        const json = (body: unknown, code = 200) =>
+          res.writeHead(code, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+        if (req.url === '/api/catalog')
+          return res.writeHead(200, { 'content-type': 'application/json' }).end(catalog);
+        if (req.url === '/api/snapshot') return json({ models: [{ id: video, installed: true }] });
+        if (req.method === 'POST' && req.url === '/api/shots') {
+          let body = '';
+          req.on('data', (c) => (body += c));
+          req.on('end', () => {
+            posted.push(JSON.parse(body));
+            json({ project: { id: 'p1' }, shot: { id: 's1' }, takes: [take] }, 201);
+          });
+          return;
+        }
+        if (req.url === '/api/shots/s1') return json({ shot: { id: 's1' }, takes: [take] });
+        res.writeHead(500).end();
+      });
+      await new Promise<void>((r) => stub.listen(0, '127.0.0.1', r));
+      try {
+        const home = mkdtempSync(join(tmpdir(), 'hg-make-move-'));
+        const url = { HILDEGARD_URL: `http://127.0.0.1:${(stub.address() as AddressInfo).port}` };
+        const bad = await hildegardEnv(home, url, 'make', 'video', 'a red barn in snow', '--move', 'zoomies');
+        expect(bad.ok).toBe(false);
+        expect(bad.message).toMatch(/--move is one of: static, dolly-in, /);
+        expect(posted).toEqual([]);
+
+        await hildegardEnv(
+          home,
+          url,
+          'make',
+          'video',
+          'a red barn in snow, the door swings open',
+          '--move',
+          'dolly-in',
+        );
+        expect(posted).toHaveLength(1);
+        expect((posted[0] as { request: { motion: unknown } }).request.motion).toEqual([
+          { id: 'dolly-in', strength: 0.8 },
+        ]);
+      } finally {
+        stub.close();
       }
     });
 
@@ -493,15 +555,28 @@ describe('the Local Studio plugin', () => {
     }
   });
 
+  it('has /video pick a camera move from Hildegard’s own, since a shot without one holds still', () => {
+    // The live /video smoke rendered a nearly still barn: with no move, the shot asks for a steady camera.
+    const text = readFileSync(join(dir, 'skills', 'hildegard-video', 'SKILL.md'), 'utf8');
+    expect(text).toContain('hildegard make video "<your prompt>" --move <move> --quality draft');
+    const step2 = text.slice(text.indexOf('2. '), text.indexOf('3. '));
+    const named = [...step2.matchAll(/`([a-z-]+)`/g)].map((m) => m[1]!);
+    const known = new Set(loadCatalog().catalog.motions.map((m) => m.id));
+    expect(named.length).toBeGreaterThan(5);
+    for (const id of named) expect(known.has(id), id).toBe(true);
+  });
+
   it('carries the marker that tells connect and disconnect the folder is Hildegard’s', () => {
     expect(existsSync(join(dir, '.hildegard-plugin'))).toBe(true);
   });
 
   it('hands the speech script over on stdin, never inside shell quotes', () => {
     // In double quotes, the shell changes $20 or "go" before Hildegard sees the script.
-    const text = readFileSync(join(dir, 'skills', 'hildegard-speech', 'SKILL.md'), 'utf8');
-    expect(text).not.toMatch(/make speech "/);
-    expect(text).toContain("hildegard make speech - --voice <voice id> <<'SCRIPT'");
+    for (const skill of ['hildegard-speech', 'hildegard-media']) {
+      const text = readFileSync(join(dir, 'skills', skill, 'SKILL.md'), 'utf8');
+      expect(text, skill).not.toMatch(/make speech "/);
+      expect(text, skill).toContain("hildegard make speech - --voice <voice id> <<'SCRIPT'");
+    }
   });
 
   it('asks for no capabilities: its skills run the hildegard command', () => {

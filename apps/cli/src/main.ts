@@ -209,6 +209,7 @@ const valued = new Set([
   'from',
   'to',
   'aspect',
+  'move',
   'quality',
   'count',
   'seed',
