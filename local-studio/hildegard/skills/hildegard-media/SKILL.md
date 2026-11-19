@@ -15,10 +15,16 @@ NEXT line at the end of its output says.
 | They want | Run |
 | --- | --- |
 | an image | `hildegard make image "<what to draw>"` |
-| a video clip | `hildegard make video "<what happens>"` |
-| a script read aloud | `hildegard make voices`, then `hildegard make speech "<script>" --voice <id>` |
+| a video clip | `hildegard make video "<what happens>" --move dolly-in` |
+| a script read aloud | `hildegard make voices`, then the speech command below |
 | a new, invented voice | `hildegard make voice "<description>" --text "<a line>"` |
 | a recording cleaned | `hildegard make clean "<path>"` |
+
+For speech, the script goes in on standard input, as it is, quotes and dollar signs too:
+
+    hildegard make speech - --voice <voice id> <<'SCRIPT'
+    <the script>
+    SCRIPT
 
 Rules:
 

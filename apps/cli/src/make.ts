@@ -19,7 +19,8 @@ const DONE = ['done', 'failed', 'canceled'];
 const WAIT_MINUTES = 60;
 
 export const USAGE = `hildegard make image "<prompt>"     [--aspect 1:1] [--quality draft|final] [--count 1-4] [--seed N]
-hildegard make video "<prompt>"     [--seconds 5] [--aspect 16:9] [--quality draft|final] [--model <id>] [--from <image>]
+hildegard make video "<prompt>"     [--move <camera move>] [--seconds 5] [--aspect 16:9] [--quality draft|final]
+                                    [--model <id>] [--from <image>]
 hildegard make speech "<script>"    --voice <id> [--direction "<how>"] [--language en]
 hildegard make voice "<who it is>"  --text "<a line to read>" [--count 1-3]
 hildegard make voice keep <job> <n> --name "<name>"
@@ -328,6 +329,9 @@ class Maker {
     this.lint(prompt, 'video');
     const [catalog, snap] = await Promise.all([this.client.catalog(), this.client.snapshot()]);
     const installed = new Set(snap.models.filter((x) => x.installed).map((x) => x.id));
+    const move = this.ctx.opts.get('move');
+    if (move !== undefined && !catalog.motions.some((m) => m.id === move))
+      throw new Usage(`--move is one of: ${catalog.motions.map((m) => m.id).join(', ')}.`);
     const request = toRequest(
       {
         prompt,
@@ -336,6 +340,8 @@ class Maker {
         quality: this.quality(),
         model: this.ctx.opts.get('model'),
         seed: this.num('seed', 0, 4294967295),
+        // With no move the shot holds a locked-off camera, so the skill asks for one.
+        motion: move ? [move] : undefined,
       },
       catalog,
       installed,
