@@ -84,8 +84,27 @@ export async function make(ctx: Ctx, args: string[]): Promise<Result> {
         e.message,
         'tell the person to run `hildegard start`, and stop.',
       );
+    // A route this Hildegard doesn't have answers 404 with no error of its own: the server is older than this command.
+    if (e instanceof HildegardError && e.status === 404 && e.body.error === undefined)
+      return failed(
+        'server',
+        'This Hildegard is older than this command',
+        `The Hildegard at ${client.url}${await serverVersion(client.url)} can’t “make ${what}” yet. Updating it adds it.`,
+        'tell the person to run `hildegard update`, and stop.',
+      );
     if (e instanceof Error) return failed('make', 'It didn’t work', e.message);
     throw e;
+  }
+}
+
+/** The server's version, as " (0.1.17)", or nothing when it doesn't say. */
+async function serverVersion(url: string): Promise<string> {
+  try {
+    const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(3000) });
+    const v = ((await r.json()) as { version?: unknown }).version;
+    return typeof v === 'string' && /^[\w.+-]{1,40}$/.test(v) ? ` (${v})` : '';
+  } catch {
+    return '';
   }
 }
 

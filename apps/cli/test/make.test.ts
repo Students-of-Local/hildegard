@@ -14,11 +14,12 @@ const root = join(import.meta.dirname, '..', '..', '..');
 // The review runs Hildegard's Python checks (PyAV, numpy, Pillow), as CI installs them.
 const python = process.env.HILDEGARD_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 
-describe('hildegard make', () => {
+// Each test runs the CLI one or more times, as the other CLI tests do: give them the same room.
+describe('hildegard make', { timeout: 60_000 }, () => {
   it('refuses every way of asking to clone a voice, before anything reaches Hildegard', async () => {
-    let hits = 0;
-    const standIn = createServer((_req, res) => {
-      hits++;
+    const hits: string[] = [];
+    const standIn = createServer((req, res) => {
+      hits.push(`${req.method} ${req.url} ${req.headers['user-agent'] ?? ''}`);
       res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
     });
     await new Promise<void>((r) => standIn.listen(0, '127.0.0.1', r));
@@ -47,7 +48,7 @@ describe('hildegard make', () => {
         (e: { code: number }) => e.code,
       );
       expect(exit).toBe(1);
-      expect(hits).toBe(0);
+      expect(hits).toEqual([]);
     } finally {
       standIn.close();
     }
@@ -72,6 +73,30 @@ describe('hildegard make', () => {
     expect(out.ok).toBe(false);
     expect(out.steps[0]).toMatchObject({ id: 'server', status: 'failed' });
     expect(out.message).toContain('hildegard start');
+  });
+
+  it('says an older Hildegard needs updating, not a bare 404, when it lacks the route', async () => {
+    // As 0.1.17 does: health answers, POST /api/images is not a route there.
+    const old = createServer((req, res) => {
+      if (req.url === '/api/health')
+        return res
+          .writeHead(200, { 'content-type': 'application/json' })
+          .end('{"ok":true,"version":"0.1.17"}');
+      res.writeHead(404, { 'content-type': 'text/plain' }).end('404 Not Found');
+    });
+    await new Promise<void>((r) => old.listen(0, '127.0.0.1', r));
+    const url = `http://127.0.0.1:${(old.address() as AddressInfo).port}`;
+    try {
+      const home = mkdtempSync(join(tmpdir(), 'hg-make-old-'));
+      const out = await hildegardEnv(home, { HILDEGARD_URL: url }, 'make', 'image', 'a red barn');
+      expect(out.ok).toBe(false);
+      expect(out.steps[0]).toMatchObject({ id: 'server', status: 'failed' });
+      expect(out.steps[0]!.detail).toContain(`${url} (0.1.17) can’t “make image” yet`);
+      expect(out.message).toContain('NEXT: tell the person to run `hildegard update`');
+      expect(out.message).not.toContain('answered 404');
+    } finally {
+      old.close();
+    }
   });
 
   it('answers a request it doesn’t know with the forms it takes', async () => {
@@ -146,7 +171,7 @@ describe('hildegard make', () => {
   });
 });
 
-describe('hildegard connect local-studio', () => {
+describe('hildegard connect local-studio', { timeout: 60_000 }, () => {
   it('puts the plugin where Local Studio reads it, updates it in place, and takes it out', async () => {
     const home = mkdtempSync(join(tmpdir(), 'hg-ls-home-'));
     const lsData = join(home, 'ls-data');
