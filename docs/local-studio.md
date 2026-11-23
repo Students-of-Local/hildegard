@@ -1,7 +1,7 @@
 # Hildegard in Local Studio
 
-Local Studio runs coding agents on local models. Hildegard's plugin for it adds six commands to its palette, each one a
-short skill that a small model can follow:
+Local Studio runs coding agents on local models. Hildegard's plugin for it (`local-studio/hildegard`) adds fourteen
+commands to its palette and Hildegard's tools. Six make media, each one a short skill that a small model can follow:
 
 | Command | What the agent runs | What comes back |
 | --- | --- | --- |
@@ -11,6 +11,40 @@ short skill that a small model can follow:
 | `/design-voice` | `hildegard make voice "<description>" --text "<line>"` | the candidates, then `make voice keep` |
 | `/clean-audio` | `hildegard make clean <file>` | `Cleaned: <path>` and the review |
 | `/hildegard` | picks one of the above | |
+
+Eight more are Hildegard's craft skills, the same ones the Claude Code plugin carries:
+
+| Command | Skill | What it does |
+| --- | --- | --- |
+| `/film` | hildegard-film | plans a film, ad or reel shot by shot, and renders it |
+| `/art` | hildegard-art | art direction, then a series of images, each one reviewed |
+| `/sound` | hildegard-sound | cleans, mixes and masters audio with tested scripts |
+| `/photo` | hildegard-photo-edit | straightens, crops, colors and retouches a photo, measured |
+| `/edit-video` | hildegard-video-edit | cuts clips into a piece with titles, music and set loudness |
+| `/3d` | hildegard-3d | models in 3D in rounds, checked from every side |
+| `/web` | hildegard-web | builds a page in HTML and CSS, rendered and audited |
+| `/loop` | hildegard-loop | make, look, critique and refine, one change per round |
+
+The plugin also carries hildegard (the method for open-ended work), hildegard-craft and hildegard-setup, which a model
+opens by name (`/skill:hildegard`).
+
+## The craft skills come from skills/
+
+The plugin's copies are made by `node scripts/sync-local-studio-skills.mjs`, never edited by hand. It copies each skill
+from `skills/` and changes only what Local Studio needs, all listed in the script:
+
+- Each commanded skill opens with an "In Local Studio" block: the one tool or command to run first, for a small model.
+  It also says to run the skill's scripts as `python3 -B <folder>/scripts/...`, since a Python cache written into the
+  plugin's folder changes its hash, and Local Studio turns the tools off until the person allows them again.
+- Printing goes to the Gantrel plugin. Where hildegard, hildegard-3d and hildegard-loop hand a part to
+  hildegard-print, the copy says to use Gantrel's `/plan` and `/print` when Gantrel is installed, and to hand the
+  person the mesh when it isn't. hildegard-print and hildegard-openscad stay out of the plugin.
+- hildegard-cloud stays out: a rented GPU costs money, and nothing in Local Studio should start one. hildegard-setup's
+  line about it says so.
+
+`apps/cli/test/local-studio-skills.test.ts` fails when a copy differs from what the sync makes, by a byte, and when
+the plugin holds a file or a skill the sync doesn't make. After changing a skill in `skills/`, run the sync and commit
+both.
 
 ## Install
 
@@ -25,8 +59,15 @@ Both put it in `~/.local-studio/plugins/hildegard` (or `$LOCAL_STUDIO_DATA_DIR/p
 Local Studio's next command list, with no restart. `hildegard disconnect local-studio` takes them out, and neither
 command touches another plugin that happens to share the name.
 
-The plugin asks for no capabilities and adds no MCP server: its skills run the `hildegard` command with the bash tool,
-so it works with any Local Studio access mode that allows commands.
+The plugin asks for one capability, `mcp-server`: its `[mcp]` command, `bin/hildegard-mcp`, runs `hildegard mcp` from
+the Hildegard installed on this computer (`HILDEGARD_BIN`, then `PATH`, then `~/.local/bin/hildegard`), the way
+`plugin/mcp.mjs` does for Claude Code. It is plain `sh`, since Hildegard carries its own Node. Local Studio asks you
+once, on its consent sheet, before it starts it; until then the commands still work, without the tools. If Hildegard
+isn't installed, the server prints how to install it and exits; it never installs anything. No tool rents a GPU or
+spends money, so the plugin asks no questions of its own (`ask-user`).
+
+The six media skills run the `hildegard` command with the bash tool, so they work with any Local Studio access mode
+that allows commands, tools or not.
 
 ## How `hildegard make` behaves
 

@@ -18,7 +18,7 @@ or a fleet, is [docs/agents.md](docs/agents.md).)
 | `packages/agents` | Runs Claude Code, Codex, OMP and Pi only in the ways each provider's terms allow (`policy.ts`), and installs `skills/` for them |
 | `packages/cloud` | Rented GPUs: the Runpod REST client and pod spec; `deploy/runpod/boot.sh` is what the pod runs |
 | `skills/` | Agent skills for creative work (hildegard), film, video and photo editing, art, sound, 3D, the loop, setup and cloud, with Hildegard's quality gates. Packed for uploads by `scripts/pack-skills.mjs` |
-| `local-studio/hildegard` | The Local Studio plugin: a manifest and six skills that run `hildegard make` (`apps/cli/src/make.ts`), which waits, saves, reviews and never clones. See [docs/local-studio.md](docs/local-studio.md) |
+| `local-studio/hildegard` | The Local Studio plugin: six media skills that run `hildegard make` (`apps/cli/src/make.ts`), which waits, saves, reviews and never clones; the craft skills, made from `skills/` by `scripts/sync-local-studio-skills.mjs` (never edit the copies); and `bin/hildegard-mcp`, its MCP server. See [docs/local-studio.md](docs/local-studio.md) |
 | `.claude-plugin/`, `plugin/` | The repository as a Claude Code plugin and marketplace; `plugin/mcp.mjs` starts the installed Hildegard's MCP server. See [docs/chatbots.md](docs/chatbots.md) |
 | `packages/runtime` | Installs and supervises ComfyUI (uv, pinned ComfyUI, PyTorch per GPU), detects the GPU, links AI apps |
 | `voice-engine/` | The voice engine (Python, Apache-2.0): speech, voice design, consented cloning, speech to speech and transcription, one worker per environment. See [docs/voice.md](docs/voice.md) |

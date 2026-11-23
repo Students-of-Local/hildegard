@@ -200,8 +200,9 @@ Hildegard is how your AI apps reach your own computers. In Claude Code, it's a p
 ```
 
 ChatGPT, claude.ai, the Claude app, Grok and Grok Bot each have their steps in [docs/chatbots.md](docs/chatbots.md).
-In Local Studio, `hildegard connect local-studio` adds `/image`, `/video`, `/speak`, `/design-voice` and
-`/clean-audio`: each waits for the file and its review ([docs/local-studio.md](docs/local-studio.md)).
+In Local Studio, `hildegard connect local-studio` adds Hildegard's tools and fourteen commands: `/image`, `/video`,
+`/speak`, `/design-voice` and `/clean-audio`, which wait for the file and its review, and the craft skills `/film`,
+`/art`, `/sound`, `/photo`, `/edit-video`, `/3d`, `/web` and `/loop` ([docs/local-studio.md](docs/local-studio.md)).
 Every linked app gets the tools, the craft skills (`list_skills`, `read_skill`) and the loop.
 
 Hildegard is an MCP server. Linked apps (Claude Code, Claude Desktop, Codex, OMP, Pi, Gemini CLI, OpenCode, Cursor, VS Code, Windsurf, LM

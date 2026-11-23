@@ -13,6 +13,7 @@ critique, refine, until the piece passes. This page is every app's steps, fewest
 | Grok (grok.com) | Custom connector (public link) | Over MCP | A link, a sign-in |
 | Grok Bot | Custom MCP server (public link) | Over MCP, or a private skill | One message, a sign-in |
 | Codex, OMP, Pi, Gemini CLI, OpenCode, Cursor, VS Code, Windsurf, LM Studio | `hildegard connect --all` | The same command | One command |
+| Local Studio | Plugin | Plugin | One command, one Allow |
 | Zed, Goose and any other MCP app | `hildegard connect --print`, pasted into its config | Over MCP | One paste |
 
 **Skills over MCP.** Every app that links Hildegard can read its skills with the `list_skills` and `read_skill` tools,
@@ -66,6 +67,21 @@ hildegard skills remove --agent codex
 This removes only the folders Hildegard put there, so skills of your own stay. Gemini CLI and OpenCode read the same
 folder, so they lose those copies too; linked with `hildegard connect`, they still reach the skills through
 Hildegard's tools (`list_skills` and `read_skill`).
+
+## Local Studio
+
+```sh
+hildegard connect local-studio
+```
+
+Or install it from Local Studio's catalog (Settings › Plugins), or with `local-studio plugin install
+<hildegard>/local-studio/hildegard`. The plugin (`local-studio/hildegard`) brings fourteen commands: `/image`,
+`/video`, `/speak`, `/design-voice`, `/clean-audio` and `/hildegard`, short skills a small local model follows to the
+file; and `/film`, `/art`, `/sound`, `/photo`, `/edit-video`, `/3d`, `/web` and `/loop`, the craft skills. Its MCP
+server (`bin/hildegard-mcp`) starts the Hildegard installed on this computer, once you allow it on Local Studio's
+consent sheet. If Hildegard isn't installed, the server says how to install it and stops. Printing belongs to the
+Gantrel plugin there: the 3D skills hand a part to Gantrel's commands when it's installed, and the mesh to you when
+it isn't. Rented GPUs stay out of Local Studio. The details: [local-studio.md](local-studio.md).
 
 ## Claude Desktop
 
