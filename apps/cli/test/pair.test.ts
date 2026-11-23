@@ -23,6 +23,25 @@ const CODE = /hgc1_[A-Za-z0-9_-]{10,}/;
 /** A real code: the prefix and base64 of {"n":… (others’ command lines may mention “hgc1_” in prose, e.g. this file). */
 const REAL_CODE = /hgc1_eyJ[A-Za-z0-9_-]{20,}/;
 
+/**
+ * The command lines holding a code that joins one of `servers`. The watcher sees every process on the machine, and
+ * other test files run beside this one: cli.test.ts passes its own server's long code to `choir join` as an argument
+ * on purpose. A code names the server it joins (`u`), so one that decodes to a port none of `servers` listens on is
+ * theirs; a code that doesn't decode counts as ours, so a code in a new form is never let through.
+ */
+function withOurCode(lines: string[], servers: Running[]) {
+  const ports = new Set(servers.map((s) => new URL(s.url).port));
+  const theirs = (code: string) => {
+    try {
+      const { u } = JSON.parse(Buffer.from(code.slice('hgc1_'.length), 'base64url').toString('utf8'));
+      return typeof u === 'string' && !ports.has(new URL(u).port);
+    } catch {
+      return false;
+    }
+  };
+  return lines.filter((l) => [...l.matchAll(new RegExp(REAL_CODE.source, 'g'))].some((m) => !theirs(m[0])));
+}
+
 /** Every command line that exists while it runs, so a code in anyone's arguments can't go unseen. */
 function watchCommandLines() {
   const seen = new Set<string>();
@@ -274,9 +293,24 @@ describe('pairing without anyone seeing the join code', () => {
       const seen = [...watch.seen];
       expect(seen.some((l) => REAL_CODE.test(l) && l.includes('control_visible_arg'))).toBe(true);
       expect(seen.some((l) => l.includes('choir join --code-stdin') || l.includes('code-stdin'))).toBe(true);
+      // The filter that sets other test files' codes aside still holds any code for these servers, and any it can't read.
+      const codeFor = (u: string) =>
+        `hgc1_${Buffer.from(JSON.stringify({ n: 'x', u, t: 'y'.repeat(32) })).toString('base64url')}`;
+      const elsewhere = `http://127.0.0.1:${Number(new URL(r.gpu.url).port) === 1 ? 2 : 1}`;
       expect(
-        seen.filter((l) => (REAL_CODE.test(l) && !l.includes('control_visible_arg')) || l.includes(token)),
+        withOurCode(
+          [r.gpu.url, r.plain.url, elsewhere].map((u) => `node hildegard.mjs choir join ${codeFor(u)}`),
+          [r.gpu, r.plain],
+        ),
+      ).toHaveLength(2);
+      expect(withOurCode([`x ${'hgc1_eyJ'.padEnd(40, 'A')}`], [r.gpu, r.plain])).toHaveLength(1);
+      expect(
+        withOurCode(
+          seen.filter((l) => !l.includes('control_visible_arg')),
+          [r.gpu, r.plain],
+        ),
       ).toEqual([]);
+      expect(seen.filter((l) => l.includes(token))).toEqual([]);
       for (const secret of ['hgc1_', token]) {
         expect(log).not.toContain(secret);
         expect(stdout + stderr).not.toContain(secret);
@@ -308,7 +342,7 @@ describe('pairing without anyone seeing the join code', () => {
       expect(r.plain.choir.state().devices).toMatchObject([{ name: 'gpu-here', online: true }]);
       expect(readFileSync(r.log, 'utf8')).toContain('--code-stdin');
       expect(stdout + stderr + readFileSync(r.log, 'utf8')).not.toMatch(CODE);
-      expect([...watch.seen].filter((l) => REAL_CODE.test(l))).toEqual([]);
+      expect(withOurCode([...watch.seen], [r.gpu, r.plain])).toEqual([]);
     },
     120_000,
   );
