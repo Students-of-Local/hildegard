@@ -69,8 +69,11 @@ command touches another plugin that happens to share the name.
 The plugin asks for one capability, `mcp-server`: its `[mcp]` command, `bin/hildegard-mcp`, runs `hildegard mcp` from
 the Hildegard installed on this computer (`HILDEGARD_BIN`, then `PATH`, then `~/.local/bin/hildegard`), the way
 `plugin/mcp.mjs` does for Claude Code. It is plain `sh`, since Hildegard carries its own Node. Local Studio asks you
-once, on its consent sheet, before it starts it; until then the commands still work, without the tools. If Hildegard
-isn't installed, the server prints how to install it and exits; it never installs anything. No tool rents a GPU or
+once, on its consent sheet, before it starts it; until then the commands still work, without the tools. It runs
+`hildegard mcp --skills <plugin>/skills`, so `list_skills` and `read_skill` serve the plugin's craft set, never the
+installed Hildegard's full set with the skills the plugin leaves out (cloud GPUs, printing). A Hildegard too old to take
+`--skills` is refused with how to update it. If Hildegard isn't installed, the server prints how to install it and
+exits; it never installs anything. No tool rents a GPU or
 spends money, so the plugin asks no questions of its own (`ask-user`).
 
 The six media skills run the `hildegard` command with the bash tool, so they work with any Local Studio access mode

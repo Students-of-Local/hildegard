@@ -1,12 +1,39 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-only
-# Hildegard's MCP server for Local Studio, the [mcp] command in plugin.toml. It runs `hildegard mcp` from the
+# Hildegard's MCP server for Local Studio, the [mcp] command in plugin.toml. It runs `hildegard mcp --skills` from the
 # Hildegard installed on this computer, found the way plugin/mcp.mjs finds it for Claude Code: HILDEGARD_BIN, then
 # PATH, then where the installer puts it (${XDG_BIN_HOME:-~/.local/bin}/hildegard). When Hildegard isn't there, it
 # says how to install it on stderr and exits 1. It never installs anything.
 #
 # POSIX sh and nothing else: Hildegard carries its own Node, so there may be none on PATH. ASCII only, since macOS's
 # /bin/sh misreads UTF-8 after a $VARIABLE.
+
+# The plugin's own skills: the craft set adapted for Local Studio, with the skills it leaves out (cloud, print) gone.
+# read_skill must serve these, never the installed Hildegard's full set.
+case "$0" in
+  */*) here=${0%/*} ;;
+  *) here=. ;;
+esac
+skills=$(cd "$here/.." 2>/dev/null && pwd -P)/skills
+
+# Starts `hildegard mcp --skills <the plugin's skills>`, but only when that Hildegard says (in its help) that it takes
+# --skills. An older one ignores the flag and would serve its full set, so it is refused with how to update instead.
+start() {
+  help=$("$1" --help 2>/dev/null)
+  case "$help" in
+    *"mcp --skills"*) exec "$1" mcp --skills "$skills" ;;
+  esac
+  printf '%s\n' \
+    "The Hildegard installed at $1 is too old for Local Studio: its tools would read" \
+    "skills this plugin leaves out. The craft skills still work without it." \
+    "" \
+    "To update Hildegard, run this in a terminal yourself:" \
+    "" \
+    "  curl -fsSL https://dbaney.com/hildegard/install.sh | sh" \
+    "" \
+    "Then start a new thread in Local Studio." >&2
+  exit 1
+}
 
 runnable() {
   case "$1" in
@@ -16,15 +43,15 @@ runnable() {
 }
 
 if [ -n "${HILDEGARD_BIN:-}" ] && runnable "$HILDEGARD_BIN"; then
-  exec "$HILDEGARD_BIN" mcp
+  start "$HILDEGARD_BIN"
 fi
 found=$(command -v hildegard 2>/dev/null || true)
 if runnable "$found"; then
-  exec "$found" mcp
+  start "$found"
 fi
 installed="${XDG_BIN_HOME:-${HOME:-}/.local/bin}/hildegard"
 if runnable "$installed"; then
-  exec "$installed" mcp
+  start "$installed"
 fi
 
 # printf is built in, so the message shows even with no PATH at all.

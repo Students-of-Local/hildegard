@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -19,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { scanSkillText } from '../../../mcp/src/skill-scan.ts';
+import { readSkills } from '../../../mcp/src/skill-tools.ts';
 import {
   CRAFT,
   drift,
@@ -370,11 +372,26 @@ describe('the Local Studio plugin’s MCP command', () => {
   const run = (env: Record<string, string>) =>
     spawnSync('/bin/sh', [launcher], { env, encoding: 'utf8', input: '', timeout: 10_000 });
 
-  /** A stand-in `hildegard` that says which one ran and with what. */
-  function fake(dir: string, label: string) {
+  /** The plugin's skills folder as the launcher names it (physical path). */
+  const served = () => `${realpathSync(plugin)}/skills`;
+
+  /**
+   * A stand-in `hildegard` that says which one ran and with what. Its help lists `mcp --skills` like a current
+   * Hildegard's, unless `old`.
+   */
+  function fake(dir: string, label: string, old = false) {
     mkdirSync(dir, { recursive: true });
     const p = join(dir, 'hildegard');
-    writeFileSync(p, `#!/bin/sh\necho "${label} $*"\n`, { mode: 0o755 });
+    const help = old
+      ? 'hildegard mcp   The MCP server'
+      : 'hildegard mcp --skills DIR   The same, serving DIR';
+    writeFileSync(
+      p,
+      `#!/bin/sh\nif [ "$1" = --help ]; then echo "${help}"; exit 0; fi\necho "${label} $*"\n`,
+      {
+        mode: 0o755,
+      },
+    );
     return p;
   }
 
@@ -398,7 +415,7 @@ describe('the Local Studio plugin’s MCP command', () => {
     fake(join(h, 'bin'), 'path');
     const r = run({ PATH: `${join(h, 'bin')}:/usr/bin:/bin`, HOME: h });
     expect(r.status).toBe(0);
-    expect(r.stdout).toBe('path mcp\n');
+    expect(r.stdout).toBe(`path mcp --skills ${served()}\n`);
   });
 
   it.skipIf(!unix)('prefers HILDEGARD_BIN, and passes over one that can’t run', () => {
@@ -406,20 +423,41 @@ describe('the Local Studio plugin’s MCP command', () => {
     fake(join(h, 'bin'), 'path');
     const chosen = fake(join(h, 'chosen'), 'chosen');
     expect(run({ PATH: `${join(h, 'bin')}:/usr/bin:/bin`, HOME: h, HILDEGARD_BIN: chosen }).stdout).toBe(
-      'chosen mcp\n',
+      `chosen mcp --skills ${served()}\n`,
     );
     writeFileSync(join(h, 'plain'), '#!/bin/sh\necho plain\n', { mode: 0o644 });
     expect(
       run({ PATH: `${join(h, 'bin')}:/usr/bin:/bin`, HOME: h, HILDEGARD_BIN: join(h, 'plain') }).stdout,
-    ).toBe('path mcp\n');
+    ).toBe(`path mcp --skills ${served()}\n`);
   });
 
   it.skipIf(!unix)('finds the installer’s copy when PATH lacks it', () => {
     const h = home();
     fake(join(h, '.local', 'bin'), 'installed');
-    expect(run({ PATH: '/usr/bin:/bin', HOME: h }).stdout).toBe('installed mcp\n');
+    expect(run({ PATH: '/usr/bin:/bin', HOME: h }).stdout).toBe(`installed mcp --skills ${served()}\n`);
     fake(join(h, 'xdg'), 'xdg');
-    expect(run({ PATH: '/usr/bin:/bin', HOME: h, XDG_BIN_HOME: join(h, 'xdg') }).stdout).toBe('xdg mcp\n');
+    expect(run({ PATH: '/usr/bin:/bin', HOME: h, XDG_BIN_HOME: join(h, 'xdg') }).stdout).toBe(
+      `xdg mcp --skills ${served()}\n`,
+    );
+  });
+
+  it.skipIf(!unix)(
+    'refuses a Hildegard too old to take --skills, so read_skill never serves the left-out skills',
+    () => {
+      const h = home();
+      fake(join(h, 'bin'), 'old', true);
+      const r = run({ PATH: `${join(h, 'bin')}:/usr/bin:/bin`, HOME: h });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toBe('');
+      expect(r.stderr).toContain('too old for Local Studio');
+      expect(r.stderr).toContain('curl -fsSL https://dbaney.com/hildegard/install.sh | sh');
+    },
+  );
+
+  it('serves only the plugin’s skills: the server pointed at them lists none it leaves out', () => {
+    const names = readSkills(join(plugin, 'skills')).map((s) => s.name);
+    expect(names).toContain('hildegard');
+    for (const out of Object.keys(LEFT_OUT)) expect(names, out).not.toContain(out);
   });
 
   it.skipIf(!unix)('without Hildegard, says how to install it and exits, installing nothing', () => {
