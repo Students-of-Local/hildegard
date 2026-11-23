@@ -11,6 +11,8 @@ The person's request is at the top of this message and after `</skill>`.
 
 First call the `hildegard_status` tool to see which video models are installed. If you have no Hildegard tools, render each shot with bash, one at a time: `hildegard make video "<the shot's prompt>" --move <camera move> --quality draft` (moves such as `dolly-in`, `pull-back-reveal`, `follow`). It waits, saves the clip and reviews it. If the person asked only for a plan, do the Fast path below and render nothing.
 
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+
 Hildegard's tools (`hildegard_status`, `loop_start` and the rest) are here once the person allows the Hildegard plugin in Local Studio's Settings, Plugins. If you don't have them, use this skill's way without Hildegard.
 
 ## Fast path: a production plan someone can shoot
@@ -123,16 +125,16 @@ Common fixes:
    rendered is used unless an older take is kept.
 3. `export_film` with the film id. It joins each shot's kept (or newest finished) take into one MP4.
 4. Check the exported file (or any clip your user brings). With Hildegard installed on this computer:
-   `hildegard review <file> --film --final --sheet sheet.jpg`. Without Hildegard, from this skill's folder
-   (install the packages once with `python3 -m pip install pillow numpy av`; without them FFmpeg still gives length, size, loudness and black frames, and you look at the sheet yourself):
+   `hildegard review <file> --film --final --sheet sheet.jpg`. Without Hildegard, from your working folder,
+   where spec.json and the sheet go, never `<folder>` (install the packages once with `python3 -m pip install pillow numpy av`; without them FFmpeg still gives length, size, loudness and black frames, and you look at the sheet yourself):
 
    ```sh
    echo '{"path": "film.mp4", "sheet": "sheet.jpg", "final": true, "film": true, "audio": true}' > spec.json
-   python3 scripts/review_media.py spec.json
+   python3 -B <folder>/scripts/review_media.py spec.json
    ```
 
    It prints each check (exposure, frozen frames, flicker, colour, black frames, sound) as pass, warn or fail, and
-   writes a sheet of nine frames. `python3 scripts/contact_sheet.py sheet.png --video film.mp4 --every 2` makes a
+   writes a sheet of nine frames. `python3 -B <folder>/scripts/contact_sheet.py sheet.png --video film.mp4 --every 2` makes a
    denser, time-labelled sheet. Look at the sheet.
 5. Tell your user: the film's path, its length, what each shot is, and anything still imperfect.
 

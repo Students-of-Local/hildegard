@@ -64,14 +64,14 @@ quality words, one action, literal sentences, one detail nobody would guess, con
 
 Media from outside Hildegard (your user's own footage or photos, an exported film): `hildegard review <file>` gives the
 same checks, with `--sheet sheet.jpg` for a contact sheet, `--final` for the delivery bar and `--film` for cuts.
-Without Hildegard, write a spec and run the bundled checker. It needs Python packages; install them once with
+Without Hildegard, write the spec in your working folder and run the bundled checker from there. `<folder>` is the folder on the "References are relative to" line above: run its scripts as `python3 -B <folder>/scripts/<name>.py` and never write into it, since a changed plugin has its tools turned off. It needs Python packages; install them once with
 `python3 -m pip install pillow numpy av` (a still image needs only Pillow and numpy, `contact_sheet.py` only Pillow). With none of them,
 FFmpeg still gives length, size, loudness (`ebur128`) and black frames (`blackdetect`), and you look at the picture:
 
 ```sh
 echo '{"path": "take.mp4", "sheet": "sheet.jpg", "final": false, "film": false, "audio": true}' > spec.json
-python3 scripts/review_media.py spec.json
-python3 scripts/contact_sheet.py drafts.png draft-*.png --title "Drafts"    # or: --video film.mp4 --every 2
+python3 -B <folder>/scripts/review_media.py spec.json
+python3 -B <folder>/scripts/contact_sheet.py drafts.png draft-*.png --title "Drafts"    # or: --video film.mp4 --every 2
 ```
 
 The checker prints each check as `pass`, `warn` or `fail` with the number behind it (exposure, frozen and flickering

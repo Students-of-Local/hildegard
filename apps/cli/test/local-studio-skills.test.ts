@@ -198,10 +198,59 @@ describe('the Local Studio plugin’s craft skills', () => {
       expect(shipped.has(s), s).toBe(true);
   });
 
-  it('keep the blog lint from writing a draft into the plugin', () => {
-    const text = readFileSync(join(plugin, 'skills', 'hildegard-blog', 'SKILL.md'), 'utf8');
-    expect(text).not.toMatch(/from this\s+skill's folder/);
-    expect(text).toContain('`python3 <folder>/scripts/prose_lint.py draft.md`');
+  // Local Studio binds the person's consent to the plugin folder's hash and turns a changed plugin's tools off, so no
+  // shipped text may send a model to work, write or run a script from inside it.
+  const shippedText = () =>
+    files(join(plugin, 'skills'))
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => ({ f, text: readFileSync(join(plugin, 'skills', f), 'utf8') }));
+
+  it('never send a model to work from inside the plugin', () => {
+    const texts = shippedText();
+    expect(texts.length).toBeGreaterThan(40);
+    for (const { f, text } of texts) {
+      expect(text, f).not.toMatch(/from (this|the)\s+skill's\s+(`[^`]*`\s+)?folder/i);
+      // A script run by a path relative to the skill folder works only from inside it.
+      expect(text, f).not.toMatch(/\bpython3?(\s+-[A-Za-z]+)*\s+\.?\/?scripts\//);
+      expect(text, f).not.toMatch(/\bcd\s+[^\s`]*(<folder>|<skill>|scripts)/);
+    }
+    // The four the review found, by name.
+    const film = readFileSync(join(plugin, 'skills', 'hildegard-film', 'SKILL.md'), 'utf8');
+    expect(film).toContain('python3 -B <folder>/scripts/review_media.py spec.json');
+    expect(film).toMatch(/from your working folder,\s+where spec\.json and the sheet go/);
+    for (const s of ['hildegard-art', 'hildegard-craft', 'hildegard-loop'])
+      expect(readFileSync(join(plugin, 'skills', s, 'SKILL.md'), 'utf8'), s).toContain(
+        'python3 -B <folder>/scripts/review_media.py spec.json',
+      );
+    expect(readFileSync(join(plugin, 'skills', 'hildegard-blog', 'SKILL.md'), 'utf8')).toContain(
+      '`python3 -B <folder>/scripts/prose_lint.py draft.md`',
+    );
+  });
+
+  it('run every script in the plugin with -B, so Python writes no cache into it', () => {
+    let runs = 0;
+    for (const { f, text } of shippedText())
+      for (const m of text.matchAll(/\bpython3?((?:\s+-[A-Za-z]+)*)\s+(\S*scripts\/\S*)/g)) {
+        runs++;
+        expect(m[1]!.split(/\s+/), `${f}: ${m[0]}`).toContain('-B');
+      }
+    expect(runs).toBeGreaterThan(50);
+  });
+
+  it('define <folder> wherever a skill names it', () => {
+    const skills = new Map<string, string>();
+    for (const { f, text } of shippedText()) {
+      const skill = f.split(/[\\/]/)[0]!;
+      skills.set(skill, (skills.get(skill) ?? '') + text);
+    }
+    for (const [skill, all] of skills) {
+      if (!all.includes('<folder>')) continue;
+      expect(readFileSync(join(plugin, 'skills', skill, 'SKILL.md'), 'utf8'), skill).toContain(
+        '`<folder>` is the folder on the "References are relative to" line',
+      );
+    }
+    for (const s of ['hildegard-art', 'hildegard-film'])
+      expect(FIRST[s].join('\n'), s).toContain('python3 -B <folder>/scripts/<name>.py');
   });
 
   it('hand printing to Gantrel, else the mesh', () => {

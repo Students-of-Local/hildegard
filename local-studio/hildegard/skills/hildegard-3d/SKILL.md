@@ -72,7 +72,7 @@ parameters** (`build.py`, `model.scad`), seeded, so each round is a small edit y
 | Reliefs, coins, lithophanes | A heightmap image turned into a mesh | lithophanes 0.6 mm (light) to 3 mm (dark) thick |
 | No code here (a chatbot) | Write a blockout as OBJ text and send it as `text`; or run Python in the app's code tool and send the file as base64 `data` | keep text models to a few thousand faces |
 
-`scripts/mesh_kit.py` (read it from this skill's folder; with Hildegard linked and no files, `read_skill hildegard-3d
+`<folder>/scripts/mesh_kit.py` (read it there; with Hildegard linked and no files, `read_skill hildegard-3d
 scripts/mesh_kit.py`) is plain numpy: watertight
 primitives (box, sphere, cylinder), transforms, signed-distance modeling, and writers for OBJ, STL and GLB, so a
 model can be made and sent from any Python, including a chatbot's.
@@ -82,11 +82,11 @@ model can be made and sent from any Python, including a chatbot's.
 1. **Blockout.** Primary masses only (spheres, capsules, boxes), at low resolution. Get proportion, gesture and the
    silhouette right from all eight views. With Hildegard linked, send it: `loop_submit` with `file_path` (a coding
    agent) or `text`/`data` (a chatbot), and a `note` on how you built it; OpenSCAD source goes in as it is and
-   Hildegard renders it. Without Hildegard, write a spec and run the checker:
+   Hildegard renders it. Without Hildegard, write a spec in your working folder and run the checker from there:
 
    ```sh
    echo '{"path": "heron.stl", "sheet": "round-1.png", "print": true, "size_mm": [40, 40, 120]}' > spec.json
-   python3 scripts/review_mesh.py spec.json
+   python3 -B <folder>/scripts/review_mesh.py spec.json
    ```
 
    (`print` and `size_mm` only for a print; `"up": "y"` for a GLB; `bed_mm` and `max_triangles` are optional.) It

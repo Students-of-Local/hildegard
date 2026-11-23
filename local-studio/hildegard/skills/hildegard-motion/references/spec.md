@@ -5,14 +5,14 @@ it and then runs the checks that need measuring. This page says what each field 
 working examples of all of it.
 
 ```sh
-python3 scripts/motion.py spec.json --check                    # problems in plain words, nothing rendered
-python3 scripts/motion.py spec.json out.mp4                    # check, then render (refuses if it fails)
-python3 scripts/motion.py spec.json out.mp4 --preview sheet.jpg   # also a contact sheet of 8 frames
-python3 scripts/motion.py spec.json --preview sheet.jpg        # the sheet only, no video
-python3 scripts/motion.py spec.json out.mp4 --scale 0.5 --fps 15  # a fast half-size draft
-python3 scripts/motion.py spec.json out.mp4 --hashes h.txt     # SHA-256 of every frame: same spec, same hashes
-python3 scripts/motion.py spec.json --check --json             # the report as JSON
-python3 scripts/motion.py --fonts [fetch|json]                 # the pinned fonts, cached or not
+python3 -B <folder>/scripts/motion.py spec.json --check                    # problems in plain words, nothing rendered
+python3 -B <folder>/scripts/motion.py spec.json out.mp4                    # check, then render (refuses if it fails)
+python3 -B <folder>/scripts/motion.py spec.json out.mp4 --preview sheet.jpg   # also a contact sheet of 8 frames
+python3 -B <folder>/scripts/motion.py spec.json --preview sheet.jpg        # the sheet only, no video
+python3 -B <folder>/scripts/motion.py spec.json out.mp4 --scale 0.5 --fps 15  # a fast half-size draft
+python3 -B <folder>/scripts/motion.py spec.json out.mp4 --hashes h.txt     # SHA-256 of every frame: same spec, same hashes
+python3 -B <folder>/scripts/motion.py spec.json --check --json             # the report as JSON
+python3 -B <folder>/scripts/motion.py --fonts [fetch|json]                 # the pinned fonts, cached or not
 ```
 
 `--force` renders even if `--check` finds problems. Use it only to look at a draft; never to deliver.

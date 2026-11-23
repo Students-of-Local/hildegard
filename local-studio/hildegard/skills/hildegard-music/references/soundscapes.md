@@ -1,12 +1,12 @@
 # Soundscape format for `soundscape.py`
 
 Long, seamless, non-repeating audio: binaural beats, isochronic tones, noise colors and nature beds, mixed. Copy a file
-from `soundscapes/` and edit it. Run `python3 scripts/soundscape.py recipe.json --check` after each change.
+from `soundscapes/` and edit it. Run `python3 -B <folder>/scripts/soundscape.py recipe.json --check` after each change.
 
 ```
-python3 scripts/soundscape.py recipe.json out.wav             render
-python3 scripts/soundscape.py recipe.json --check             validate, and render three sample windows to estimate the level
-python3 scripts/soundscape.py --preset ocean_beach out.wav --minutes 60
+python3 -B <folder>/scripts/soundscape.py recipe.json out.wav             render
+python3 -B <folder>/scripts/soundscape.py recipe.json --check             validate, and render three sample windows to estimate the level
+python3 -B <folder>/scripts/soundscape.py --preset ocean_beach out.wav --minutes 60
 options: --minutes M | --seconds S   a new length (the timelines in the recipe stretch with it)
          --seed N   --chunk S   --bits 16|24   --json   --sheet out.png   .mp3 and .ogg outputs need ffmpeg
 ```

@@ -17,13 +17,13 @@ First run `python3 -B <folder>/scripts/cut_reel.py` as in the Fast path's step 4
 
 This skill is all you need to cut clips into a finished piece with titles, a closing card and a music bed, and to check it. Don't write the filter graph by hand. Run `scripts/cut_reel.py` (Python 3, FFmpeg only), or, if you can deliver only one script, paste **Recipe D** and edit its first lines.
 
-1. **Clean a voice recording:** `python3 scripts/clean_voice.py in.wav out.wav --lufs -16` (the same script as in the **hildegard-sound** skill, whose SKILL.md also has it as a paste-in Recipe A).
-2. **Music under speech:** `python3 scripts/duck_mix.py voice.wav music.wav out.wav` (hildegard-sound's Recipe B is the paste-in version). With `--total` shorter than the voice it stops and says how many seconds over; it never cuts the voice. Raise `--total`, or add `--allow-overrun`.
-3. **A radio spot:** `python3 scripts/spot.py out.wav --music music.wav --sting sting.wav --lines a.wav b.wav c.wav --total 15` (hildegard-sound's Recipe C is the paste-in version). If the lines cannot fit `--total` it stops and says how many seconds over; it never cuts a line. Shorten the lines, raise `--total`, or add `--allow-overrun`.
+1. **Clean a voice recording:** `python3 -B <folder>/scripts/clean_voice.py in.wav out.wav --lufs -16` (the same script as in the **hildegard-sound** skill, whose SKILL.md also has it as a paste-in Recipe A).
+2. **Music under speech:** `python3 -B <folder>/scripts/duck_mix.py voice.wav music.wav out.wav` (hildegard-sound's Recipe B is the paste-in version). With `--total` shorter than the voice it stops and says how many seconds over; it never cuts the voice. Raise `--total`, or add `--allow-overrun`.
+3. **A radio spot:** `python3 -B <folder>/scripts/spot.py out.wav --music music.wav --sting sting.wav --lines a.wav b.wav c.wav --total 15` (hildegard-sound's Recipe C is the paste-in version). If the lines cannot fit `--total` it stops and says how many seconds over; it never cuts a line. Shorten the lines, raise `--total`, or add `--allow-overrun`.
 4. **Cut clips into a reel with titles and music:**
 
 ```sh
-python3 scripts/cut_reel.py out.mp4 --size 1280x720 --fps 30 --fade 0.4 --total 25 \
+python3 -B <folder>/scripts/cut_reel.py out.mp4 --size 1280x720 --fps 30 --fade 0.4 --total 25 \
   --clip clip_a.mp4@0.5-3.9 --clip clip_b.mp4@0.5-3.9 --clip clip_c.mp4@0.5-3.9 --clip clip_d.mp4@0.5-3.9 \
   --clip clip_a.mp4@6-9.4 --clip clip_b.mp4@5-8.4 --clip clip_c.mp4@3.5-6.9 --clip clip_d.mp4@4-7.4 \
   --music music.wav --lufs -16 --title "Hollis Creek Canoe Rental" --card "Open May to October - Rt 122, Hollis NH"
@@ -34,10 +34,10 @@ python3 scripts/cut_reel.py out.mp4 --size 1280x720 --fps 30 --fade 0.4 --total 
 ### Check before you deliver
 
 ```sh
-python3 scripts/check_video.py out.mp4 --min 22 --max 28 --size 1280x720 --fps 30 --lufs -16 --cuts 5
+python3 -B <folder>/scripts/check_video.py out.mp4 --min 22 --max 28 --size 1280x720 --fps 30 --lufs -16 --cuts 5
 ```
 
-Use the numbers from the brief. Every line must say `OK`: length in range, size and frame rate, H.264 and AAC, loudness within 1 LU of the target, true peak under -1 dBTP (`--peak` changes it), no black stretch over half a second, enough cuts (counted from the picture: crossfades count, motion inside one shot does not). Any `FIX` line says what to change; change it and run again. Then look at the picture: `python3 scripts/contact_sheet.py sheet.png --video out.mp4 --every 2` (or, with Hildegard installed, `hildegard review out.mp4 --sheet sheet.jpg`), and read the titles on the sheet. With no Python, Recipe D prints the same checks at its end.
+Use the numbers from the brief. Every line must say `OK`: length in range, size and frame rate, H.264 and AAC, loudness within 1 LU of the target, true peak under -1 dBTP (`--peak` changes it), no black stretch over half a second, enough cuts (counted from the picture: crossfades count, motion inside one shot does not). Any `FIX` line says what to change; change it and run again. Then look at the picture: `python3 -B <folder>/scripts/contact_sheet.py sheet.png --video out.mp4 --every 2` (or, with Hildegard installed, `hildegard review out.mp4 --sheet sheet.jpg`), and read the titles on the sheet. With no Python, Recipe D prints the same checks at its end.
 
 ## Recipe D: cut clips into one piece (paste and edit)
 
@@ -93,16 +93,16 @@ cleaner.
 Work on copies. Never overwrite your user's originals; write to a new folder such as `edit/`. Every command below is
 plain FFmpeg (any build from 5.0 up). Check a recipe's output and look at the sheet before moving on. With Hildegard
 installed, that is `hildegard review <file> --sheet sheet.jpg`. Without Hildegard, it is
-`python3 scripts/contact_sheet.py sheet.png --video <file> --every 2` for the sheet, and for the technical checks
+`python3 -B <folder>/scripts/contact_sheet.py sheet.png --video <file> --every 2` for the sheet, and for the technical checks
 (exposure, frozen frames, flicker, colour, black frames, sound clipping; install the packages once with `python3 -m pip install pillow numpy av`; `check_video.py` and the sound scripts need none)
 `echo '{"path": "<file>", "sheet": "sheet.jpg", "final": false, "film": true, "audio": true}' > spec.json` then
-`python3 scripts/review_media.py spec.json`.
+`python3 -B <folder>/scripts/review_media.py spec.json`.
 
 ## 0. Look first
 
 ```sh
 ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate,duration -of compact input.mp4
-hildegard review input.mp4 --sheet input-sheet.jpg     # or: python3 scripts/contact_sheet.py input-sheet.png --video input.mp4
+hildegard review input.mp4 --sheet input-sheet.jpg     # or: python3 -B <folder>/scripts/contact_sheet.py input-sheet.png --video input.mp4
 ```
 
 Note the frame rate and size: everything you join must match them.
@@ -230,7 +230,7 @@ Use -16 LUFS for speech-only pieces and podcasts.
 ```sh
 ffmpeg -i master.mp4 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 192k final.mp4
 hildegard review final.mp4 --final --film --audio --sheet final-sheet.jpg   # Hildegard installed
-python3 scripts/check_video.py final.mp4 --lufs -14 --size 1920x1080         # without Hildegard; then the sheet and spec.json checks above, with "final": true
+python3 -B <folder>/scripts/check_video.py final.mp4 --lufs -14 --size 1920x1080         # without Hildegard; then the sheet and spec.json checks above, with "final": true
 ```
 
 Look at the sheet and listen through once. Then tell your user the path, the length, what you cut and why, and

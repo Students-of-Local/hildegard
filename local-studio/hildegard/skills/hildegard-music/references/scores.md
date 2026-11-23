@@ -1,7 +1,7 @@
 # Score format for `music.py`
 
 A score is one JSON object. Copy a file from `templates/` and edit it; every field below appears in one of them.
-Run `python3 scripts/music.py score.json --check` after each change.
+Run `python3 -B <folder>/scripts/music.py score.json --check` after each change.
 
 ## Top level
 

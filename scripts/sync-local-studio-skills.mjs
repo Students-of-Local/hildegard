@@ -91,6 +91,19 @@ const gantrel = `${GANTREL_COMMANDS.join(' and ')}`;
 /** What every printing handoff says in Local Studio. */
 export const GANTREL = `In Local Studio, printing belongs to the Gantrel plugin: when it is installed, use its ${gantrel} commands (Gantrel owns slicing, printer checks and printing). Without Gantrel, hand the person the mesh file (STL or 3MF) and stop there.`;
 
+/**
+ * What a skill without an In Local Studio block says about `<folder>`. A Local Studio plugin folder is never written
+ * to: Local Studio binds the person's consent to the folder's hash and turns a changed plugin's tools off.
+ */
+const WHERE_INLINE =
+  '`<folder>` is the folder on the "References are relative to" line above: run its scripts as `python3 -B <folder>/scripts/<name>.py` and never write into it, since a changed plugin has its tools turned off.';
+
+/** A script run relative to the skill folder, made a run from the working folder that writes nothing into the plugin. */
+const fromWorkingFolder = (text) =>
+  text
+    .replaceAll('python3 scripts/', 'python3 -B <folder>/scripts/')
+    .replaceAll('python3 <skill>/', 'python3 -B <skill>/');
+
 /** Edits to the copied text: each `find` must occur exactly once in `file` (from skills/). */
 export const EDITS = [
   {
@@ -122,8 +135,173 @@ export const EDITS = [
     why: 'a draft saved in the skill folder would change the plugin and turn its tools off',
     find: "run `python3 scripts/prose_lint.py draft.md` from this\n   skill's folder",
     replace:
-      'run `python3 <folder>/scripts/prose_lint.py draft.md`\n   from your working folder (`<folder>` is the folder on the "References are relative to" line above; never write\n   into it)',
+      'run `python3 -B <folder>/scripts/prose_lint.py draft.md`\n   from your working folder (`<folder>` is the folder on the "References are relative to" line above; never write\n   into it)',
   },
+  {
+    file: 'hildegard-film/SKILL.md',
+    why: 'spec.json and the sheet written in the skill folder would change the plugin and turn its tools off',
+    find: "Without Hildegard, from this skill's folder\n   (install",
+    replace:
+      'Without Hildegard, from your working folder,\n   where spec.json and the sheet go, never `<folder>` (install',
+  },
+  {
+    file: 'hildegard-art/SKILL.md',
+    why: 'spec.json and the sheet written in the skill folder would change the plugin and turn its tools off',
+    find: 'Without Hildegard, run `echo',
+    replace: 'Without Hildegard, from your working folder (never `<folder>`), run `echo',
+  },
+  {
+    file: 'hildegard-craft/SKILL.md',
+    why: 'spec.json and the sheet written in the skill folder would change the plugin and turn its tools off',
+    find: 'Without Hildegard, write a spec and run the bundled checker.',
+    replace: `Without Hildegard, write the spec in your working folder and run the bundled checker from there. ${WHERE_INLINE}`,
+  },
+  {
+    file: 'hildegard-loop/SKILL.md',
+    why: 'spec.json and the sheet written in the skill folder would change the plugin and turn its tools off',
+    find: 'Write `spec.json` and run the checker for the kind.',
+    replace:
+      'Write `spec.json` in your working folder and run the checker for the kind from there, never in `<folder>`.',
+  },
+  {
+    file: 'hildegard-3d/SKILL.md',
+    why: 'spec.json and the sheet written in the skill folder would change the plugin and turn its tools off',
+    find: 'Without Hildegard, write a spec and run the checker:',
+    replace: 'Without Hildegard, write a spec in your working folder and run the checker from there:',
+  },
+  {
+    file: 'hildegard-3d/SKILL.md',
+    why: 'a model reading "from this skill\'s folder" works inside the plugin',
+    find: "`scripts/mesh_kit.py` (read it from this skill's folder; with",
+    replace: '`<folder>/scripts/mesh_kit.py` (read it there; with',
+  },
+  {
+    file: 'hildegard-music/SKILL.md',
+    why: 'scripts run from the skill folder write their output into the plugin',
+    find: "Run the scripts from this skill's `scripts/` folder, or with their full path.",
+    replace:
+      'Run the scripts from your working folder with their full path, `python3 -B <folder>/scripts/<name>.py`.',
+  },
+  {
+    file: 'hildegard-music/SKILL.md',
+    why: 'run from the working folder, a relative copy finds nothing; from the skill folder it writes into the plugin',
+    find: '(`cp presets/coin.json mycoin.json`)',
+    replace: '(`cp <folder>/presets/coin.json mycoin.json`)',
+  },
+  {
+    file: 'hildegard-motion/templates/README.md',
+    why: 'a render run from the skill folder writes its video into the plugin',
+    find: "(`python3 scripts/motion.py templates/title-card.json out.mp4` from the skill's folder)",
+    replace:
+      '(`python3 -B <folder>/scripts/motion.py <folder>/templates/title-card.json out.mp4` from your working folder)',
+  },
+  {
+    file: 'hildegard-photo-edit/SKILL.md',
+    why: 'spec.json and the sheet written in the skill folder would change the plugin and turn its tools off',
+    find: "without it, from this skill's\nfolder (install",
+    replace:
+      'without it, from your working folder,\nwhere spec.json and the sheet go, never `<folder>` (install',
+  },
+  {
+    file: 'hildegard/SKILL.md',
+    why: 'the router has no In Local Studio block to say what `<folder>` is',
+    find: 'otherwise `python3 scripts/prose_lint.py draft.md`.',
+    replace: `otherwise \`python3 -B <folder>/scripts/prose_lint.py draft.md\` from your working folder. ${WHERE_INLINE}`,
+  },
+  {
+    file: 'hildegard/references/blog.md',
+    why: 'the router has no In Local Studio block to say what `<folder>` is',
+    find: 'With Hildegard connected, call `lint_writing`. Without it:',
+    replace:
+      'With Hildegard connected, call `lint_writing`. Without it, from your working folder (`<folder>` is the hildegard\nskill\'s folder, on its "References are relative to" line; never write into it):',
+  },
+  // Every other run of a script by a path relative to the skill folder, which only works from inside the plugin: each
+  // `find` is the exact source text, and every `python3 scripts/` in it becomes `python3 -B <folder>/scripts/`.
+  ...Object.entries({
+    'hildegard/references/blog.md': ['python3 scripts/prose_lint.py'],
+    'hildegard-3d/SKILL.md': ['python3 scripts/review_mesh.py'],
+    'hildegard-art/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
+    'hildegard-craft/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
+    'hildegard-film/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
+    'hildegard-loop/SKILL.md': [
+      'python3 scripts/review_mesh.py',
+      'python3 scripts/review_media.py',
+      'python3 scripts/contact_sheet.py',
+    ],
+    'hildegard-motion/SKILL.md': [
+      'python3 scripts/motion.py --fonts',
+      'python3 <skill>/scripts/motion.py work/promo.json --check',
+      'python3 <skill>/scripts/motion.py work/promo.json work/promo.mp4',
+    ],
+    'hildegard-motion/references/spec.md': [
+      'python3 scripts/motion.py spec.json --check  ',
+      'python3 scripts/motion.py spec.json out.mp4  ',
+      'python3 scripts/motion.py spec.json out.mp4 --preview',
+      'python3 scripts/motion.py spec.json --preview',
+      'python3 scripts/motion.py spec.json out.mp4 --scale',
+      'python3 scripts/motion.py spec.json out.mp4 --hashes',
+      'python3 scripts/motion.py spec.json --check --json',
+      'python3 scripts/motion.py --fonts',
+    ],
+    'hildegard-music/SKILL.md': [
+      'python3 scripts/sheet.py',
+      'python3 scripts/sfx.py --list',
+      'python3 scripts/music.py --list',
+      'python3 scripts/music.py mine.json --check',
+      'python3 scripts/music.py mine.json out.wav',
+      'python3 scripts/sfx.py --preset',
+      'python3 scripts/music.py --template',
+      'python3 scripts/soundscape.py --list',
+      'python3 scripts/soundscape.py ocean_beach',
+    ],
+    'hildegard-music/references/recipes.md': ['python3 scripts/sfx.py'],
+    'hildegard-music/references/scores.md': ['python3 scripts/music.py'],
+    'hildegard-music/references/soundscapes.md': [
+      'Run `python3 scripts/soundscape.py recipe.json --check',
+      'python3 scripts/soundscape.py recipe.json out.wav',
+      'python3 scripts/soundscape.py recipe.json --check ',
+      'python3 scripts/soundscape.py --preset',
+    ],
+    'hildegard-photo-edit/SKILL.md': [
+      'python3 scripts/fix.py',
+      'python3 scripts/measure.py out.jpg',
+      'python3 scripts/contact_sheet.py compare.png photo.jpg',
+      'python3 scripts/straighten.py',
+      'python3 scripts/color.py',
+      'python3 scripts/denoise_sharpen.py',
+      'python3 scripts/crop.py',
+      'python3 scripts/measure.py final.jpg',
+      'python3 scripts/measure.py in.jpg',
+      'python3 scripts/review_media.py',
+      'python3 scripts/contact_sheet.py compare.png in.jpg',
+    ],
+    'hildegard-sound/SKILL.md': [
+      'python3 scripts/clean_voice.py',
+      'python3 scripts/duck_mix.py',
+      'python3 scripts/spot.py',
+      'python3 scripts/measure.py out.wav',
+      'python3 scripts/measure.py final.wav',
+    ],
+    'hildegard-video-edit/SKILL.md': [
+      'python3 scripts/clean_voice.py',
+      'python3 scripts/duck_mix.py',
+      'python3 scripts/spot.py',
+      'python3 scripts/cut_reel.py',
+      'python3 scripts/check_video.py out.mp4',
+      'python3 scripts/contact_sheet.py sheet.png --video out.mp4',
+      'python3 scripts/contact_sheet.py sheet.png --video <file>',
+      'python3 scripts/review_media.py',
+      'python3 scripts/contact_sheet.py input-sheet.png',
+      'python3 scripts/check_video.py final.mp4',
+    ],
+  }).flatMap(([file, finds]) =>
+    finds.map((find) => ({
+      file,
+      why: 'a script run by a path relative to the skill folder only works from inside the plugin',
+      find,
+      replace: fromWorkingFolder(find),
+    })),
+  ),
   {
     file: 'hildegard-setup/SKILL.md',
     why: 'hildegard-cloud is not in the plugin: rented GPUs cost money',
@@ -146,10 +324,12 @@ const folder =
 export const FIRST = {
   'hildegard-film': [
     'First call the `hildegard_status` tool to see which video models are installed. If you have no Hildegard tools, render each shot with bash, one at a time: `hildegard make video "<the shot\'s prompt>" --move <camera move> --quality draft` (moves such as `dolly-in`, `pull-back-reveal`, `follow`). It waits, saves the clip and reviews it. If the person asked only for a plan, do the Fast path below and render nothing.',
+    folder,
     tools,
   ],
   'hildegard-art': [
     'First call the `hildegard_status` tool, then `list_presets` (section 1). If you have no Hildegard tools, write the art direction (section 2), then draw each prompt with bash the way the /image command does: `hildegard make image "<prompt>"`. It waits, saves the file and reviews it.',
+    folder,
     tools,
   ],
   'hildegard-sound': [
@@ -184,7 +364,7 @@ export const FIRST = {
     "First write the copy deck (the Fast path's step 1). Render with a browser already on this computer: `chromium --headless=new --hide-scrollbars --window-size=1080,1350 --screenshot=design.png design.html` (or `google-chrome` with the same flags, at the canvas size). `npx playwright` downloads a browser, so ask the person first; without a browser, hand over the HTML, say it is unrendered and unchecked, and stop.",
   ],
   'hildegard-music': [
-    'First pick the closest recipe: `python3 -B <folder>/scripts/sfx.py --list` for a sound effect, `music.py --list` for music, `soundscape.py --list` for a long bed. Copy it into your working folder (`cp <folder>/templates/lofi.json mine.json`) and change the copy, never the file in `<folder>`. Where this skill says `python3 scripts/<name>.py`, run `python3 -B <folder>/scripts/<name>.py` from your working folder.',
+    'First pick the closest recipe: `python3 -B <folder>/scripts/sfx.py --list` for a sound effect, `music.py --list` for music, `soundscape.py --list` for a long bed. Copy it into your working folder (`cp <folder>/templates/lofi.json mine.json`) and change the copy, never the file in `<folder>`. Run every script from your working folder.',
     folder,
   ],
   'hildegard-motion': [

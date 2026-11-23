@@ -20,9 +20,9 @@ Install once (Pillow and numpy; nothing else, no OpenCV): `python3 -m pip instal
 
 ```sh
 # needs: python3 -m pip install pillow numpy
-python3 scripts/fix.py photo.jpg out.jpg --size 1600x900 --subject 0.5,0.45 --family h --max-bytes 400000
-python3 scripts/measure.py out.jpg photo.jpg
-python3 scripts/contact_sheet.py compare.png photo.jpg out.jpg       # then LOOK at compare.png
+python3 -B <folder>/scripts/fix.py photo.jpg out.jpg --size 1600x900 --subject 0.5,0.45 --family h --max-bytes 400000
+python3 -B <folder>/scripts/measure.py out.jpg photo.jpg
+python3 -B <folder>/scripts/contact_sheet.py compare.png photo.jpg out.jpg       # then LOOK at compare.png
 ```
 
 1. Work out from the brief: the exact size (or aspect), what the **subject** is and about where it sits, and whether the picture has a
@@ -75,11 +75,11 @@ Each is one file in `scripts/`, run with `--help` for every flag. They need Pill
 
 ```sh
 # needs: python3 -m pip install pillow numpy
-python3 scripts/straighten.py in.jpg level.jpg [--family h|v] [--angle DEG]     # prints "tilt found: -2.31 degrees ..."
-python3 scripts/color.py level.jpg graded.jpg [--wb auto|gray|white|none] [--exposure auto|+0.5] [--warmth +3]   # prints before and after
-python3 scripts/denoise_sharpen.py graded.jpg clean.jpg [--max-noise-increase 15]                              # prints noise in, denoised, out
-python3 scripts/crop.py clean.jpg final.jpg --aspect 4:5 --subject 0.6,0.4                                      # or --size 1080x1350; prints the crop box
-python3 scripts/measure.py final.jpg [reference.jpg]                                                           # tilt, cast, light, clipping, noise, SSIM
+python3 -B <folder>/scripts/straighten.py in.jpg level.jpg [--family h|v] [--angle DEG]     # prints "tilt found: -2.31 degrees ..."
+python3 -B <folder>/scripts/color.py level.jpg graded.jpg [--wb auto|gray|white|none] [--exposure auto|+0.5] [--warmth +3]   # prints before and after
+python3 -B <folder>/scripts/denoise_sharpen.py graded.jpg clean.jpg [--max-noise-increase 15]                              # prints noise in, denoised, out
+python3 -B <folder>/scripts/crop.py clean.jpg final.jpg --aspect 4:5 --subject 0.6,0.4                                      # or --size 1080x1350; prints the crop box
+python3 -B <folder>/scripts/measure.py final.jpg [reference.jpg]                                                           # tilt, cast, light, clipping, noise, SSIM
 ```
 
 - `straighten.py`: an orientation-restricted Hough transform on the edge map. It prints the tilt, the lines it trusted and a confidence,
@@ -127,14 +127,14 @@ scene or a misty one: its low contrast is the point. Turn saturation *down* more
 
 ```sh
 magick identify -verbose in.jpg | grep -E "Geometry|Colorspace|Quality|Orientation|icc:description"
-python3 scripts/measure.py in.jpg        # needs: python3 -m pip install pillow numpy
+python3 -B <folder>/scripts/measure.py in.jpg        # needs: python3 -m pip install pillow numpy
 ```
 
 Note size, orientation and colour profile. Decide what the photo is *of* and what the edit is for (web, print, a start frame) before
-touching it. Look at every result: with Hildegard installed, `hildegard review out.jpg --sheet look.jpg`; without it, from this skill's
-folder (install the packages once with `python3 -m pip install pillow numpy av`; a photo needs only Pillow and numpy)
-`echo '{"path": "out.jpg", "sheet": "look.jpg"}' > spec.json && python3 scripts/review_media.py spec.json`. It prints each check (size,
-highlights, shadows, contrast, colour) as pass, warn or fail. For before and after side by side, `python3 scripts/contact_sheet.py compare.png in.jpg out.jpg`.
+touching it. Look at every result: with Hildegard installed, `hildegard review out.jpg --sheet look.jpg`; without it, from your working folder,
+where spec.json and the sheet go, never `<folder>` (install the packages once with `python3 -m pip install pillow numpy av`; a photo needs only Pillow and numpy)
+`echo '{"path": "out.jpg", "sheet": "look.jpg"}' > spec.json && python3 -B <folder>/scripts/review_media.py spec.json`. It prints each check (size,
+highlights, shadows, contrast, colour) as pass, warn or fail. For before and after side by side, `python3 -B <folder>/scripts/contact_sheet.py compare.png in.jpg out.jpg`.
 
 ## Retouch, with restraint
 

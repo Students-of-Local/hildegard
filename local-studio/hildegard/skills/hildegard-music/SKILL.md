@@ -9,7 +9,7 @@ description: Use to make music, a jingle, a bed, sound effects, ambience, binaur
 
 The person's request is at the top of this message and after `</skill>`.
 
-First pick the closest recipe: `python3 -B <folder>/scripts/sfx.py --list` for a sound effect, `music.py --list` for music, `soundscape.py --list` for a long bed. Copy it into your working folder (`cp <folder>/templates/lofi.json mine.json`) and change the copy, never the file in `<folder>`. Where this skill says `python3 scripts/<name>.py`, run `python3 -B <folder>/scripts/<name>.py` from your working folder.
+First pick the closest recipe: `python3 -B <folder>/scripts/sfx.py --list` for a sound effect, `music.py --list` for music, `soundscape.py --list` for a long bed. Copy it into your working folder (`cp <folder>/templates/lofi.json mine.json`) and change the copy, never the file in `<folder>`. Run every script from your working folder.
 
 `<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
@@ -24,31 +24,31 @@ Expect synthesized instruments, not a recorded band; it has no singing voice and
 deliver. For a real song with a voice, write a brief for Suno or for a music model (below).
 
 Needs Python 3.10 or newer and numpy. ffmpeg is only needed to write `.mp3` or `.ogg`. No GPU, no network, no
-Hildegard server. Run the scripts from this skill's `scripts/` folder, or with their full path.
+Hildegard server. Run the scripts from your working folder with their full path, `python3 -B <folder>/scripts/<name>.py`.
 
 **You cannot hear, so look.** Every script takes `--sheet out.png` and draws a contact sheet: the waveform, a
 spectrogram on a log frequency axis, the short-term loudness against its target, and the energy in nine octave bands,
 with the sections of a piece marked. Open the PNG (an image viewer or your file reader) before you deliver and read it
-with "What the sheet shows" below. `python3 scripts/sheet.py any.wav out.png` does the same for any file.
+with "What the sheet shows" below. `python3 -B <folder>/scripts/sheet.py any.wav out.png` does the same for any file.
 
 ## FAST PATH
 
-1. **Pick the closest preset or template.** `python3 scripts/sfx.py --list` and `python3 scripts/music.py --list` print
+1. **Pick the closest preset or template.** `python3 -B <folder>/scripts/sfx.py --list` and `python3 -B <folder>/scripts/music.py --list` print
    each one with a note. Sound effects: `presets/`. Music: `templates/`. Use the tables below. If nothing is close,
    take the nearest anyway; never write a recipe from nothing.
-2. **Copy it** to your working folder (`cp presets/coin.json mycoin.json`).
+2. **Copy it** to your working folder (`cp <folder>/presets/coin.json mycoin.json`).
 3. **Change only what the brief asks.** Each file has a `note` and a `vary` field that name the safe knobs. Mood words
    map to knobs through the mood table, and only through it.
-4. **Check**: `python3 scripts/music.py mine.json --check` (or `sfx.py`). Fix the first ERROR and run it again. Warnings
+4. **Check**: `python3 -B <folder>/scripts/music.py mine.json --check` (or `sfx.py`). Fix the first ERROR and run it again. Warnings
    are for you to read; fix any that your change caused.
-5. **Render**: `python3 scripts/music.py mine.json out.wav --check --sheet out.png` (add `--bits 24` for a 24-bit
+5. **Render**: `python3 -B <folder>/scripts/music.py mine.json out.wav --check --sheet out.png` (add `--bits 24` for a 24-bit
    master). The command checks, then writes the file only when there is no error. `.mp3` and `.ogg` work when ffmpeg is
    installed. Look at `out.png`.
 6. **Measure and deliver.** The last line printed is the measurement. Deliver the file with: what it is (synthesized),
    length, loudness and true peak as measured, and what you changed from the preset. You cannot hear it; say the
    user's ears are the final check.
 
-Shortcuts that need no copy: `python3 scripts/sfx.py --preset coin out.wav`, `python3 scripts/music.py --template lofi out.wav`.
+Shortcuts that need no copy: `python3 -B <folder>/scripts/sfx.py --preset coin out.wav`, `python3 -B <folder>/scripts/music.py --template lofi out.wav`.
 Music accepts `--key "D major"`, `--tempo 90`, `--length 30` and `--seed 4` to change the key (everything is written
 in scale degrees and roman numerals, so it transposes), the tempo, the exact length in seconds, and the random seed.
 The same recipe and seed always give the same file.
@@ -81,7 +81,7 @@ Other lengths: change `--length`. A bed longer than the template: set `length_s`
 
 ## Soundscapes: long, seamless, generated
 
-`python3 scripts/soundscape.py --list`, then `python3 scripts/soundscape.py ocean_beach out.wav --minutes 60`. Every
+`python3 -B <folder>/scripts/soundscape.py --list`, then `python3 -B <folder>/scripts/soundscape.py ocean_beach out.wav --minutes 60`. Every
 sound is a function of absolute time with seeded randomness, so the hour never loops and the render is chunked with flat
 memory; a chunked file is byte for byte the same as a one-pass file. Rendering runs about 6 to 10 times faster than real
 time. The length is exact, loudness is trimmed to the target (-20 to -26 LUFS, quiet beds), true peak is under -1 dBTP.

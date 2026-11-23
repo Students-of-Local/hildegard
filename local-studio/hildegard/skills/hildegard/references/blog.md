@@ -60,10 +60,11 @@ drafting a long piece. A line with no fact behind it is a sign to ask, not to in
 
 ## 4. Lint until it passes
 
-Run the prose lint on the draft and on every revision. With Hildegard connected, call `lint_writing`. Without it:
+Run the prose lint on the draft and on every revision. With Hildegard connected, call `lint_writing`. Without it, from your working folder (`<folder>` is the hildegard
+skill's folder, on its "References are relative to" line; never write into it):
 
 ```sh
-python3 scripts/prose_lint.py draft.md
+python3 -B <folder>/scripts/prose_lint.py draft.md
 ```
 
 Fix every finding marked fail. Fix each one marked warn unless it is the writer's real voice (a list that really has three parts, bold

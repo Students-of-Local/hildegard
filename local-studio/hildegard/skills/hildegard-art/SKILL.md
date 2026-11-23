@@ -11,6 +11,8 @@ The person's request is at the top of this message and after `</skill>`.
 
 First call the `hildegard_status` tool, then `list_presets` (section 1). If you have no Hildegard tools, write the art direction (section 2), then draw each prompt with bash the way the /image command does: `hildegard make image "<prompt>"`. It waits, saves the file and reviews it.
 
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+
 Hildegard's tools (`hildegard_status`, `loop_start` and the rest) are here once the person allows the Hildegard plugin in Local Studio's Settings, Plugins. If you don't have them, use this skill's way without Hildegard.
 
 If you have **hildegard-craft**, read it first (`references/slop.md` here is its slop catalogue). Art is where slop is
@@ -56,9 +58,9 @@ Write the brief (hildegard-craft, Gate 1) plus an **art direction** of five line
    literal sentences, a concrete detail nobody would guess.
 2. Render each as a draft with two takes.
 3. Review every result (with Hildegard linked, `review_take`, or `hildegard review <file> --sheet` for stills).
-   Without Hildegard, run `echo '{"path": "take-1.png", "sheet": "look-1.jpg"}' > spec.json` then
-   `python3 scripts/review_media.py spec.json` for the technical checks, and
-   `python3 scripts/contact_sheet.py sheet.png take-*.png --title "Round 1"` to put the takes side by side. Choose the
+   Without Hildegard, from your working folder (never `<folder>`), run `echo '{"path": "take-1.png", "sheet": "look-1.jpg"}' > spec.json` then
+   `python3 -B <folder>/scripts/review_media.py spec.json` for the technical checks, and
+   `python3 -B <folder>/scripts/contact_sheet.py sheet.png take-*.png --title "Round 1"` to put the takes side by side. Choose the
    one that says the idea most clearly, not the prettiest. Both scripts need Python packages: install them once with
    `python3 -m pip install pillow numpy av`. A still needs only Pillow and numpy for `review_media.py`, and only Pillow for `contact_sheet.py`. Without
    them, look at each image yourself against the critique questions and read its size with `ffprobe`.

@@ -24,7 +24,7 @@ your drafts, and the rules learned from both. This skill is all you need for eve
    below). If they say "just write it", ask the three that matter most (usually the story, the numbers and the ask),
    say in one line what you're assuming for the rest, and go.
 3. **Draft from their facts, in their voice** (the rules below).
-4. **Lint until it passes.** Save the draft as `draft.md` and run `python3 <folder>/scripts/prose_lint.py draft.md`
+4. **Lint until it passes.** Save the draft as `draft.md` and run `python3 -B <folder>/scripts/prose_lint.py draft.md`
    from your working folder (`<folder>` is the folder on the "References are relative to" line above; never write
    into it) (Python 3 only; the rules are `scripts/prose_rules.json` beside it). With Hildegard linked,
    `lint_writing` or `hildegard lint draft.md` gives the same result. Fix every fail; fix each warn unless `voice.md`

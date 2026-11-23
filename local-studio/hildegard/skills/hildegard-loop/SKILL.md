@@ -42,16 +42,16 @@ by hand, with the checkers bundled in `scripts/` (section "The loop by hand").
    loudness). Keep `rounds.md`: one entry per round with what you changed, what the checks said, your critique, and
    the one change for the next round. Rounds: 6 for a model, 5 for a site, 3 otherwise.
 2. **Render** the round into its own file (`round-1.png`, `round-2.stl`), never over the last one.
-3. **Measure and draw it.** Write `spec.json` and run the checker for the kind. The checkers need Python packages;
+3. **Measure and draw it.** Write `spec.json` in your working folder and run the checker for the kind from there, never in `<folder>`. The checkers need Python packages;
    install them once with `python3 -m pip install pillow numpy av` (the model checker needs only numpy and Pillow, `contact_sheet.py` only
    Pillow, and a still image no PyAV). Without them, FFmpeg and `ffprobe` still give length, size, loudness and black
    frames, and you judge the pictures by looking at them:
 
    | Kind | Run | It gives you |
    | --- | --- | --- |
-   | model | `{"path": "round-1.stl", "sheet": "sheet-1.png", "print": true, "size_mm": [40, 40, 120]}` then `python3 scripts/review_mesh.py spec.json` | the model checks as JSON, and eight views with silhouettes |
-   | image, video, audio | `{"path": "round-1.mp4", "sheet": "sheet-1.jpg", "final": false, "seconds": 8, "audio": true}` then `python3 scripts/review_media.py spec.json` | the media checks as JSON, and nine frames of a video |
-   | variants side by side | `python3 scripts/contact_sheet.py sheet.png a.png b.png c.png --title "Round 2"` | one labelled sheet to answer "B3" from |
+   | model | `{"path": "round-1.stl", "sheet": "sheet-1.png", "print": true, "size_mm": [40, 40, 120]}` then `python3 -B <folder>/scripts/review_mesh.py spec.json` | the model checks as JSON, and eight views with silhouettes |
+   | image, video, audio | `{"path": "round-1.mp4", "sheet": "sheet-1.jpg", "final": false, "seconds": 8, "audio": true}` then `python3 -B <folder>/scripts/review_media.py spec.json` | the media checks as JSON, and nine frames of a video |
+   | variants side by side | `python3 -B <folder>/scripts/contact_sheet.py sheet.png a.png b.png c.png --title "Round 2"` | one labelled sheet to answer "B3" from |
    | web | render each page at 390, 820 and 1440 px wide, light and dark, then audit them against the web checks below | the screens to look at |
 
    Each checker prints `{"id", "status", "detail"}` for every check; `fail` comes first.

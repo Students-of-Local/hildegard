@@ -42,14 +42,14 @@ its tests passed, on Python 3.10 with the minimums (NumPy 1.26.4, Pillow 10.1.0,
 4. **Check** until it prints `result: clean`:
 
    ```sh
-   python3 <skill>/scripts/motion.py work/promo.json --check
+   python3 -B <skill>/scripts/motion.py work/promo.json --check
    ```
 
    Read each line, do what its `Fix:` says, run it again. Do not use `--force` to get past a problem.
 5. **Render** and **look**:
 
    ```sh
-   python3 <skill>/scripts/motion.py work/promo.json work/promo.mp4 --preview work/promo-sheet.jpg
+   python3 -B <skill>/scripts/motion.py work/promo.json work/promo.mp4 --preview work/promo-sheet.jpg
    ```
 
    Open the contact sheet (8 frames) and look at it. Check against "Looking at the sheet" below. Fix what is wrong in the
@@ -186,7 +186,7 @@ base layer, then composite your own frames over it with ffmpeg's `overlay`.
 ## Fonts and licenses
 
 Fonts are Google Fonts under the SIL Open Font License, pinned to one google/fonts commit and verified by SHA-256 in
-`scripts/motion.py` (`python3 scripts/motion.py --fonts` lists them and what is cached). Nothing is bundled: a font
+`scripts/motion.py` (`python3 -B <folder>/scripts/motion.py --fonts` lists them and what is cached). Nothing is bundled: a font
 downloads once into a cache and is never fetched again while the cached file matches its pin. Pinned families: Inter,
 Montserrat, Space Grotesk, Playfair Display, Lora, EB Garamond, Bebas Neue, Oswald, DM Serif Display, JetBrains Mono (Latin
 text). Any other font is a file the user has the right to use, named in `"fonts"`.

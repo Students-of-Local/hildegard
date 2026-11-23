@@ -1,7 +1,7 @@
 # Recipe format for `sfx.py`
 
 A recipe is one JSON object. Copy a file from `presets/` and edit it; every field below appears in one of them.
-Run `python3 scripts/sfx.py recipe.json --check` after each change.
+Run `python3 -B <folder>/scripts/sfx.py recipe.json --check` after each change.
 
 ## Top level
 

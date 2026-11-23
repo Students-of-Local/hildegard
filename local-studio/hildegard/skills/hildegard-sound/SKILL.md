@@ -17,16 +17,16 @@ First pick the Fast path item that fits and run its script. For a voice recordin
 
 This skill is all you need to clean a voice, put music under it, build a spot and measure the result. Don't write a filter graph, a gain curve or a ducking envelope of your own: the recipes below are tested and yours won't be. Run a script from `scripts/` (Python 3, FFmpeg only), or, if you can deliver only one script, copy a recipe from below exactly and change only the file names and numbers on its first lines.
 
-1. **Clean a voice recording** (hum, hiss, rumble, quiet passages, loudness): `python3 scripts/clean_voice.py voice_raw.wav out.wav --lufs -16 --peak -1.5`, or paste **Recipe A**.
-2. **Music under speech** (announcement, sermon, voice-over): `python3 scripts/duck_mix.py voice.wav music.wav out.wav --voice-start 4 --fade-in 3 --tail 4 --fade-out 4`, or paste **Recipe B**. The music drops 16 dB under the voice and rises in pauses.
-3. **A radio spot** (lines in order, a bed, a sting, an exact length): `python3 scripts/spot.py out.wav --music music.wav --sting sting.wav --lines line1.wav line2.wav line3.wav --total 15`, or paste **Recipe C**.
+1. **Clean a voice recording** (hum, hiss, rumble, quiet passages, loudness): `python3 -B <folder>/scripts/clean_voice.py voice_raw.wav out.wav --lufs -16 --peak -1.5`, or paste **Recipe A**.
+2. **Music under speech** (announcement, sermon, voice-over): `python3 -B <folder>/scripts/duck_mix.py voice.wav music.wav out.wav --voice-start 4 --fade-in 3 --tail 4 --fade-out 4`, or paste **Recipe B**. The music drops 16 dB under the voice and rises in pauses.
+3. **A radio spot** (lines in order, a bed, a sting, an exact length): `python3 -B <folder>/scripts/spot.py out.wav --music music.wav --sting sting.wav --lines line1.wav line2.wav line3.wav --total 15`, or paste **Recipe C**.
 4. **Cut clips into a reel with titles and music**: the **hildegard-video-edit** skill, if you have it.
 
 Pasting: copy the recipe into your one script, edit the first lines (file names, times, target), run it on the real files, then run the check below. Recipes A to C write a WAV; the file names in them are the ones the brief gave.
 
 ### Check before you deliver
 
-Run `python3 scripts/measure.py out.wav --lufs -16 --peak -1` (use the targets from the brief). With no Python, read the last two lines each recipe prints.
+Run `python3 -B <folder>/scripts/measure.py out.wav --lufs -16 --peak -1` (use the targets from the brief). With no Python, read the last two lines each recipe prints.
 
 - Loudness within 1 LU of the target, and true peak at or under the limit. If not, run the recipe again; never ship a miss.
 - Length and timing as asked (a spot to the second, music up to the word you were told).
@@ -272,7 +272,7 @@ viewer across.
 - Speech is the reference: everything else sits under it.
 - Duck music under speech with Recipe B or `duck_mix.py`.
 - Master to about -14 LUFS integrated with true peak under -1 dB for a film (speech-only: -16 LUFS), with the two-pass loudnorm in the recipes.
-- Check: `python3 scripts/measure.py final.wav` (it reads a finished video's sound too; with Hildegard installed,
+- Check: `python3 -B <folder>/scripts/measure.py final.wav` (it reads a finished video's sound too; with Hildegard installed,
   `hildegard review final.mp4 --audio` also works). `clipping` or `loudness` failing means fix the mix, not the
   limiter.
 
