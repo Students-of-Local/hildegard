@@ -77,7 +77,8 @@ function flip(repo: string, rel: string, at = 0) {
   writeFileSync(p, b);
 }
 
-describe('the Local Studio plugin’s craft skills', () => {
+// These run the whole sync over every craft skill; a busy Windows runner took over vitest's 5 s default.
+describe('the Local Studio plugin’s craft skills', { timeout: 60_000 }, () => {
   it('are exactly what the sync makes of skills/', () => {
     expect(drift(root)).toEqual([]);
   });
