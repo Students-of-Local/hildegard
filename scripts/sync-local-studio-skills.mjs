@@ -328,7 +328,7 @@ export const EDITS = [
     why: 'hildegard-cloud is not in the plugin: rented GPUs cost money',
     find: '- **Rented GPUs** (Runpod, Hugging Face, Colab): the **hildegard-cloud** skill.',
     replace:
-      '- **Rented GPUs** (Runpod, Hugging Face, Colab): not part of the Local Studio plugin, since a rented GPU costs\n  money. Your user sets one up themselves; `hildegard cloud --json` lists the options.',
+      '- **Rented GPUs** (Runpod, Hugging Face, Colab): not part of the Local Studio plugin, since a rented GPU costs\n  money. Your user sets one up themselves, in a terminal outside Local Studio. You never run `hildegard cloud`.',
   },
 ];
 

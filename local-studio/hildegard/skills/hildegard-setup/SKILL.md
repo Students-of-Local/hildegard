@@ -99,7 +99,7 @@ after removing the next one.
   passphrase are your user's to do.
 - **A fleet** beyond two devices: the guide, section C, and the section above for each device.
 - **Rented GPUs** (Runpod, Hugging Face, Colab): not part of the Local Studio plugin, since a rented GPU costs
-  money. Your user sets one up themselves; `hildegard cloud --json` lists the options.
+  money. Your user sets one up themselves, in a terminal outside Local Studio. You never run `hildegard cloud`.
 
 ## Updates
 

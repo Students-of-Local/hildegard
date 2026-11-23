@@ -190,6 +190,8 @@ describe('the Local Studio plugin’s craft skills', () => {
       if (!/\.(md|py|json|html|css|svg)$/.test(f)) continue;
       const text = readFileSync(join(plugin, 'skills', f), 'utf8');
       expect(text, f).not.toMatch(/hildegard-(print|openscad|cloud)\b/);
+      // Nor runs the rented-GPU command: it can start a paid pod without asking about the spend.
+      expect(text.replace(/You never run `hildegard cloud`\./g, ''), f).not.toMatch(/hildegard cloud\b/);
     }
   });
 
