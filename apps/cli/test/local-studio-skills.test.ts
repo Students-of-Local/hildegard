@@ -179,6 +179,18 @@ describe('the Local Studio plugin’s craft skills', () => {
     }
   });
 
+  it('serve no MCP tool that can rent a GPU or spend money', () => {
+    // Renting a GPU happens only in `hildegard cloud`, which the plugin leaves out. The MCP server must never reach it.
+    const pkg = JSON.parse(readFileSync(join(root, 'mcp', 'package.json'), 'utf8'));
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
+    expect(Object.keys(deps)).not.toContain('@hildegard/cloud');
+    for (const f of files(join(root, 'mcp', 'src'))) {
+      if (!f.endsWith('.ts')) continue;
+      const text = readFileSync(join(root, 'mcp', 'src', f), 'utf8');
+      expect(text, f).not.toMatch(/@hildegard\/cloud|packages\/cloud|runpod/i);
+    }
+  });
+
   it('ship every skill its text sends a model to', () => {
     // The router named hildegard-design, -blog, -music and -motion before the plugin shipped them: a small model
     // reached for skills that weren't there.

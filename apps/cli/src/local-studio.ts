@@ -182,8 +182,13 @@ export function connectLocalStudio(_ctx: Ctx, off = false): Result {
     },
     { ...checked, detail: checked.detail.replaceAll(staging, target) },
   ];
+  // The [mcp] launcher is a POSIX sh script, so on Windows the skills install but the tools can't start.
+  const tools =
+    process.platform === 'win32'
+      ? 'Hildegard’s tools don’t start on Windows yet: its launcher needs macOS or Linux, so the skills work without them.'
+      : 'Hildegard’s tools start once you allow them on Local Studio’s sheet (Settings › Plugins).';
   return result(
     steps,
-    'Hildegard is in Local Studio: /image, /video, /speak, /design-voice, /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web, /loop, /design, /music and /motion. They appear on its next command list, with no restart. Hildegard’s tools start once you allow them on Local Studio’s sheet (Settings › Plugins). Cloning a voice stays in the Hildegard Studio, with the speaker’s consent.',
+    `Hildegard is in Local Studio: /image, /video, /speak, /design-voice, /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web, /loop, /design, /music and /motion. They appear on its next command list, with no restart. ${tools} Cloning a voice stays in the Hildegard Studio, with the speaker’s consent.`,
   );
 }
