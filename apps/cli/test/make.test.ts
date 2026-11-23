@@ -579,14 +579,40 @@ describe('the Local Studio plugin', () => {
     }
   });
 
-  it('asks for no capabilities: its skills run the hildegard command', () => {
-    expect(toml).toMatch(/^capabilities = \[\]$/m);
-    expect(toml).not.toMatch(/^\[mcp\]/m);
+  it('asks only to run Hildegard’s MCP server: no question, screen or input capability', () => {
+    expect(toml).toMatch(/^capabilities = \["mcp-server"\]$/m);
+    expect(toml).toMatch(/^\[mcp\]\ncommand = "bin\/hildegard-mcp"$/m);
+    // No tool rents a GPU or spends money, so nothing needs a question only the person can answer.
+    expect(toml).not.toMatch(/ask-user|screen-capture|synthetic-input|site-secrets|accessibility/);
+  });
+
+  it('shows its name and a small icon on Local Studio’s consent sheet', () => {
+    expect(toml).toMatch(/^name = "Hildegard"$/m);
+    expect(toml).toMatch(/^icon = "icon.png"$/m);
+    const png = readFileSync(join(dir, 'icon.png'));
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+    expect(png.length).toBeLessThan(200 * 1024);
   });
 
   it('points every command at a skill it ships, and has no command for cloning', () => {
     expect(commands.map((c) => c.name).sort()).toEqual(
-      ['clean-audio', 'design-voice', 'hildegard', 'image', 'speak', 'video'].sort(),
+      [
+        'clean-audio',
+        'design-voice',
+        'hildegard',
+        'image',
+        'speak',
+        'video',
+        // The craft skills, synced from skills/ (scripts/sync-local-studio-skills.mjs).
+        '3d',
+        'art',
+        'edit-video',
+        'film',
+        'loop',
+        'photo',
+        'sound',
+        'web',
+      ].sort(),
     );
     for (const c of commands)
       expect(existsSync(join(dir, 'skills', c.skill, 'SKILL.md')), c.skill).toBe(true);

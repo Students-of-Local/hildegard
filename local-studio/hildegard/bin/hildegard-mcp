@@ -1,0 +1,42 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Hildegard's MCP server for Local Studio, the [mcp] command in plugin.toml. It runs `hildegard mcp` from the
+# Hildegard installed on this computer, found the way plugin/mcp.mjs finds it for Claude Code: HILDEGARD_BIN, then
+# PATH, then where the installer puts it (${XDG_BIN_HOME:-~/.local/bin}/hildegard). When Hildegard isn't there, it
+# says how to install it on stderr and exits 1. It never installs anything.
+#
+# POSIX sh and nothing else: Hildegard carries its own Node, so there may be none on PATH. ASCII only, since macOS's
+# /bin/sh misreads UTF-8 after a $VARIABLE.
+
+runnable() {
+  case "$1" in
+    /*) [ -f "$1" ] && [ -x "$1" ] ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -n "${HILDEGARD_BIN:-}" ] && runnable "$HILDEGARD_BIN"; then
+  exec "$HILDEGARD_BIN" mcp
+fi
+found=$(command -v hildegard 2>/dev/null || true)
+if runnable "$found"; then
+  exec "$found" mcp
+fi
+installed="${XDG_BIN_HOME:-${HOME:-}/.local/bin}/hildegard"
+if runnable "$installed"; then
+  exec "$installed" mcp
+fi
+
+# printf is built in, so the message shows even with no PATH at all.
+printf '%s\n' \
+  "Hildegard isn't installed on this computer, so its tools aren't here. The craft" \
+  "skills (/film, /art, /sound, /photo, /edit-video, /3d, /web, /loop) still work" \
+  "without it, in their way without Hildegard." \
+  "" \
+  "To install Hildegard, run this in a terminal yourself:" \
+  "" \
+  "  curl -fsSL https://dbaney.com/hildegard/install.sh | sh" \
+  "" \
+  "Then start a new thread in Local Studio, and Hildegard's tools appear. If Hildegard is" \
+  "installed somewhere unusual, set HILDEGARD_BIN to its hildegard command." >&2
+exit 1
