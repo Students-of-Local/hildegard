@@ -2,6 +2,8 @@
 // `hildegard make`, the command Local Studio's plugin runs: it waits for the job, saves the file, reviews it, and
 // refuses to clone a voice. And `hildegard connect local-studio`, which puts the plugin where Local Studio reads it.
 import {
+  chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -400,6 +402,8 @@ describe('hildegard connect local-studio', { timeout: 60_000 }, () => {
     expect(on.steps[1]).toMatchObject({ id: 'validate', status: 'skipped' });
     expect(readFileSync(join(plugin, 'plugin.toml'), 'utf8')).toMatch(/^id = "hildegard"$/m);
     expect(existsSync(join(plugin, 'skills', 'hildegard-image', 'SKILL.md'))).toBe(true);
+    if (process.platform !== 'win32')
+      expect(statSync(join(plugin, 'bin', 'hildegard-mcp')).mode & 0o777).toBe(0o755);
 
     const again = await hildegardEnv(home, env, 'connect', 'local-studio');
     expect(again.steps[0]).toMatchObject({ title: 'Updated in Local Studio', status: 'done' });
@@ -408,6 +412,27 @@ describe('hildegard connect local-studio', { timeout: 60_000 }, () => {
     expect(off.ok).toBe(true);
     expect(existsSync(plugin)).toBe(false);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'installs the MCP command executable even when the shipped copy lost its execute bit',
+    async () => {
+      // A release whose launcher lost the bit on the way (a zip, a Windows-built archive): Local Studio couldn't run it.
+      const home = mkdtempSync(join(tmpdir(), 'hg-ls-mode-'));
+      const lsData = join(home, 'ls-data');
+      const shipped = join(home, 'shipped');
+      cpSync(join(root, 'local-studio'), join(shipped, 'local-studio'), { recursive: true });
+      chmodSync(join(shipped, 'local-studio', 'hildegard', 'bin', 'hildegard-mcp'), 0o644);
+      const on = await hildegardEnv(
+        home,
+        { LOCAL_STUDIO_DATA_DIR: lsData, HILDEGARD_RESOURCES: shipped },
+        'connect',
+        'local-studio',
+      );
+      expect(on.ok).toBe(true);
+      const launcher = join(lsData, 'plugins', 'hildegard', 'bin', 'hildegard-mcp');
+      expect(statSync(launcher).mode & 0o777).toBe(0o755);
+    },
+  );
 
   it('never replaces or removes another plugin that happens to be called hildegard', async () => {
     const home = mkdtempSync(join(tmpdir(), 'hg-ls-other-'));

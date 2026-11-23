@@ -7,7 +7,7 @@
  * `mcp-server`, so Local Studio starts Hildegard's tools only once the person allows them.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { resource, type Step } from '@hildegard/runtime';
@@ -25,6 +25,9 @@ export function pluginsDir(env = process.env, home = homedir()): string {
 
 /** The plugin as shipped with this Hildegard. */
 export const pluginSource = () => resource(join('local-studio', PLUGIN_ID));
+
+/** The plugin's MCP command, from plugin.toml's [mcp] section. */
+export const LAUNCHER = join('bin', 'hildegard-mcp');
 
 /** Shipped inside the plugin. Any plugin in `plugins/hildegard` has the id hildegard, so the id alone can't say whose it is. */
 const MARKER = '.hildegard-plugin';
@@ -145,6 +148,10 @@ export function connectLocalStudio(_ctx: Ctx, off = false): Result {
   const old = join(dir, `.hildegard-old-${process.pid}`);
   rmSync(stage, { recursive: true, force: true });
   cpSync(source, staging, { recursive: true });
+  // Local Studio runs the [mcp] command directly, so it needs its execute bit, which a zip, a Windows-built release
+  // or a copy that kept no modes can drop.
+  const launcher = join(staging, LAUNCHER);
+  if (existsSync(launcher)) chmodSync(launcher, 0o755);
   const checked = validate(staging);
   if (checked.status === 'failed') {
     rmSync(stage, { recursive: true, force: true });
