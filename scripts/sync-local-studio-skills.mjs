@@ -41,9 +41,13 @@ export const CRAFT = [
   'hildegard',
   'hildegard-3d',
   'hildegard-art',
+  'hildegard-blog',
   'hildegard-craft',
+  'hildegard-design',
   'hildegard-film',
   'hildegard-loop',
+  'hildegard-motion',
+  'hildegard-music',
   'hildegard-photo-edit',
   'hildegard-setup',
   'hildegard-sound',
@@ -67,10 +71,6 @@ export const LEFT_OUT = {
     'it rents Runpod GPUs, which cost money, and its text asks the person’s yes for the model license, never for the spend',
   'hildegard-print': 'printing belongs to the Gantrel plugin in Local Studio',
   'hildegard-openscad': 'printable parts belong to the Gantrel plugin in Local Studio',
-  'hildegard-blog': 'not part of the Local Studio set yet',
-  'hildegard-design': 'not part of the Local Studio set yet',
-  'hildegard-motion': 'not part of the Local Studio set yet',
-  'hildegard-music': 'not part of the Local Studio set yet',
 };
 
 /** Files the plugin carries from elsewhere in the repository, byte for byte. */
@@ -116,6 +116,13 @@ export const EDITS = [
     why: 'printing goes to Gantrel; hildegard-print is not in the plugin',
     find: '**hildegard-3d**; for a part to\nprint, **hildegard-print**; for a website',
     replace: `**hildegard-3d**; for a part to\nprint, **hildegard-3d**, then Gantrel's ${gantrel} when the Gantrel plugin is installed; for a website`,
+  },
+  {
+    file: 'hildegard-blog/SKILL.md',
+    why: 'a draft saved in the skill folder would change the plugin and turn its tools off',
+    find: "run `python3 scripts/prose_lint.py draft.md` from this\n   skill's folder",
+    replace:
+      'run `python3 <folder>/scripts/prose_lint.py draft.md`\n   from your working folder (`<folder>` is the folder on the "References are relative to" line above; never write\n   into it)',
   },
   {
     file: 'hildegard-setup/SKILL.md',
@@ -172,6 +179,17 @@ export const FIRST = {
     'First call the `loop_start` tool with the brief and the `kind` (model, web, image, video or audio). If you have no Hildegard tools, follow "The loop by hand" below.',
     folder,
     tools,
+  ],
+  'hildegard-design': [
+    "First write the copy deck (the Fast path's step 1). Render with a browser already on this computer: `chromium --headless=new --hide-scrollbars --window-size=1080,1350 --screenshot=design.png design.html` (or `google-chrome` with the same flags, at the canvas size). `npx playwright` downloads a browser, so ask the person first; without a browser, hand over the HTML, say it is unrendered and unchecked, and stop.",
+  ],
+  'hildegard-music': [
+    'First pick the closest recipe: `python3 -B <folder>/scripts/sfx.py --list` for a sound effect, `music.py --list` for music, `soundscape.py --list` for a long bed. Copy it into your working folder (`cp <folder>/templates/lofi.json mine.json`) and change the copy, never the file in `<folder>`. Where this skill says `python3 scripts/<name>.py`, run `python3 -B <folder>/scripts/<name>.py` from your working folder.',
+    folder,
+  ],
+  'hildegard-motion': [
+    'First pick the closest template in `<folder>/templates/` (the table below), copy it into your working folder (`cp <folder>/templates/promo.json promo.json`), change the copy, and run `python3 -B <folder>/scripts/motion.py promo.json --check` until it prints `result: clean`. Where this skill says `<skill>`, that is `<folder>`. If numpy or Pillow is missing, or neither ffmpeg nor PyAV is there, give the person the install line below and install nothing yourself.',
+    folder,
   ],
 };
 

@@ -606,9 +606,12 @@ describe('the Local Studio plugin', () => {
         // The craft skills, synced from skills/ (scripts/sync-local-studio-skills.mjs).
         '3d',
         'art',
+        'design',
         'edit-video',
         'film',
         'loop',
+        'motion',
+        'music',
         'photo',
         'sound',
         'web',

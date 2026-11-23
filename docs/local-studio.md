@@ -1,6 +1,6 @@
 # Hildegard in Local Studio
 
-Local Studio runs coding agents on local models. Hildegard's plugin for it (`local-studio/hildegard`) adds fourteen
+Local Studio runs coding agents on local models. Hildegard's plugin for it (`local-studio/hildegard`) adds seventeen
 commands to its palette and Hildegard's tools. Six make media, each one a short skill that a small model can follow:
 
 | Command | What the agent runs | What comes back |
@@ -12,7 +12,7 @@ commands to its palette and Hildegard's tools. Six make media, each one a short 
 | `/clean-audio` | `hildegard make clean <file>` | `Cleaned: <path>` and the review |
 | `/hildegard` | picks one of the above | |
 
-Eight more are Hildegard's craft skills, the same ones the Claude Code plugin carries:
+Eleven more are Hildegard's craft skills, the same ones the Claude Code plugin carries:
 
 | Command | Skill | What it does |
 | --- | --- | --- |
@@ -24,9 +24,13 @@ Eight more are Hildegard's craft skills, the same ones the Claude Code plugin ca
 | `/3d` | hildegard-3d | models in 3D in rounds, checked from every side |
 | `/web` | hildegard-web | builds a page in HTML and CSS, rendered and audited |
 | `/loop` | hildegard-loop | make, look, critique and refine, one change per round |
+| `/design` | hildegard-design | a poster, flyer, post, cover or sign at its exact size, read back line by line |
+| `/music` | hildegard-music | music, sound effects and soundscapes from recipes, loudness checked |
+| `/motion` | hildegard-motion | title cards, promos and kinetic type drawn in code, from a template |
 
-The plugin also carries hildegard (the method for open-ended work), hildegard-craft and hildegard-setup, which a model
-opens by name (`/skill:hildegard`).
+The plugin also carries hildegard (the method for open-ended work), hildegard-blog (prose in a person's own voice),
+hildegard-craft and hildegard-setup, which a model opens by name (`/skill:hildegard`). Every skill the hildegard
+router names is in the plugin, so a small model never reaches for one that isn't there.
 
 ## The craft skills come from skills/
 
@@ -39,6 +43,9 @@ from `skills/` and changes only what Local Studio needs, all listed in the scrip
 - Printing goes to the Gantrel plugin. Where hildegard, hildegard-3d and hildegard-loop hand a part to
   hildegard-print, the copy says to use Gantrel's `/plan` and `/print` when Gantrel is installed, and to hand the
   person the mesh when it isn't. hildegard-print and hildegard-openscad stay out of the plugin.
+- hildegard-blog runs its lint by the script's full path from the working folder, so a draft never lands in the
+  plugin. hildegard-design renders with a browser already on the computer, and asks before `npx playwright`
+  downloads one. hildegard-blog posts as a draft and publishes only on the person's word, as it does everywhere.
 - hildegard-cloud stays out: a rented GPU costs money, and nothing in Local Studio should start one. hildegard-setup's
   line about it says so.
 

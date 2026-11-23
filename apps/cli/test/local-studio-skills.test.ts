@@ -179,6 +179,31 @@ describe('the Local Studio plugin’s craft skills', () => {
     }
   });
 
+  it('ship every skill its text sends a model to', () => {
+    // The router named hildegard-design, -blog, -music and -motion before the plugin shipped them: a small model
+    // reached for skills that weren't there.
+    const shipped = new Set(readdirSync(join(plugin, 'skills')));
+    const skills = new Set(
+      readdirSync(join(root, 'skills'), { withFileTypes: true })
+        .filter((s) => s.isDirectory())
+        .map((s) => s.name),
+    );
+    for (const f of files(join(plugin, 'skills'))) {
+      if (!/\.(md|py|json|html|css|svg)$/.test(f)) continue;
+      const text = readFileSync(join(plugin, 'skills', f), 'utf8');
+      for (const [name] of text.matchAll(/hildegard-[a-z0-9]+(?:-[a-z0-9]+)*/g))
+        if (skills.has(name)) expect(shipped.has(name), `${f} names ${name}`).toBe(true);
+    }
+    for (const s of ['hildegard-design', 'hildegard-blog', 'hildegard-music', 'hildegard-motion'])
+      expect(shipped.has(s), s).toBe(true);
+  });
+
+  it('keep the blog lint from writing a draft into the plugin', () => {
+    const text = readFileSync(join(plugin, 'skills', 'hildegard-blog', 'SKILL.md'), 'utf8');
+    expect(text).not.toMatch(/from this\s+skill's folder/);
+    expect(text).toContain('`python3 <folder>/scripts/prose_lint.py draft.md`');
+  });
+
   it('hand printing to Gantrel, else the mesh', () => {
     expect(GANTREL).toContain('Gantrel');
     expect(GANTREL).toMatch(/mesh file/);
@@ -200,7 +225,9 @@ describe('the Local Studio plugin’s craft skills', () => {
       const firstScreen = body.split('\n').slice(0, 12).join('\n');
       expect(firstScreen, name).toMatch(/^# .+\n\n## In Local Studio\n/);
       expect(firstScreen, name).toMatch(/\nFirst (call|run|pick|write) /);
-      expect(firstScreen, name).toMatch(/`(hildegard_status|loop_start|site_templates|python3 -B [^`]+)`/);
+      expect(firstScreen, name).toMatch(
+        /`(hildegard_status|loop_start|site_templates|python3 -B [^`]+|chromium --headless[^`]+)`/,
+      );
     }
   });
 

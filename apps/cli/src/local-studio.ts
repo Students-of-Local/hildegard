@@ -2,8 +2,8 @@
 /**
  * `hildegard connect local-studio`: puts Hildegard's Local Studio plugin (local-studio/hildegard: a manifest, its
  * skills and its MCP command) in the folder Local Studio reads plugins from, so /image, /video, /speak, /design-voice,
- * /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web and /loop,
- * appear in its command palette. The media skills run `hildegard make`. The plugin asks for one capability,
+ * /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web, /loop,
+ * /design, /music and /motion, appear in its command palette. The media skills run `hildegard make`. The plugin asks for one capability,
  * `mcp-server`, so Local Studio starts Hildegard's tools only once the person allows them.
  */
 import { spawnSync } from 'node:child_process';
@@ -177,6 +177,6 @@ export function connectLocalStudio(_ctx: Ctx, off = false): Result {
   ];
   return result(
     steps,
-    'Hildegard is in Local Studio: /image, /video, /speak, /design-voice, /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web and /loop. They appear on its next command list, with no restart. Hildegard’s tools start once you allow them on Local Studio’s sheet (Settings › Plugins). Cloning a voice stays in the Hildegard Studio, with the speaker’s consent.',
+    'Hildegard is in Local Studio: /image, /video, /speak, /design-voice, /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web, /loop, /design, /music and /motion. They appear on its next command list, with no restart. Hildegard’s tools start once you allow them on Local Studio’s sheet (Settings › Plugins). Cloning a voice stays in the Hildegard Studio, with the speaker’s consent.',
   );
 }

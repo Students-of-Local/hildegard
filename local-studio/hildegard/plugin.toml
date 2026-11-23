@@ -2,7 +2,7 @@ id = "hildegard"
 name = "Hildegard"
 icon = "icon.png"
 version = "0.1.17"
-description = "Hildegard for Local Studio: images, video, speech, voices and clean audio on your own GPU, the craft skills for film, art, sound, photos, video editing, 3D and the web, and Hildegard's tools, each piece checked before you see it"
+description = "Hildegard for Local Studio: images, video, speech, voices and clean audio on your own GPU, the craft skills for film, art, design, music, motion, sound, photos, video editing, 3D, the web and writing, and Hildegard's tools, each piece checked before you see it"
 skills = "skills"
 capabilities = ["mcp-server"]
 
@@ -79,3 +79,18 @@ skill = "hildegard-web"
 name = "loop"
 description = "Make, look, critique and refine, one change per round"
 skill = "hildegard-loop"
+
+[[commands]]
+name = "design"
+description = "A poster, flyer, post, cover or sign at its exact size, read back line by line"
+skill = "hildegard-design"
+
+[[commands]]
+name = "music"
+description = "Music, sound effects and soundscapes from recipes, loudness checked"
+skill = "hildegard-music"
+
+[[commands]]
+name = "motion"
+description = "Title cards, promos and kinetic type drawn in code, from a template"
+skill = "hildegard-motion"

@@ -75,9 +75,9 @@ hildegard connect local-studio
 ```
 
 Or install it from Local Studio's catalog (Settings › Plugins), or with `local-studio plugin install
-<hildegard>/local-studio/hildegard`. The plugin (`local-studio/hildegard`) brings fourteen commands: `/image`,
+<hildegard>/local-studio/hildegard`. The plugin (`local-studio/hildegard`) brings seventeen commands: `/image`,
 `/video`, `/speak`, `/design-voice`, `/clean-audio` and `/hildegard`, short skills a small local model follows to the
-file; and `/film`, `/art`, `/sound`, `/photo`, `/edit-video`, `/3d`, `/web` and `/loop`, the craft skills. Its MCP
+file; and `/film`, `/art`, `/sound`, `/photo`, `/edit-video`, `/3d`, `/web`, `/loop`, `/design`, `/music` and `/motion`, the craft skills. Its MCP
 server (`bin/hildegard-mcp`) starts the Hildegard installed on this computer, once you allow it on Local Studio's
 consent sheet. If Hildegard isn't installed, the server says how to install it and stops. Printing belongs to the
 Gantrel plugin there: the 3D skills hand a part to Gantrel's commands when it's installed, and the mesh to you when

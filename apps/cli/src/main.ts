@@ -54,7 +54,7 @@ const HELP = `${bold('hildegard')} ${VERSION}: your own film studio, on your own
                              Let an app here use the Hildegard on another device, with a key from it
   hildegard connect local-studio
                              Put Hildegard in Local Studio: its tools, /image, /video, /speak, /design-voice,
-                             /clean-audio and the craft skills, /film to /loop (disconnect local-studio takes it out)
+                             /clean-audio and the craft skills, /film to /motion (disconnect local-studio takes it out)
   hildegard disconnect <app>
   hildegard hf login         Link your Hugging Face account (hf status, hf logout). The token goes to
                              your system keychain; pipe one in with --token-stdin
