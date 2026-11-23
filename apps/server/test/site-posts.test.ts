@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Posts on a site: a page in the site's own look, the list newest first, the feed and the sitemap; drafts left out;
 // Markdown that can't carry HTML; notes kept private.
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -66,19 +66,33 @@ describe('the Markdown renderer', () => {
 
   // Each hostile post is rendered in a child process with a timeout, so a renderer that backtracks is killed and the
   // test fails, rather than freezing the suite. The child measures CPU time (best of three), as the edit-size tests do.
+  // The child runs asynchronously: a spawnSync here blocked this process's event loop for seconds, and the test server
+  // lives in this process, so its idle keep-alive socket closed under the next fetch (ECONNRESET on Windows runners).
+  // The bound is 400 ms: Windows counts CPU time in 15.6 ms ticks, and a renderer that backtracks takes seconds here.
   it.each(Object.keys(CASES))(
-    'renders 500,000 characters of %s in under 200 ms',
-    (name) => {
-      const run = spawnSync(
-        process.execPath,
-        [join(import.meta.dirname, 'fixtures', 'markdown-cpu.ts'), name],
-        { encoding: 'utf8', timeout: 40_000 },
+    'renders 500,000 characters of %s in under 400 ms',
+    async (name) => {
+      const run = await new Promise<{ error?: Error; status: number | null; stdout: string; stderr: string }>(
+        (resolve) => {
+          const child = execFile(
+            process.execPath,
+            [join(import.meta.dirname, 'fixtures', 'markdown-cpu.ts'), name],
+            { encoding: 'utf8', timeout: 40_000 },
+            (error, stdout, stderr) =>
+              resolve({
+                error: error && child.exitCode === null ? error : undefined,
+                status: child.exitCode,
+                stdout,
+                stderr,
+              }),
+          );
+        },
       );
       expect(run.error, `${name}: ${run.error?.message}`).toBeUndefined();
       expect(run.status, `${name}: ${run.stderr.slice(-300)}`).toBe(0);
       const out = JSON.parse(run.stdout) as { ms: number; length: number };
       expect(out.length).toBeGreaterThan(0);
-      expect(out.ms).toBeLessThan(200);
+      expect(out.ms).toBeLessThan(400);
     },
     60_000,
   );
