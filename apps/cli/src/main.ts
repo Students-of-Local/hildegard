@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseArgs, VERSION } from '@hildegard/server';
 import { agents, review, skills } from './agents.ts';
 import { cloud } from './cloud.ts';
@@ -53,8 +55,8 @@ const HELP = `${bold('hildegard')} ${VERSION}: your own film studio, on your own
   hildegard connect <app> --remote <link> --key-stdin
                              Let an app here use the Hildegard on another device, with a key from it
   hildegard connect local-studio
-                             Put Hildegard's commands in Local Studio: /image, /video, /speak, /design-voice,
-                             /clean-audio (disconnect local-studio takes them out)
+                             Put Hildegard in Local Studio: its tools, /image, /video, /speak, /design-voice,
+                             /clean-audio and the craft skills, /film to /motion (disconnect local-studio takes it out)
   hildegard disconnect <app>
   hildegard hf login         Link your Hugging Face account (hf status, hf logout). The token goes to
                              your system keychain; pipe one in with --token-stdin
@@ -104,6 +106,7 @@ const HELP = `${bold('hildegard')} ${VERSION}: your own film studio, on your own
                              <https://example.com/> says where its front page is for feeds and sitemaps)
   hildegard figma token      Link Figma for imports (--token-stdin; figma status | unlink)
   hildegard mcp              The MCP server, on stdio (AI apps run this). It's also at /mcp, over HTTP
+  hildegard mcp --skills DIR The same, serving the skills in DIR instead of Hildegard's own (Local Studio's plugin)
   hildegard skills install   Put Hildegard's skills where Claude Code, Codex, OMP, Pi, Gemini CLI and OpenCode look
                              (--agent claude-code|codex|omp|pi|gemini|opencode, --project DIR; skills list | remove)
   hildegard agents           Which coding agents are here, and how Hildegard may run each under
@@ -155,6 +158,7 @@ const argv = process.argv.slice(2);
 const flags = new Set<string>();
 const valued = new Set([
   'port',
+  'skills',
   'data',
   'model',
   'host',
@@ -332,8 +336,19 @@ async function main(): Promise<Result | null> {
         await (await import('./remote.ts')).runRemoteStdio(ctx, opts.get('remote')!);
         return null;
       }
+      const served = opts.get('skills');
+      if (flags.has('skills') && served === undefined) {
+        console.error('--skills needs a folder.');
+        process.exitCode = 2;
+        return null;
+      }
+      if (served !== undefined && !existsSync(join(served, 'hildegard', 'SKILL.md'))) {
+        console.error(`No Hildegard skills in ${served} (it has no hildegard/SKILL.md).`);
+        process.exitCode = 2;
+        return null;
+      }
       const { runStdio } = await import('./mcp.ts');
-      await runStdio(`http://127.0.0.1:${config.port}`);
+      await runStdio(`http://127.0.0.1:${config.port}`, served);
       return null;
     }
     case 'help':

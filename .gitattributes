@@ -1,3 +1,7 @@
 # Signed test files: Windows checkouts must not change their line endings, or the signatures stop matching.
 apps/server/test/fixtures/update/** -text
 docs/promo/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+# The Local Studio plugin ships as checked out, and Local Studio hashes its bytes: LF on every OS, so a Windows checkout
+# ships what Linux and macOS do. Its MCP command is a sh script, which CRLF would break.
+local-studio/hildegard/** text=auto eol=lf
+local-studio/hildegard/bin/hildegard-mcp text eol=lf

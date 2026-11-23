@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /**
- * `hildegard connect local-studio`: puts Hildegard's Local Studio plugin (local-studio/hildegard: a manifest and its
- * skills) in the folder Local Studio reads plugins from, so /image, /video, /speak, /design-voice, /clean-audio and
- * /hildegard appear in its command palette. The plugin asks for no capabilities: its skills run `hildegard make`.
+ * `hildegard connect local-studio`: puts Hildegard's Local Studio plugin (local-studio/hildegard: a manifest, its
+ * skills and its MCP command) in the folder Local Studio reads plugins from, so /image, /video, /speak, /design-voice,
+ * /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web, /loop,
+ * /design, /music and /motion, appear in its command palette. The media skills run `hildegard make`. The plugin asks for one capability,
+ * `mcp-server`, so Local Studio starts Hildegard's tools only once the person allows them.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { resource, type Step } from '@hildegard/runtime';
@@ -23,6 +25,9 @@ export function pluginsDir(env = process.env, home = homedir()): string {
 
 /** The plugin as shipped with this Hildegard. */
 export const pluginSource = () => resource(join('local-studio', PLUGIN_ID));
+
+/** The plugin's MCP command, from plugin.toml's [mcp] section. */
+export const LAUNCHER = join('bin', 'hildegard-mcp');
 
 /** Shipped inside the plugin. Any plugin in `plugins/hildegard` has the id hildegard, so the id alone can't say whose it is. */
 const MARKER = '.hildegard-plugin';
@@ -143,6 +148,10 @@ export function connectLocalStudio(_ctx: Ctx, off = false): Result {
   const old = join(dir, `.hildegard-old-${process.pid}`);
   rmSync(stage, { recursive: true, force: true });
   cpSync(source, staging, { recursive: true });
+  // Local Studio runs the [mcp] command directly, so it needs its execute bit, which a zip, a Windows-built release
+  // or a copy that kept no modes can drop.
+  const launcher = join(staging, LAUNCHER);
+  if (existsSync(launcher)) chmodSync(launcher, 0o755);
   const checked = validate(staging);
   if (checked.status === 'failed') {
     rmSync(stage, { recursive: true, force: true });
@@ -173,8 +182,13 @@ export function connectLocalStudio(_ctx: Ctx, off = false): Result {
     },
     { ...checked, detail: checked.detail.replaceAll(staging, target) },
   ];
+  // The [mcp] launcher is a POSIX sh script, so on Windows the skills install but the tools can't start.
+  const tools =
+    process.platform === 'win32'
+      ? 'Hildegard’s tools don’t start on Windows yet: its launcher needs macOS or Linux, so the skills work without them.'
+      : 'Hildegard’s tools start once you allow them on Local Studio’s sheet (Settings › Plugins).';
   return result(
     steps,
-    'Hildegard is in Local Studio: /image, /video, /speak, /design-voice, /clean-audio and /hildegard. They appear on its next command list, with no restart. Cloning a voice stays in the Hildegard Studio, with the speaker’s consent.',
+    `Hildegard is in Local Studio: /image, /video, /speak, /design-voice, /clean-audio and /hildegard, and the craft skills /film, /art, /sound, /photo, /edit-video, /3d, /web, /loop, /design, /music and /motion. They appear on its next command list, with no restart. ${tools} Cloning a voice stays in the Hildegard Studio, with the speaker’s consent.`,
   );
 }

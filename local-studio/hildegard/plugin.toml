@@ -1,8 +1,14 @@
 id = "hildegard"
+name = "Hildegard"
+icon = "icon.png"
 version = "0.1.17"
-description = "Hildegard for Local Studio: make images, video, speech, designed voices and cleaned audio on your own GPU, each one checked before you see it"
+description = "Hildegard for Local Studio: images, video, speech, voices and clean audio on your own GPU, the craft skills for film, art, design, music, motion, sound, photos, video editing, 3D, the web and writing, and Hildegard's tools, each piece checked before you see it"
 skills = "skills"
-capabilities = []
+capabilities = ["mcp-server"]
+
+# Runs `hildegard mcp` from the Hildegard installed here; without one, it says how to install it and exits.
+[mcp]
+command = "bin/hildegard-mcp"
 
 [[commands]]
 name = "hildegard"
@@ -33,3 +39,58 @@ skill = "hildegard-voice"
 name = "clean-audio"
 description = "Clean a voice recording: hum, noise and level fixed, loudness set"
 skill = "hildegard-clean"
+
+[[commands]]
+name = "film"
+description = "Plan and render a film, ad or reel, shot by shot"
+skill = "hildegard-film"
+
+[[commands]]
+name = "art"
+description = "Art direction and a series of images, each one reviewed"
+skill = "hildegard-art"
+
+[[commands]]
+name = "sound"
+description = "Clean, mix and master audio with tested recipes"
+skill = "hildegard-sound"
+
+[[commands]]
+name = "photo"
+description = "Straighten, crop, color and retouch a photo, measured"
+skill = "hildegard-photo-edit"
+
+[[commands]]
+name = "edit-video"
+description = "Cut clips into a piece with titles, music and set loudness"
+skill = "hildegard-video-edit"
+
+[[commands]]
+name = "3d"
+description = "Model in 3D in rounds, checked from every side"
+skill = "hildegard-3d"
+
+[[commands]]
+name = "web"
+description = "Build a web page in HTML and CSS, rendered and audited"
+skill = "hildegard-web"
+
+[[commands]]
+name = "loop"
+description = "Make, look, critique and refine, one change per round"
+skill = "hildegard-loop"
+
+[[commands]]
+name = "design"
+description = "A poster, flyer, post, cover or sign at its exact size, read back line by line"
+skill = "hildegard-design"
+
+[[commands]]
+name = "music"
+description = "Music, sound effects and soundscapes from recipes, loudness checked"
+skill = "hildegard-music"
+
+[[commands]]
+name = "motion"
+description = "Title cards, promos and kinetic type drawn in code, from a template"
+skill = "hildegard-motion"
