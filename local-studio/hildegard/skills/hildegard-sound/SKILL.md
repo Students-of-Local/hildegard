@@ -11,7 +11,7 @@ The person's request is at the top of this message and after `</skill>`.
 
 First pick the Fast path item that fits and run its script. For a voice recording: `python3 -B <folder>/scripts/clean_voice.py <recording> out.wav --lufs -16 --peak -1.5`. Then run `python3 -B <folder>/scripts/measure.py out.wav --lufs -16 --peak -1` and read every line before you hand it over.
 
-`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
 ## Fast path
 

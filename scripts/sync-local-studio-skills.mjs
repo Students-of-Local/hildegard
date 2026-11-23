@@ -215,6 +215,27 @@ export const EDITS = [
     replace:
       'With Hildegard connected, call `lint_writing`. Without it, from your working folder (`<folder>` is the hildegard\nskill\'s folder, on its "References are relative to" line; never write into it):',
   },
+  {
+    file: 'hildegard-3d/SKILL.md',
+    why: 'importing mesh_kit without -B writes __pycache__ into the plugin and turns its tools off',
+    find: "model can be made and sent from any Python, including a chatbot's.\n",
+    replace:
+      'model can be made and sent from any Python, including a chatbot\'s. To use it here, write your build script in your\nworking folder, put `import sys; sys.path.insert(0, "<folder>/scripts")` before `from mesh_kit import *`, and run\nit as `python3 -B build.py`: without `-B`, Python writes `__pycache__` into the plugin, and Local Studio turns\nHildegard\'s tools off.\n',
+  },
+  {
+    file: 'hildegard-3d/scripts/mesh_kit.py',
+    why: 'importing mesh_kit without -B writes __pycache__ into the plugin and turns its tools off',
+    find: '\n    from mesh_kit import *\n',
+    replace:
+      "\n    # In your working folder, with this file's folder on sys.path. Run it with `python3 -B`, which writes no\n    # __pycache__ here: a changed Local Studio plugin has its tools turned off.\n    from mesh_kit import *\n",
+  },
+  {
+    file: 'hildegard-motion/references/going-further.md',
+    why: 'importing motion without -B writes __pycache__ into the plugin and turns its tools off',
+    find: 'import sys; sys.path.insert(0, "path/to/hildegard-motion/scripts")  # this skill\'s scripts folder\nimport motion\n',
+    replace:
+      '# Save this in your working folder and run it with `python3 -B yours.py`: without -B, Python writes\n# __pycache__ into <folder>, the plugin, and Local Studio turns Hildegard\'s tools off.\nimport sys; sys.path.insert(0, "<folder>/scripts")  # this skill\'s scripts folder\nimport motion\n',
+  },
   // Every other run of a script by a path relative to the skill folder, which only works from inside the plugin: each
   // `find` is the exact source text, and every `python3 scripts/` in it becomes `python3 -B <folder>/scripts/`.
   ...Object.entries({
@@ -315,7 +336,7 @@ const tools =
   "Hildegard's tools (`hildegard_status`, `loop_start` and the rest) are here once the person allows the Hildegard plugin in Local Studio's Settings, Plugins. If you don't have them, use this skill's way without Hildegard.";
 const where = '`<folder>` is the folder on the "References are relative to" line above.';
 const folder =
-  '`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard\'s tools off until the person allows them again.';
+  '`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard\'s tools off until the person allows them again.';
 
 /**
  * The "In Local Studio" block each commanded skill opens with, right under its title: what a small model runs first.

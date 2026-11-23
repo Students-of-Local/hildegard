@@ -11,7 +11,7 @@ The person's request is at the top of this message and after `</skill>`.
 
 First call the `hildegard_status` tool to see which video models are installed. If you have no Hildegard tools, render each shot with bash, one at a time: `hildegard make video "<the shot's prompt>" --move <camera move> --quality draft` (moves such as `dolly-in`, `pull-back-reveal`, `follow`). It waits, saves the clip and reviews it. If the person asked only for a plan, do the Fast path below and render nothing.
 
-`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
 Hildegard's tools (`hildegard_status`, `loop_start` and the rest) are here once the person allows the Hildegard plugin in Local Studio's Settings, Plugins. If you don't have them, use this skill's way without Hildegard.
 

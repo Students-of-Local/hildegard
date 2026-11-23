@@ -11,7 +11,7 @@ The person's request is at the top of this message and after `</skill>`.
 
 First pick the closest template in `<folder>/templates/` (the table below), copy it into your working folder (`cp <folder>/templates/promo.json promo.json`), change the copy, and run `python3 -B <folder>/scripts/motion.py promo.json --check` until it prints `result: clean`. Where this skill says `<skill>`, that is `<folder>`. If numpy or Pillow is missing, or neither ffmpeg nor PyAV is there, give the person the install line below and install nothing yourself.
 
-`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
 Read **hildegard-craft** first for the bar. This skill makes video by writing a JSON spec: scenes, layers of text, shapes and
 photos, and moves with names. `scripts/motion.py` checks the spec, draws every frame (anti-aliased, in sRGB) and encodes an

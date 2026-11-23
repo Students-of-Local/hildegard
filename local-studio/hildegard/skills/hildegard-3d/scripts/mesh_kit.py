@@ -4,6 +4,8 @@
 Plain numpy for watertight primitives, transforms and the OBJ, STL and GLB writers, so it runs in any Python, a
 chatbot's code tool included. Signed-distance modeling (`mesh_sdf`) also needs scikit-image for marching cubes.
 
+    # In your working folder, with this file's folder on sys.path. Run it with `python3 -B`, which writes no
+    # __pycache__ here: a changed Local Studio plugin has its tools turned off.
     from mesh_kit import *
     body = sdf_ellipsoid((0, 0, 40), (14, 10, 22))
     head = sdf_sphere((0, 4, 72), 8)

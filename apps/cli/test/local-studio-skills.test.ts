@@ -237,6 +237,45 @@ describe('the Local Studio plugin’s craft skills', () => {
     expect(runs).toBeGreaterThan(50);
   });
 
+  it('import a plugin module only in a script run with -B', () => {
+    // Importing mesh_kit or motion from the plugin writes __pycache__ beside it unless Python runs with -B.
+    const modules = new Set(
+      files(join(plugin, 'skills'))
+        .filter((f) => /[\\/]scripts[\\/][^\\/]+\.py$/.test(f))
+        .map((f) => f.replace(/^.*[\\/]/, '').replace(/\.py$/, '')),
+    );
+    expect(modules.has('mesh_kit') && modules.has('motion')).toBe(true);
+    const names = [...modules].join('|');
+    const imports = new RegExp(
+      `^\\s*(from\\s+(${names})\\s+import\\b|import\\s+(${names})\\b)|\`from (${names}) import`,
+      'm',
+    );
+    const texts = [
+      ...shippedText(),
+      // A script's docstring is what a model reads to learn how to import it.
+      ...files(join(plugin, 'skills'))
+        .filter((f) => f.endsWith('.py'))
+        .map((f) => ({
+          f,
+          text: /"""[\s\S]*?"""/.exec(readFileSync(join(plugin, 'skills', f), 'utf8'))?.[0] ?? '',
+        })),
+    ];
+    let found = 0;
+    for (const { f, text } of texts)
+      for (const para of text.split(/\n[ \t]*\n/)) {
+        const pluginPath = /sys\.path\.(insert|append)\((?![^)]*__file__)/.test(para);
+        if (!pluginPath && !imports.test(para)) continue;
+        found++;
+        expect(para, f).toMatch(/python3 -B\b/);
+        expect(para, f).not.toMatch(/PYTHONDONTWRITEBYTECODE/);
+      }
+    expect(found).toBeGreaterThanOrEqual(3); // hildegard-3d, mesh_kit.py and motion's going-further.md
+    for (const s of ['hildegard-3d', 'hildegard-motion'])
+      expect(FIRST[s].join('\n'), s).toContain(
+        'a script of yours that imports from `<folder>/scripts` as `python3 -B',
+      );
+  });
+
   it('define <folder> wherever a skill names it', () => {
     const skills = new Map<string, string>();
     for (const { f, text } of shippedText()) {

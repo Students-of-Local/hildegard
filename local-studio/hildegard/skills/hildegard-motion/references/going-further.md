@@ -20,7 +20,9 @@ reuse `motion.py`'s own measurements.
 ## Reuse motion.py as a library
 
 ```python
-import sys; sys.path.insert(0, "path/to/hildegard-motion/scripts")  # this skill's scripts folder
+# Save this in your working folder and run it with `python3 -B yours.py`: without -B, Python writes
+# __pycache__ into <folder>, the plugin, and Local Studio turns Hildegard's tools off.
+import sys; sys.path.insert(0, "<folder>/scripts")  # this skill's scripts folder
 import motion
 
 motion.contrast_ratio((255, 255, 255), (79, 140, 255))   # WCAG contrast of two colors

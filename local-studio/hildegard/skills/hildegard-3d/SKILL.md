@@ -13,7 +13,7 @@ First write the brief (section 1), then call the `loop_start` tool with `kind` m
 
 In Local Studio, printing belongs to the Gantrel plugin: when it is installed, use its /plan and /print commands (Gantrel owns slicing, printer checks and printing). Without Gantrel, hand the person the mesh file (STL or 3MF) and stop there.
 
-`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
 Hildegard's tools (`hildegard_status`, `loop_start` and the rest) are here once the person allows the Hildegard plugin in Local Studio's Settings, Plugins. If you don't have them, use this skill's way without Hildegard.
 
@@ -75,7 +75,10 @@ parameters** (`build.py`, `model.scad`), seeded, so each round is a small edit y
 `<folder>/scripts/mesh_kit.py` (read it there; with Hildegard linked and no files, `read_skill hildegard-3d
 scripts/mesh_kit.py`) is plain numpy: watertight
 primitives (box, sphere, cylinder), transforms, signed-distance modeling, and writers for OBJ, STL and GLB, so a
-model can be made and sent from any Python, including a chatbot's.
+model can be made and sent from any Python, including a chatbot's. To use it here, write your build script in your
+working folder, put `import sys; sys.path.insert(0, "<folder>/scripts")` before `from mesh_kit import *`, and run
+it as `python3 -B build.py`: without `-B`, Python writes `__pycache__` into the plugin, and Local Studio turns
+Hildegard's tools off.
 
 ## 3. Rounds: big to small, one change each
 

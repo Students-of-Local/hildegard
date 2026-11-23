@@ -11,7 +11,7 @@ The person's request is at the top of this message and after `</skill>`.
 
 First pick the closest recipe: `python3 -B <folder>/scripts/sfx.py --list` for a sound effect, `music.py --list` for music, `soundscape.py --list` for a long bed. Copy it into your working folder (`cp <folder>/templates/lofi.json mine.json`) and change the copy, never the file in `<folder>`. Run every script from your working folder.
 
-`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
 Read **hildegard-craft** first. This skill makes instrumental music, sound effects and long soundscapes with code you
 can run anywhere: `scripts/sfx.py` renders a sound effect from a JSON recipe, `scripts/music.py` renders a piece from a
