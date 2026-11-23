@@ -82,6 +82,17 @@ describe('the Local Studio plugin’s craft skills', () => {
     expect(drift(root)).toEqual([]);
   });
 
+  it('check out with LF line endings on every OS, so every OS ships the bytes Local Studio hashes', () => {
+    // .gitattributes holds the plugin at eol=lf; without it a Windows checkout writes CRLF.
+    const all = files(plugin);
+    expect(all.length).toBeGreaterThan(100);
+    const crlf = all.filter((f) => {
+      const b = readFileSync(join(plugin, f));
+      return !b.includes(0) && b.includes('\r');
+    });
+    expect(crlf).toEqual([]);
+  });
+
   it('fail the check when one byte of a plugin copy changes, and the sync puts it back', () => {
     const repo = scratch();
     expect(drift(repo)).toEqual([]);
@@ -145,7 +156,10 @@ describe('the Local Studio plugin’s craft skills', () => {
     const repo = scratch();
     for (const rel of ['skills/hildegard-art/SKILL.md', `${PLUGIN}/skills/hildegard-sound/SKILL.md`]) {
       const p = join(repo, rel);
-      writeFileSync(p, readFileSync(p, 'utf8').replaceAll('\n', '\r\n'));
+      // From LF first: a Windows checkout of skills/ may already be CRLF.
+      writeFileSync(p, readFileSync(p, 'utf8').replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'));
+      expect(readFileSync(p, 'utf8'), rel).toMatch(/[^\r]\r\n/);
+      expect(readFileSync(p, 'utf8'), rel).not.toMatch(/\r\r|\r(?!\n)/);
     }
     expect(drift(repo)).toEqual([]);
   });
