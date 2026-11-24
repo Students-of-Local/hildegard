@@ -13,15 +13,19 @@ const skill = readFileSync(
   'utf8',
 ).replaceAll('\r\n', '\n');
 const programs = new Map(
-  [...skill.matchAll(/```(?:python|bash)\n((?:#!.*\n)?# (?:python3|bash) (\w+\.(?:py|sh))[\s\S]*?)```\n/g)].map(
-    (m) => [m[2] ?? '', m[1] ?? ''],
-  ),
+  [
+    ...skill.matchAll(/```(?:python|bash)\n((?:#!.*\n)?# (?:python3|bash) (\w+\.(?:py|sh))[\s\S]*?)```\n/g),
+  ].map((m) => [m[2] ?? '', m[1] ?? '']),
 );
 const has = (cmd: string, ...args: string[]) => spawnSync(cmd, args).status === 0;
 const hasFfmpeg = has('ffmpeg', '-version') && has('ffprobe', '-version');
 let dir: string;
 const run = (cmd: string, ...args: string[]) => {
-  const r = spawnSync(cmd, args, { encoding: 'utf8', cwd: dir, env: { ...process.env, FIT: 'scale=160:90' } });
+  const r = spawnSync(cmd, args, {
+    encoding: 'utf8',
+    cwd: dir,
+    env: { ...process.env, FIT: 'scale=160:90' },
+  });
   return { ok: r.status === 0, said: r.stdout + r.stderr };
 };
 const save = (name: string, body: string) => writeFileSync(join(dir, name), body);
@@ -31,7 +35,9 @@ const words = (text: string) =>
 const said =
   'I was nine then. We sold the house in May. But we did not want to go. She never came back to see it.';
 const spans = (...list: [number, number][]) =>
-  list.map(([i, j]) => `a.mkv ${(i * 0.4 - 0.05).toFixed(2)} ${((j - 1) * 0.4 + 0.35).toFixed(2)}`).join('\n');
+  list
+    .map(([i, j]) => `a.mkv ${(i * 0.4 - 0.05).toFixed(2)} ${((j - 1) * 0.4 + 0.35).toFixed(2)}`)
+    .join('\n');
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'video-programs-'));
@@ -67,10 +73,31 @@ describe.skipIf(!has(python, '--version'))('the words', () => {
   });
 
   it.each<[string, [number, number][], boolean, string]>([
-    ['whole sentences in order', [[0, 4], [17, 24]], true, 'span 2'],
-    ['a kept line whose next sentence takes it back', [[4, 10]], true, 'LOOK the next sentence takes it back'],
+    [
+      'whole sentences in order',
+      [
+        [0, 4],
+        [17, 24],
+      ],
+      true,
+      'span 2',
+    ],
+    [
+      'a kept line whose next sentence takes it back',
+      [[4, 10]],
+      true,
+      'LOOK the next sentence takes it back',
+    ],
     ['a cut inside a sentence', [[4, 8]], false, 'FIX ends inside a sentence'],
-    ['an answer moved earlier', [[17, 24], [0, 4]], false, 'FIX is earlier on the tape'],
+    [
+      'an answer moved earlier',
+      [
+        [17, 24],
+        [0, 4],
+      ],
+      false,
+      'FIX is earlier on the tape',
+    ],
   ])('meaning.py: %s', (_, list, ok, line) => {
     save('spans.txt', spans(...list));
     const r = run(python, 'meaning.py', 'words.json', 'spans.txt');
@@ -112,12 +139,27 @@ describe.skipIf(!hasFfmpeg || process.platform === 'win32')('spans.sh', () => {
 
 describe.skipIf(!hasFfmpeg || !has(python, '-c', 'import numpy'))('sync.py', () => {
   beforeAll(() => {
-    const noise = (seed: number, d: number) => `anoisesrc=d=${d}:c=pink:seed=${seed}:r=16000,tremolo=f=0.7:d=0.9`;
+    const noise = (seed: number, d: number) =>
+      `anoisesrc=d=${d}:c=pink:seed=${seed}:r=16000,tremolo=f=0.7:d=0.9`;
     const wav = (out: string, input: string, ...more: string[]) =>
       run('ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', input, ...more, out);
     wav('main.wav', noise(3, 120));
     wav('other.wav', noise(8, 80));
-    run('ffmpeg', '-v', 'error', '-y', '-ss', '17.42', '-t', '80', '-i', 'main.wav', '-af', 'volume=0.4', 'cam.wav');
+    run(
+      'ffmpeg',
+      '-v',
+      'error',
+      '-y',
+      '-ss',
+      '17.42',
+      '-t',
+      '80',
+      '-i',
+      'main.wav',
+      '-af',
+      'volume=0.4',
+      'cam.wav',
+    );
   });
   it('finds where a camera starts', () => {
     const r = run(python, 'sync.py', 'main.wav', 'cam.wav');
