@@ -362,7 +362,7 @@ export const FIRST = {
     folder,
   ],
   'hildegard-video-edit': [
-    "First run `python3 -B <folder>/scripts/cut_reel.py` as in the Fast path's step 4, with the person's clips, then `python3 -B <folder>/scripts/check_video.py out.mp4` with the brief's numbers. Every line must say OK.",
+    "First pick the path. A short film from long recordings (a screen, several cameras, an interview) is section 8: save its programs in your working folder, never `<folder>`. Anything else: run `python3 -B <folder>/scripts/cut_reel.py` as in the Fast path's step 4, with the person's clips, then `python3 -B <folder>/scripts/check_video.py out.mp4` with the brief's numbers. Every line must say OK.",
     folder,
   ],
   'hildegard-3d': [
