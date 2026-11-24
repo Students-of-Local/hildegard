@@ -8,9 +8,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { privateAddress } from '../src/addresses.ts';
 import { parseArgs } from '../src/config.ts';
 import { challengeOf } from '../src/grants.ts';
-import { privateAddress, redirectAllowed, redirectMatches } from '../src/oauth.ts';
+import { redirectAllowed, redirectMatches } from '../src/oauth.ts';
 import { type Running, startServer } from '../src/server.ts';
 import { memoryStore } from './helpers.ts';
 

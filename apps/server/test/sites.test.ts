@@ -9,9 +9,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { privateAddress } from '../src/addresses.ts';
 import { findChrome, serveFolder } from '../src/browser.ts';
 import { fileStore, parseArgs, type Running, startServer } from '../src/index.ts';
-import { importUrl, privateAddress, publicOnly } from '../src/site-import.ts';
+import { importUrl, publicOnly } from '../src/site-import.ts';
 
 let srv: Running;
 let client: Client;
@@ -287,6 +288,52 @@ describe('sites', { timeout: 60_000 }, () => {
     expect(await allow('http://[::1]/')).toBe(false);
     expect(await allow('file:///etc/passwd')).toBe(false);
     expect(await allow('https://gpu-a.example.ts.net/')).toBe(false);
+    // Private addresses, plain and written other ways: inside an IPv6 address, as one number, with a trailing dot.
+    for (const host of [
+      '[::ffff:127.0.0.1]',
+      '[::ffff:100.100.1.1]',
+      '[::ffff:192.168.1.1]',
+      '[::ffff:93.184.216.34]',
+      '[64:ff9b::7f00:1]',
+      '[64:ff9b::a00:5]',
+      '[64:ff9b::6440:1]',
+      '[64:ff9b:1::1]',
+      '[::127.0.0.1]',
+      '[2002:7f00:1::]',
+      '[2001:0:7f00:1::1]',
+      '[2001:db8::1]',
+      '[2001:2::1]',
+      '[3fff::1]',
+      '192.0.0.1',
+      '192.0.2.1',
+      '[::ffff:0:127.0.0.1]',
+      '[100::1]',
+      '[fc::1]',
+      '[fec0::1]',
+      '[ff02::1]',
+      'localhost.',
+      'foo.ts.net.',
+      '127.0.0.1',
+      '127.0.0.1.',
+      '[::1]',
+      '[fd00::1]',
+      '[fe80::1]',
+      '2130706433',
+      '100.64.0.1',
+      '169.254.1.1',
+    ])
+      expect(await allow(`http://${host}/`), host).toBe(false);
+    for (const host of [
+      'example.com',
+      'example.com.',
+      '[2606:4700::1111]',
+      '[64:ff9b::5db8:d822]',
+      '192.0.78.24',
+      '[64:ff9b::c000:4e18]',
+    ])
+      expect(await allow(`https://${host}/`), host).toBe(true);
+    const mixed = publicOnly(async () => ['93.184.216.34', '::ffff:10.0.0.1']);
+    expect(await mixed('https://mixed.test/')).toBe(false);
     const r = await api('/api/sites', {
       method: 'POST',
       body: JSON.stringify({ from: 'url', url: `${srv.url}/` }),

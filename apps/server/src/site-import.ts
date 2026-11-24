@@ -12,36 +12,10 @@
 import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { privateAddress } from './addresses.ts';
 import { Browser, Tab } from './browser.ts';
 
 export class ImportError extends Error {}
-
-/** True for addresses on the owner's own computer or network, and anything else that isn't the public internet. */
-export function privateAddress(ip: string): boolean {
-  const v = isIP(ip);
-  if (v === 4) {
-    const [a, b] = ip.split('.').map(Number) as [number, number];
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 192 && b === 0) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      a >= 224
-    );
-  }
-  if (v === 6) {
-    const s = ip.toLowerCase();
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s);
-    if (mapped) return privateAddress(mapped[1]!);
-    return s === '::' || s === '::1' || /^f[cd]/.test(s) || /^fe[89ab]/.test(s) || /^ff/.test(s);
-  }
-  return true;
-}
 
 /** Whether the browser may load this address: http(s) or data on a public host. */
 export function publicOnly(look: (host: string) => Promise<string[]> = defaultLookup) {
@@ -56,7 +30,9 @@ export function publicOnly(look: (host: string) => Promise<string[]> = defaultLo
     }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
     const host = u.hostname.replace(/^\[|\]$/g, '');
-    if (/^(localhost|.*\.localhost|.*\.local|.*\.internal|.*\.home\.arpa|.*\.ts\.net)$/i.test(host))
+    // A trailing dot says the same name (localhost. is localhost).
+    const name = host.replace(/\.+$/, '');
+    if (/^(localhost|.*\.localhost|.*\.local|.*\.internal|.*\.home\.arpa|.*\.ts\.net)$/i.test(name))
       return false;
     if (isIP(host)) return !privateAddress(host);
     let p = seen.get(host);
