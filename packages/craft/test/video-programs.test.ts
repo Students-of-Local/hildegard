@@ -198,6 +198,20 @@ describe.skipIf(!has(python, '--version'))('the words', () => {
     expect(cut.said).toContain('FIX cuts through a word');
   });
 
+  it('meaning.py: a photo listed with the cameras lies over a voice that runs on', () => {
+    save('m.json', words(said));
+    save('spans.txt', 'tape.mkv 0 2.1\ncard.png 2.1 3.95\ntape.mkv 3.95 10\n');
+    const r = run(python, 'meaning.py', 'm.json', 'spans.txt', 'tape.mkv,card.png');
+    expect(r.ok, r.said).toBe(true);
+    expect(r.said).not.toContain('not read');
+  });
+
+  it('meaning.py: a comma after "p.m." ends no sentence', () => {
+    const r = meaning('We left at 5 p.m., against our will.', [[0, 5]]);
+    expect(r.ok).toBe(false);
+    expect(r.said).toContain('FIX ends inside a sentence');
+  });
+
   it('meaning.py reads two interviews, each against its own words', () => {
     const [anna, ben] = ['Did you miss him? Every single day.', 'We never spoke again. I was nine then.'];
     save('anna.json', words(anna));
@@ -211,6 +225,12 @@ describe.skipIf(!has(python, '--version'))('the words', () => {
     expect(go(film).ok, go(film).said).toBe(true);
     expect(go(film).said).toContain('LOOK follows a question that was put to someone else');
     expect(go(film.replace('never ', '')).ok).toBe(false);
+    // Ben between them, a later answer of Anna's is still not the answer to her question
+    save('anna.json', words('Did you miss him? Every single day. Was it cold? Yes.'));
+    save('spans.txt', 'anna.mkv 0 1.55\nben.mkv 0 1.55\nanna.mkv 3.95 4.4\n');
+    const other = go('Did you miss him? We never spoke again. Yes.');
+    expect(other.ok).toBe(false);
+    expect(other.said).toContain('FIX answers a question that was not its own');
   });
 
   it.each([
@@ -495,7 +515,7 @@ describe.skipIf(!hasFfmpeg || !has(python, '-c', 'import numpy'))('sync.py', () 
     ).split(' ');
     expect(Number(from)).toBeLessThan(20);
     expect(Number(to)).toBeGreaterThan(100); // the camera hears the event until 10 + 110 s, then something else
-    expect(Number(to)).toBeLessThan(146); // the last matched window's end, no guess past it
+    expect(Number(to)).toBeLessThan(125);
   });
   it('fails another event, a paused camera and a file with no sound, and still reads the one after', () => {
     const r = run(python, 'sync.py', 'main.wav', 'other.wav', 'drone.mkv', 'paused.wav', 'cut.wav');

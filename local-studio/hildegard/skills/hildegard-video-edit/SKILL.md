@@ -248,7 +248,7 @@ the target without pumping (a quiet mic with loud peaks). Then put `acompressor=
 ## 8. A short film from long recordings
 
 Ask for the one sentence a viewer should leave with: it picks the hook and which minutes survive. Say what was assumed and go on. Save each
-program below under its name in your working folder, never in this skill's folder, and run it there. Give recordings names without spaces.
+program below under its name in your working folder, never in this skill's folder, and run it there. Give recordings names without spaces, commas or `+`; make any other kind of photo (HEIC) a PNG.
 
 Write one line per span in `spans.txt` (`file in out [filter]`, seconds) and render with this. It snaps every cut to a whole frame, keeps the
 sound PCM, and fails when frames are missing, a span's sound runs out or picture and sound end apart:
@@ -261,7 +261,7 @@ OUT=${OUT:-assembly.mkv}; FPS=${FPS:-30}; FIT=${FIT:-scale=1920:1080:force_origi
 R=$(awk "BEGIN{printf \"%.9f\", $FPS}"); P=$(mktemp -d parts.XXXX); n=0; want=0; bad=0
 while read -r f a b vf || [ -n "$f" ]; do
   [ -n "$f" ] || continue; n=$((n+1)); p=$(printf "$P/%03d.mkv" $n); l=(); row=
-  case "$f" in *.png|*.jpg|*.jpeg|*.webp|*.PNG|*.JPG|*.JPEG) l=(-loop 1 -framerate "$FPS"); row="x 0 0"; vf="scale=out_color_matrix=bt709:out_range=tv,format=yuv444p${vf:+,$vf}";; esac    # a photo or a card, in HD video's color
+  case "$f" in *.[pP][nN][gG]|*.[jJ][pP][gG]|*.[jJ][pP][eE][gG]|*.[wW][eE][bB][pP]) l=(-loop 1 -framerate "$FPS"); row="x 0 0"; vf="scale=out_color_matrix=bt709:out_range=tv,format=yuv444p${vf:+,$vf}";; esac    # a photo or a card, in HD video's color
   if [ -z "$row" ] && [ -f sync.txt ]; then row=$(awk -v f="$f" '$1==f{r=$0} END{print r}' sync.txt)
     if [ -z "$row" ]; then echo "FIX span $n: $f has no line in sync.txt"; bad=1; fi
     if awk -v a="$a" -v b="$b" '{exit !(NF>4 && (a<$4-.1 || b>$5+.1))}' <<< "$row"; then echo "FIX span $n: $f only matched the main sound from $(cut -d' ' -f4,5 <<< "$row") s; check the sync there by eye, then widen the last two numbers of its line"; bad=1; fi; fi
@@ -373,9 +373,10 @@ for p in F[1:]:
     if not keep.all(): print("FIX", p, "jumps (a pause, or a part that repeats); split it where its start changes:", *(f"at {a:.0f} s starts {b:+.2f};" for a, b in got)); bad = 1; continue
     m, b = np.polyfit(t + win/2, s, 1) if np.ptp(t) > 120 else (0, s.mean())      # too short to tell drift: none
     err = abs(s - (m*(t + win/2) + b)).max()*1000
-    ok = err < 20 and abs(m) < 3e-4; bad |= not ok; lo, hi = t[0] + b, t[-1] + win + b                       # only what matched, on the main clock
+    ok = err < 20 and abs(m) < 3e-4; bad |= not ok; half = lambda u: (lambda o, q: q > 1.6 and abs(o - u - b - m*u) < .5)(*lag(main, x[int(u*R):int((u + win/2)*R)]))
+    lo, hi = (b + (1 + m)*(u + (0 if g else v)) for u, g, v in ((t[0], half(t[0]), win/2), (t[-1] + win, half(t[-1] + win/2), -win/2)))      # only what matched, on the main clock
     found += [f"{p} {b:.4f} {m*1e6:.1f} {lo:.1f} {hi:.1f}\n"] if ok else []
-    print("OK " if ok else "FIX", p, f"starts {b:+.3f} s on the main clock, drift {m*1e6:+.0f} ppm ({m*1.5e6:+.0f} ms over 25 min), worst error {err:.0f} ms, {len(got)} of 9 places, good from {lo:.0f} to {hi:.0f} s")
+    print("OK " if ok else "FIX", p, f"starts {b:+.3f} s on the main clock, drift {m*1e6:+.0f} ppm ({m*1.5e6:+.0f} ms over 25 min), worst error {err:.0f} ms, {len(got)} of 9 places,", f"good from {lo:.0f} to {hi:.0f} s" if ok else "drift over 300 ppm or a wandering clock: make a constant-rate copy (ffmpeg -i in -vf fps=30 ...) and sync that")
 if "--write" in sys.argv: open("sync.txt", "w").writelines(found)
 sys.exit(bad)
 ```
@@ -412,8 +413,9 @@ shows ticks evenly spaced or not. Last, someone in the family who knows the stor
 
 ```python
 # python3 meaning.py words.json spans.txt TAPE[,TAPE2] [cut_words.json]: what the cut does to what was said. TAPE: the interview's file in spans.txt, or its cameras on one clock.
+# A photo laid over the voice while it runs on is listed with the cameras (main.mkv,photo.png); a card that stops the voice is not.
 # Two interviews in one film, each on its own clock: anna.json+ben.json spans.txt anna.mkv,anna2.mkv+ben.mkv
-import sys, json, re, difflib, unicodedata
+import sys, json, re, difflib, unicodedata; sys.stdout.reconfigure(encoding="utf-8")
 Q = str.maketrans("\u2018\u2019\u201c\u201d", "''\"\"")
 def read(p):
     out = []
@@ -430,15 +432,16 @@ for l in open(sys.argv[2], encoding="utf-8"):                    # a camera chan
     elif f and last == g and abs(a - S[-1][2]) < .05: S[-1][2] = b
     elif f: S.append([g, a, b])
     if f: last = g
-print("not read, no words of the tape:", *sorted(skipped))
-END = re.compile(r"[.?!\u2026\u061f\u06d4\u0964\u0965\u3002\uff01\uff1f]\W*$"); ASK = re.compile(r"[?\u061f\uff1f]\W*$")
+if skipped: print("not read, no words of the tape:", *sorted(skipped))
+C = r"[\s\"')\]}\u00ab\u00bb\u2039\u203a\u300c\u300d\u300e\u300f\uff09]*$"      # closing marks, never a comma: "5 p.m.," ends nothing
+END = re.compile(r"[.?!\u2026\u061f\u06d4\u0964\u0965\u3002\uff01\uff1f]" + C); ASK = re.compile(r"[?\u061f\uff1f]" + C)
 HEDGE = re.compile(r"n't\b|\b(not|cannot|no|never|nothing|nobody|none|neither|nor|without|hardly|if|unless|maybe|perhaps|might|may|could|think|guess|probably|sometimes|only|almost|suppose|joking|kidding)\b", re.I)
 BACK = re.compile(r"^(but|unless|if|only|except|although|though|actually|well|no|not|maybe)\b|\b(jok|kidding|think|guess|suppose|maybe|perhaps|probably|unless|anyway|actually|not true|wrong)", re.I)
 for W in WW:
     if sum(w["w"].lower().strip(".,?!") in "the and to of a i it in was that you we".split() for w in W) < .1*len(W): print("LOOK not English? the not, if and maybe checks read English only: read every span yourself")
 for g, t in enumerate(tapes):
     if not any(s[0] == g for s in S): print("FIX no span of", ",".join(t), "in", sys.argv[2]); bad = 1
-ends, outs, asked = {}, {}, None                                 # per tape: where its last span ended. asked: the tape whose question the span before ends on
+ends, outs, asked, before = {}, {}, {}, None                      # per tape: where its last span ended, and whether on a question. before: the tape of the span before, if that asked one
 for n, (g, a, b) in enumerate(S, 1):
     W = WW[g]; txt = lambda i, j: " ".join(w["w"] for w in W[max(0, i):max(0, j)]); end = ends.get(g)
     I = [k for k, w in enumerate(W) if w["s"] > a - .05 and w["e"] < b + .05]; fix, look = [], []
@@ -448,13 +451,13 @@ for n, (g, a, b) in enumerate(S, 1):
     if i and not END.search(W[i-1]["w"]): fix.append("starts inside a sentence")
     if not END.search(W[j-1]["w"]): fix.append("ends inside a sentence")
     if a < outs.get(g, a): fix.append("is earlier on the tape than the span before it")
-    if asked == g and i != end: fix.append("answers a question that was not its own: the span before ends on one")
-    if asked not in (None, g): look.append("follows a question that was put to someone else")
+    if asked.get(g) and i != end: fix.append("answers a question that was not its own: this tape's span before ends on one")
+    if before not in (None, g): look.append("follows a question that was put to someone else")
     if BACK.search(txt(j, e)): look.append("the next sentence may take it back or limit it: " + txt(j, e))
     if i and i != end:                                           # every join: what was said just before it on the tape, two sentences back
         k = [k for k in range(i - 1) if END.search(W[k]["w"])][-2:]; look.append("cut just before it: " + txt(k[0] + 1 if len(k) == 2 else 0, i))
     if re.match(r"(and|but|so|because|he|she|it|they|that|this|yes|no|yeah)\b", W[i]["w"], re.I): look.append("leans on what came before (who? which question?)")
-    ends[g], outs[g], asked = j, b, g if ASK.search(W[j-1]["w"]) else None; bad |= bool(fix); print(f"\nspan {n}: [{txt(i-12, i)}] {txt(i, j)} [{txt(j, j+12)}]", *["\n  FIX " + f for f in fix], *["\n  LOOK " + l for l in look], sep="")
+    ends[g], outs[g], asked[g] = j, b, bool(ASK.search(W[j-1]["w"])); before = g if asked[g] else None; bad |= bool(fix); print(f"\nspan {n}: [{txt(i-12, i)}] {txt(i, j)} [{txt(j, j+12)}]", *["\n  FIX " + f for f in fix], *["\n  LOOK " + l for l in look], sep="")
 if len(sys.argv) > 4:                                           # the delivered film, transcribed again, against the words you chose. Vowel signs and accents stay
     bare = lambda w: "".join(c for c in unicodedata.normalize("NFC", w.lower()) if c == "'" or unicodedata.category(c)[0] in "LMN").strip("'")
     norm = lambda L: [bare(w["w"]) for w in L if bare(w["w"])]; A, B = norm(kept), norm(read(sys.argv[4]))
