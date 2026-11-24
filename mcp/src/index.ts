@@ -53,7 +53,7 @@ export interface McpOptions {
 }
 
 /** The version this MCP server reports, as the release sets it. */
-export const MCP_VERSION = '0.1.17';
+export const MCP_VERSION = '0.1.18';
 
 export function createMcpServer(client = new HildegardClient(), opts: McpOptions = {}) {
   const server = new McpServer(
