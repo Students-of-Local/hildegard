@@ -7,6 +7,8 @@ description: Cut clips into a reel with titles and music, edit or trim video, cr
 
 ## Fast path
 
+A short film from long recordings (a screen, a talk, several cameras, an interview) starts at **section 8**, not here. When your user asks for a plan and commands to run on their own machine, the answer has to stand alone: plain FFmpeg, and each script you use pasted whole. They have none of the scripts in this folder, so name none of them.
+
 This skill is all you need to cut clips into a finished piece with titles, a closing card and a music bed, and to check it. Don't write the filter graph by hand. Run `scripts/cut_reel.py` (Python 3, FFmpeg only), or, if you can deliver only one script, paste **Recipe D** and edit its first lines.
 
 1. **Clean a voice recording:** `python3 scripts/clean_voice.py in.wav out.wav --lufs -16` (the same script as in the **hildegard-sound** skill, whose SKILL.md also has it as a paste-in Recipe A).
@@ -116,20 +118,30 @@ ffmpeg -i input.mp4 -ss 3.20 -to 7.85 -c:v libx264 -crf 17 -preset slow -c:a aac
 
 ## 2. Assemble
 
-Same size, frame rate and audio on every clip first:
+Same size, frame rate and audio on every clip first. Keep the sound PCM until the last step: AAC parts leave a gap at every join.
 
 ```sh
 ffmpeg -i clip.mp4 -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=24,setsar=1" \
-  -c:v libx264 -crf 17 -preset slow -c:a aac -ar 48000 -ac 2 norm-1.mp4
+  -c:v libx264 -crf 14 -preset slow -c:a pcm_s16le -ar 48000 -ac 2 norm-1.mkv
 ```
+
+In a shell loop that reads a list, every `ffmpeg` needs `-nostdin`, or it eats the rest of the list. Phone footage is often HDR
+(`ffprobe -select_streams v -show_entries stream=color_transfer` says `arib-std-b67` or `smpte2084`); joined as it is, it looks gray. Convert it
+first, before any scale or grade:
+
+```sh
+HDR="zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=mobius:param=0.6:peak=4.9:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+```
+
+On test bars mobius put mid gray back where it started; hable, the usual copy, left it a third too dark.
 
 (A clip without sound: add `-f lavfi -i anullsrc=r=48000:cl=stereo -shortest` as a second input.)
 
 Join with straight cuts (the default; use it):
 
 ```sh
-printf "file '%s'\n" norm-1.mp4 norm-2.mp4 norm-3.mp4 > list.txt
-ffmpeg -f concat -safe 0 -i list.txt -c copy assembly.mp4
+printf "file '%s'\n" norm-1.mkv norm-2.mkv norm-3.mkv > list.txt
+ffmpeg -f concat -safe 0 -i list.txt -c copy assembly.mkv
 ```
 
 A dissolve only where time passes; half a second is plenty:
@@ -220,36 +232,83 @@ ffmpeg -i mixed.mp4 -af "loudnorm=I=-14:TP=-1.5:LRA=11:measured_I=<input_i>:meas
   -c:v copy -c:a aac -b:a 192k -ar 48000 master.mp4
 ```
 
-Use -16 LUFS for speech-only pieces and podcasts.
+Use -16 LUFS for speech-only pieces and podcasts. Print the second pass's JSON too: `"normalization_type": "dynamic"` means it could not reach
+the target without pumping (a quiet mic with loud peaks). Then put `acompressor=threshold=-24dB:ratio=3:attack=5:release=120,alimiter=limit=0.8` first, and measure again.
 
-## 8. A short clip from a long recording (screen, talk, interview)
+## 8. A short film from long recordings
 
 Ask for the one sentence a viewer should leave with: it picks the hook and which minutes survive. Say what was assumed and go on.
 
-1. **Cut from the words.** Transcribe with word times (`faster-whisper`, or Hildegard's `transcribe`), list 5 to 7 spans that add up to the
-   length, the strongest line first, the result last. Cut on word edges with 0.15 s either side, 10 ms audio fades. Show your user the list
-   (start, end, why it stays) before rendering; a cut that changes what someone meant is out.
-2. **Choose the crop by letter height.** A 1440p screen squeezed to 1080 wide can't be read on a phone. Per span, crop the part being
+Write one line per span in `spans.txt` (`file in out [filter]`, seconds) and render with this. It snaps every cut to a whole frame, keeps the
+sound PCM, and fails when frames are missing or picture and sound end apart:
+
+```bash
+#!/usr/bin/env bash
+# Join spans of one or more recordings. spans.txt: file in out [filter for this span], one per line. Edit the settings.
+set -euo pipefail
+OUT=${OUT:-assembly.mkv}; FPS=${FPS:-30}; FIT=${FIT:-scale=1080:1350:force_original_aspect_ratio=decrease,pad=1080:1350:-1:-1}
+P=$(mktemp -d parts.XXXX); n=0
+while read -r f a b vf; do
+  n=$((n+1)); p=$(printf "$P/%03d.mkv" $n)
+  read -r s d o < <(awk -v a="$a" -v b="$b" -v r="$FPS" 'BEGIN{x=int(a*r+.5); y=int(b*r+.5); printf "%.6f %.6f %.6f\n", x/r, (y-x)/r, (y-x)/r-.01}')   # whole frames
+  ffmpeg -nostdin -v error -y -ss "$s" -t "$d" -i "$f" -vf "${vf:+$vf,}$FIT,fps=$FPS,setsar=1,format=yuv420p" \
+    -af "aresample=48000:async=1:first_pts=0,aformat=channel_layouts=stereo,afade=t=in:d=0.01,afade=t=out:st=$o:d=0.01,apad" \
+    -t "$d" -c:v libx264 -crf 10 -preset fast -c:a pcm_s16le "$p"
+  echo "file '$p'" >> "$P.txt"
+done < spans.txt
+ffmpeg -nostdin -v error -y -f concat -safe 0 -i "$P.txt" -c copy "$OUT"     # PCM sound: AAC parts leave a gap at every join
+v=$(ffprobe -v error -count_packets -select_streams v -show_entries stream=nb_read_packets -of csv=p=0 "$OUT" | tr -d ,)
+a=$(ffmpeg -nostdin -v error -i "$OUT" -map 0:a -f s16le -ac 1 -ar 48000 - | wc -c)
+w=$(awk -v r="$FPS" '{t+=int($3*r+.5)-int($2*r+.5)} END{print t}' spans.txt)
+awk -v v="$v" -v a="$a" -v r="$FPS" -v w="$w" 'BEGIN{d=v/r-a/96000; if(d<0)d=-d; bad=(v!=w || d>1/r); printf "%s frames %d of %d, picture and sound end %.0f ms apart\n", bad?"FIX":"OK", v, w, d*1000; exit bad}'
+```
+
+Show your user the list (start, end, words, why it stays) before rendering: that is the cheap place to change the film. Then, whatever the film:
+
+1. **Cut from the words.** Transcribe with word times (`faster-whisper` with `word_timestamps=True`, or Hildegard's `transcribe`) to `words.json`
+   (`[{"w": "word,", "s": 1.23, "e": 1.60}]`), fix names by ear, cut 0.15 s outside the word edges. A cut that changes what someone meant is out.
+2. **Captions come from the finished cut**, not the source, so their times are right: transcribe it again, fix the words, build the SRT with
+   this, burn it with section 6.
+
+```python
+# python3 cap.py cut_words.json > captions.srt: lines of 3 to 6 words, broken at pauses and punctuation, at least 1 s on screen
+import sys, json
+W, L = json.load(open(sys.argv[1])), [[]]
+for k, w in enumerate(W):
+    L[-1].append(w); nxt = W[k+1]["s"] if k + 1 < len(W) else 1e9
+    if len(L[-1]) >= 6 or sum(len(x["w"]) + 1 for x in L[-1]) > 24 or nxt - w["e"] > .5 or (w["w"][-1] in ".?!,;:" and len(L[-1]) > 2): L.append([])
+L = [l for l in L if l]; T = lambda t: (lambda m: "%02d:%02d:%02d,%03d" % (m//3600000, m//60000 % 60, m//1000 % 60, m % 1000))(round(t*1000))
+for n, l in enumerate(L, 1):
+    end = max(l[-1]["e"] + .2, l[0]["s"] + 1); end = min(end, L[n][0]["s"]) if n < len(L) else end
+    print(n, f"{T(l[0]['s'])} --> {T(end)}", " ".join(w["w"] for w in l), "", sep="\n")
+```
+
+### A screen recording to a vertical clip
+
+Ask for the one sentence a viewer should leave with: it picks the hook and which minutes survive. List 5 to 7 spans, the strongest line first,
+the result last. Waiting (a build, a search) goes, or is
+rendered first at 4x (`setpts=PTS/4`, no sound) as a file of its own and listed as a span like any other.
+
+1. **Choose the crop by letter height.** A 1440p screen squeezed to 1080 wide can't be read on a phone. Per span, crop the part being
    talked about and enlarge it: small letters (an x) need 18 px or more in the delivered frame. Crop width = 1080 x (source x height) / 18 at
    most, so text 11 px tall allows a 660 px window. When the action is wider than that, stack two windows, or re-show the line as text.
    Screen in the top 1080 x 1350, captions on the plain band under it, so they never cover code.
-3. **Take the fan out with a sample of the fan.** Find a pause with `silencedetect`, then hand that second to `afftdn`:
+2. **Take the fan out with a sample of the fan.** Find a pause with `silencedetect`, then hand that second to `afftdn`:
    `highpass=f=80,asendcmd=c='2.8 afftdn sn start; 3.8 afftdn sn stop',afftdn=nr=18:nf=-40`. It only knows the noise from then on, so use a
    pause before the first span, or prepend it and trim. On a test recording this took a pause from 20 to 39 dB under the voice; `afftdn=tn=1`
    alone, which guesses, reached 24. Over `nr=20` voices go watery: listen. Then loudness (section 7), never before.
-4. **Captions come from the finished cut**, not the source, so their times are right: transcribe it again, fix names and code words by
-   hand, 4 to 6 words a line, section 6's vertical command.
 
 Checks that can fail, run on the delivered file:
 
 ```sh
 F=clip.mp4
 ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration -of default=nw=1 $F
-mkdir -p f && ffmpeg -v error -y -i $F -vf fps=1 f/%03d.png                                  # one frame a second
-for p in f/*.png; do                                                                         # letters: words with no tall letters, median px
-  px=$(tesseract $p - --psm 6 tsv 2>/dev/null | awk -F'\t' '$11>60 && $12 ~ /^[acemnorsuvwxz]+$/ {print $10}' | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}')
-  [ "${px:-99}" -lt 18 ] && echo "FIX $p letters $px px"; done
-for p in f/*.png; do tesseract $p - --psm 6 2>/dev/null |                                    # secrets: names the second, never prints the text
+D=$(mktemp -d); ffmpeg -nostdin -v error -y -i $F -vf fps=1 $D/%03d.png                        # one frame a second
+for p in $D/*.png; do                                                                        # letters: words with no tall letters, median px
+  tesseract $p - --psm 6 tsv 2>/dev/null | awk -F'\t' '$11>60 && $12 ~ /^[acemnorsuvwxz]+$/ {print $10}' | sort -n |
+  awk -v p=${p##*/} '{a[NR]=$1} END{if(NR) print p, a[int((NR+1)/2)]}'; done > $D.txt
+awk '$2<18{print "FIX", $1, "letters", $2, "px"; b=1} END{if(!NR) print "FIX no text read in any frame: unchecked, look"; else if(!b) print "OK letters, frames read:", NR}' $D.txt
+for p in $D/*.png; do tesseract $p - --psm 6 2>/dev/null |                                    # secrets: names the second, never prints the text
   grep -Eqi 'sk-|ghp_|AKIA|api.?key|secret|token|passw|PRIVATE KEY|[a-z0-9._]+@[a-z0-9-]+\.[a-z]{2,}|/(home|Users)/[a-z]+' && echo "LOOK second $p"; done
 pause() { ffmpeg -hide_banner -ss $2 -t $3 -i $1 -af astats -f null - 2>&1 | awk '/Overall/{o=1} o&&/RMS level dB/{print $NF; exit}'; }
 echo "pause $(pause $F 12.4 0.6) dB, voice $(pause $F 13.2 1.5) dB"                           # 30 dB or more apart; use your own times
@@ -259,6 +318,87 @@ Then four by eye and ear: a sheet with a frame at 0.5 s, 3 s, every splice and t
 of code); re-transcribe and compare with the captions (two words in a hundred off, and no name wrong); each burned caption against its
 line; once through on headphones. OCR misses small or blurred text, so the secrets pass finds leaks and never proves there are none: look
 at every span that shows a terminal, a `.env`, mail or a notification, and cut or cover it.
+
+### Several cameras, not synced
+
+1. Pick the one with the best sound as the main clock and use its sound all the way through, so a camera change is never heard. Find the
+   others on it with this; it fails on a track that does not match, and shows drift (phones drift 20 to 100 ppm, 30 to 150 ms over 25 minutes):
+
+```python
+# python3 sync.py main.mp4 cam2.mp4 cam3.mp4: where each file starts on the main file's clock, and its drift. Needs ffmpeg and numpy.
+import subprocess, sys, numpy as np
+R = 8000
+def load(p): return np.frombuffer(subprocess.run(["ffmpeg","-nostdin","-v","error","-i",p,"-vn","-ac","1","-ar",str(R),"-f","f32le","-"], stdout=subprocess.PIPE, check=True).stdout, np.float32)
+def lag(a, b):                                    # GCC-PHAT: lag of b in a, and the peak over the best rival
+    n = 1 << int(np.ceil(np.log2(len(a) + len(b)))); X = np.fft.rfft(a, n) * np.conj(np.fft.rfft(b, n))
+    c = np.fft.irfft(X / (np.abs(X) + 1e-9), n); k = int(c.argmax()); top = c[k]; c[max(0, k - R//10):k + R//10] = 0
+    return (k if k < len(a) else k - n) / R, top / c.max()
+main, bad = load(sys.argv[1]), 0
+for p in sys.argv[2:]:
+    x = load(p); got = []; win = min(60, len(x)/R/3)
+    for t in np.linspace(0, len(x)/R - win, 9):
+        o, q = lag(main, x[int(t*R):int((t + win)*R)])
+        if q > 1.6: got.append((t, o - t))
+    if len(got) < 4: print("FIX", p, "matched in", len(got), "of 9 places: sync it by a clap or a word"); bad = 1; continue
+    t, s = np.array(got).T
+    keep = abs(s - np.median(s)) < .5; m, b = np.polyfit(t[keep], s[keep], 1); err = abs(s[keep] - (m*t[keep] + b)).max()*1000
+    ok = keep.sum() >= 4 and err < 20; bad |= not ok
+    print("OK " if ok else "FIX", p, f"starts {b:+.3f} s on the main clock, drift {m*1e6:+.0f} ppm ({m*1.5e6:+.0f} ms over 25 min), worst error {err:.0f} ms, {keep.sum()} of 9 places")
+sys.exit(bad)
+```
+
+2. In `spans.txt` a shot from another camera at main time `t` is `(t - start) / (1 + drift x 0.000001)` on its own clock. Under 20 ppm, forget the drift.
+   One `spans.txt` per scene, then one unbroken piece of the main sound under it, scenes joined on a breath or under music:
+   `ffmpeg -nostdin -i assembly.mkv -ss SCENE_IN -t SCENE_LENGTH -i main.mov -map 0:v -map 1:a -c:v copy -c:a pcm_s16le -ar 48000 -ac 2 scene1.mkv`.
+3. Convert HDR (section 2) before matching color. A portrait shot: crop to 16:9 when it is 4K and the faces allow it, else whole over a blurred copy.
+   Grade the others to the main camera by a white shirt or wall they share.
+4. People come to see one person. List everyone with a time in and out, give each about the same seconds and the same moment (the name, the
+   water, the face coming up, the hug), and the same size of name card. Names come from your user, spelled by them. Children or anyone
+   who asked not to be filmed: ask before the edit.
+5. Music only under the opening, the turnover and the close; the words, the water and the applause stay. Ask which song they may use.
+
+Check: the sync script on each scene against the main file (`OK`, and the start you meant); the picture of every other camera against the
+sound at one hard moment (a splash, a clap); a frame either side of every camera change; a table of person, seconds, name card, and fail if anyone is missing or has under half the median.
+
+### An interview, without putting words in someone's mouth
+
+1. Spans stay in tape order, start and end on whole sentences, and keep the not, the if and the maybe. No cut inside a sentence to make it
+   tidier, no answer under another question. Where time jumps, show it: a black second, a photo, or a card with the question.
+2. Look at both channels (`astats`): one lav is often on the left only. `pan=mono|c0=c0` before anything else. `highpass=f=80`, then a gentle
+   `afftdn` from a sampled pause if there is hiss.
+3. **A clock tick stays.** Measured on a tick 26 dB down: `afftdn` took 4 dB, `adeclick` 1 to 2, a gate 14 but only in pauses, where its coming
+   and going is worse than the clock. Join in pauses, and slide the in-point inside its pause so the next tick comes on the beat. No
+   looped room tone under it: that doubles the ticks. If your user wants it gone, say what it costs.
+4. `FPS=24 FIT=scale=1920:1080` for the span script, loudness -16, no music under the voice.
+
+Checks: this must print no `FIX`, and each `LOOK` is heard with the minute around it; run it again on the delivered film's transcript. The
+beat: `ffmpeg -ss JOIN-3 -t 6 -i film.wav -lavfi "highpass=f=2000,highpass=f=2000,showwavespic=s=1200x160:scale=sqrt" -frames:v 1 join.png`
+shows ticks evenly spaced or not. Last, someone in the family who knows the story watches it before anyone else does.
+
+```python
+# python3 meaning.py words.json spans.txt [cut_words.json]: what the cut does to what was said. words.json: [{"w": "word,", "s": 1.23, "e": 1.60}, ...]
+import sys, json, re, difflib
+W = json.load(open(sys.argv[1])); S = [list(map(float, l.split()[1:3])) for l in open(sys.argv[2]) if l.strip()]; bad, kept = 0, []
+txt = lambda i, j: " ".join(w["w"] for w in W[max(0, i):max(0, j)]); END = re.compile(r"[.?!][\"')]*$")
+HEDGE = re.compile(r"n't\b|\b(not|no|never|if|unless|maybe|think|guess|probably|sometimes|only|almost|suppose|joking)\b", re.I)
+for n, (a, b) in enumerate(S, 1):
+    I = [k for k, w in enumerate(W) if w["s"] > a - .05 and w["e"] < b + .05]; fix, look = [], []
+    if not I: print("FIX span", n, "holds no whole word"); bad = 1; continue
+    i, j = I[0], I[-1] + 1; kept += W[i:j]
+    if any(w["s"] < t - .02 and w["e"] > t + .02 for w in W for t in (a, b)): fix.append("cuts through a word")
+    if i and not END.search(W[i-1]["w"]): fix.append("starts inside a sentence")
+    if not END.search(W[j-1]["w"]): fix.append("ends inside a sentence")
+    if n > 1 and a < S[n-2][1]: fix.append("is earlier on the tape than the span before it")
+    if re.match(r"(but|unless|if|only|except|although|though|actually|well|no|not|maybe)\b", txt(j, j + 1), re.I): look.append("the next sentence takes it back or limits it")
+    if re.match(r"(and|but|so|because|he|she|it|they|that|this|yes|no|yeah)\b", W[i]["w"], re.I): look.append("leans on what came before (who? which question?)")
+    bad |= bool(fix); print(f"\nspan {n}: [{txt(i-12, i)}] {txt(i, j)} [{txt(j, j+12)}]", *["\n  FIX " + f for f in fix], *["\n  LOOK " + l for l in look], sep="")
+if len(sys.argv) > 3:                                           # the delivered film, transcribed again, against the words you chose
+    norm = lambda L: [re.sub(r"[^a-z0-9']", "", w["w"].lower()) for w in L]; A, B = norm(kept), norm(json.load(open(sys.argv[3])))
+    d = [(A[p:q], B[r:s]) for t, p, q, r, s in difflib.SequenceMatcher(None, A, B, autojunk=False).get_opcodes() if t != "equal"]
+    n = sum(max(len(p), len(q)) for p, q in d); hot = [x for x in d if HEDGE.search(" ".join(x[0] + x[1]))]
+    bad |= n > .03*len(A) or bool(hot); print("\nFIX" if n > .03*len(A) or hot else "\nOK", f"{n} of {len(A)} words differ", *d[:20], *(["a not, if or maybe changed"] if hot else []))
+sys.exit(bad)
+```
 
 ## 9. Deliver
 
