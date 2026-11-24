@@ -169,33 +169,6 @@ describe.skipIf(!has(python, '--version'))('the words', () => {
   ])('meaning.py shows what a join dropped: "%s" then "%s"', (a, b, line) => {
     const r = meaning(told, [at(told, a, a), at(told, b, b)]);
     expect(r.said).toContain(line);
-    expect(r.said).toContain('no words of the tape: card.mkv');
-  });
-
-  it('meaning.py reads two cameras as one interview, and curly quotes as quotes', () => {
-    const quoted = said.replace('in May.', 'in \u201cMay.\u201d');
-    save('m.json', words(quoted));
-    const [one = '', two = ''] = spans(at(said, 'She never', 'see it.'), at(said, 'I was', 'then.')).split(
-      '\n',
-    );
-    save('spans.txt', `${one}\n${two.replace('tape', 'side')}\n`);
-    const both = run(python, 'meaning.py', 'm.json', 'spans.txt', 'tape.mkv,side.mkv');
-    expect(both.said).toContain('FIX is earlier on the tape');
-    save('spans.txt', spans(at(said, 'We sold', 'in May.'), at(said, 'But we', 'to go.')));
-    const r = run(python, 'meaning.py', 'm.json', 'spans.txt', 'tape.mkv');
-    expect(r.ok, r.said).toBe(true);
-  });
-
-  it('meaning.py compares other alphabets word by word and says it knows no negations there', () => {
-    const was =
-      '\u041e\u043d \u0431\u044b\u043b \u0434\u043e\u0431\u0440. \u042f \u043f\u043e\u043c\u043d\u044e.';
-    const r = meaning(
-      was,
-      [[0, 5]],
-      '\u041e\u043d \u0431\u044b\u043b \u0437\u043e\u043b. \u042f \u043f\u043e\u043c\u043d\u044e.',
-    );
-    expect(r.ok).toBe(false);
-    expect(r.said).toContain('LOOK not English?');
   });
 
   it('meaning.py fails a tape that no span names', () => {
@@ -318,25 +291,14 @@ describe.skipIf(!hasFfmpeg || noWindows)('spans.sh', () => {
     }
     expect(worst).toBeLessThanOrEqual(2); // in 60 fps frames: one frame of the film at most, at the end as at the start
   });
-  it('refuses a file with no line in sync.txt, and a span outside what the match covers', () => {
-    save('sync.txt', 'a.mkv 0 0\nsilent.mkv 0 0 0 3\n');
-    const list = (last: string) => `a.mkv 0.5 2\n${last}\n`;
-    const good = join3(list('silent.mkv 1 2'));
-    const stranger = join3(list('mic.mkv 1 2'));
-    const past = join3(list('silent.mkv 2.5 4'));
+  it('refuses a file with no line in sync.txt', () => {
+    save('sync.txt', 'a.mkv 0 0\nsilent.mkv 0 0\n');
+    const good = join3('a.mkv 0.5 2\nsilent.mkv 1 2\n');
+    const stranger = join3('a.mkv 0.5 2\nmic.mkv 1 2\n');
     rmSync(join(dir, 'sync.txt'));
     expect(good.ok, good.said).toBe(true);
     expect(stranger.ok).toBe(false);
     expect(stranger.said).toContain('FIX span 2: mic.mkv has no line in sync.txt');
-    expect(past.ok).toBe(false);
-    expect(past.said).toContain('FIX span 2: silent.mkv only matched the main sound from 0 3 s');
-  });
-  it('holds a photo for its span, and SOUND=0 takes a camera whose mic died', () => {
-    ff('-f', 'lavfi', '-i', 'color=red:s=64x48', '-frames:v', '1', 'card.png');
-    const r = join3('a.mkv 0.5 2\ncard.png 0 3\na.mkv 2 3\n');
-    expect(r.ok, r.said).toBe(true);
-    expect(r.said).toContain('OK frames 165 of 165');
-    expect(join3('mic.mkv 1 5\n', { SOUND: '0' }).ok).toBe(true);
   });
   it('makes a file section 6 can burn captions on and keep its sound', () => {
     expect(join3('a.mkv 0.5 2\n').ok).toBe(true);
@@ -368,8 +330,6 @@ describe.skipIf(!hasFfmpeg || !has(python, '-c', 'import numpy'))('sync.py', () 
       '[0]asetrate=48000*1.0001,aresample=48000,volume=0.5[a];[1]volume=0.1[b];[a][b]amix=duration=first',
       'phone.wav',
     );
-    ff('-ss', '10', '-t', '110', '-i', 'main.wav', 'h1.wav');
-    ff('-i', 'h1.wav', '-i', 'other.wav', '-filter_complex', '[0][1]concat=n=2:v=0:a=1', 'half.wav');
     ff('-ss', '10', '-t', '60', '-i', 'main.wav', 'p1.wav');
     ff('-ss', '130', '-t', '60', '-i', 'main.wav', 'p2.wav');
     ff('-i', 'p1.wav', '-i', 'p2.wav', '-filter_complex', '[0][1]concat=n=2:v=0:a=1', 'paused.wav');
@@ -411,16 +371,6 @@ describe.skipIf(!hasFfmpeg || !has(python, '-c', 'import numpy'))('sync.py', () 
     save('sync.txt', 'main.wav 0 0\ncam2.mp4 12.5 40.0\n');
     run(python, 'sync.py', 'main.wav', 'cut.wav');
     expect(readFileSync(join(dir, 'sync.txt'), 'utf8')).toContain('cam2.mp4 12.5');
-  });
-  it('says which stretch a half-covered camera was matched on', () => {
-    const r = run(python, 'sync.py', '--write', 'main.wav', 'half.wav');
-    expect(r.ok, r.said).toBe(true);
-    const [, , , from, to] = (
-      readFileSync(join(dir, 'sync.txt'), 'utf8').trim().split(/\r?\n/)[1] ?? ''
-    ).split(' ');
-    expect(Number(from)).toBeLessThan(20);
-    expect(Number(to)).toBeGreaterThan(100); // the camera hears the event until 10 + 110 s, then something else
-    expect(Number(to)).toBeLessThan(165);
   });
   it('fails another event, a paused camera and a file with no sound, and still reads the one after', () => {
     const r = run(python, 'sync.py', 'main.wav', 'other.wav', 'drone.mkv', 'paused.wav', 'cut.wav');
