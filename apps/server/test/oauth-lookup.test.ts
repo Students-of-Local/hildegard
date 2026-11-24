@@ -37,6 +37,8 @@ describe('publicLookup (the client metadata fetch connects through it)', () => {
     for (const opts of [{ all: true }, {}]) {
       const a = await ask([PUBLIC[0]!, { address: '10.0.0.5', family: 4 }], opts);
       expect(a.err?.message).toMatch(/isn’t a public address/);
+      const v6 = await ask([PUBLIC[1]!, { address: '::ffff:a00:5', family: 6 }], opts);
+      expect(v6.err?.message).toMatch(/isn’t a public address/);
     }
     expect((await ask([{ address: '127.0.0.1', family: 4 }], { all: true })).err).not.toBeNull();
     expect((await ask([], { all: true })).err).not.toBeNull();

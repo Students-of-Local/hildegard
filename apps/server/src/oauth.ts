@@ -16,6 +16,7 @@ import { isIP, type LookupFunction } from 'node:net';
 import type { Hono } from 'hono';
 import { z } from 'zod';
 import { type Ctx, clientKey, type HgEnv, originOf } from './access.ts';
+import { privateAddress } from './addresses.ts';
 import { CODE_LIMITS, type CodeBook, normalizeCode } from './codes.ts';
 import { GrantError, type Grants, SCOPE } from './grants.ts';
 import { Limiter, type People } from './people.ts';
@@ -33,36 +34,6 @@ export interface ClientInfo {
 export type FetchMetadata = (url: string) => Promise<unknown>;
 
 // ── Addresses ───────────────────────────────────────────────────────────────────────────────────────────────────
-
-/** Addresses no metadata document may live at: this computer, the LAN, the tailnet (100.64/10) and the like. */
-export function privateAddress(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const [a, b] = ip.split('.').map(Number) as [number, number];
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && (b === 168 || b === 0)) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      a >= 224
-    );
-  }
-  const v6 = ip.toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
-  if (mapped) return privateAddress(mapped[1]!);
-  return (
-    v6 === '::' ||
-    v6 === '::1' ||
-    /^f[cd]/.test(v6) ||
-    /^fe[89a-f]/.test(v6) ||
-    /^ff/.test(v6) ||
-    v6.startsWith('64:ff9b:') ||
-    v6.startsWith('2001:db8')
-  );
-}
 
 const DANGEROUS_SCHEMES = new Set([
   'javascript:',
