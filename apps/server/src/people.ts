@@ -104,8 +104,14 @@ function findByHash<T extends { hash: string }>(token: string, list: readonly T[
 // ── Rate limits ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Counts failures per key in a sliding window. Successes clear a key; the map forgets idle keys. */
+export interface Try {
+  readonly at: number;
+  /** Counted before its answer was known; `settle` or `forgive` ends that. */
+  pending: boolean;
+}
+
 export class Limiter {
-  private readonly hits = new Map<string, number[]>();
+  private readonly hits = new Map<string, Try[]>();
   private readonly limit: number;
   private readonly windowMs: number;
   private readonly now: () => number;
@@ -115,9 +121,9 @@ export class Limiter {
     this.now = now;
   }
 
-  private recent(key: string): number[] {
+  private recent(key: string): Try[] {
     const since = this.now() - this.windowMs;
-    const list = (this.hits.get(key) ?? []).filter((t) => t > since);
+    const list = (this.hits.get(key) ?? []).filter((t) => t.at > since);
     if (list.length) this.hits.set(key, list);
     else this.hits.delete(key);
     return list;
@@ -132,14 +138,14 @@ export class Limiter {
   wait(key: string): number {
     const list = this.recent(key);
     if (list.length < this.limit) return 0;
-    return Math.max(1, Math.ceil((list[list.length - this.limit]! + this.windowMs - this.now()) / 1000));
+    return Math.max(1, Math.ceil((list[list.length - this.limit]!.at + this.windowMs - this.now()) / 1000));
   }
 
-  /** Counts a failure now. Returns its time, for `forgive`. */
-  fail(key: string): number {
+  /** Counts a failure now, or a try whose answer isn’t known yet. Returns it, for `settle` and `forgive`. */
+  fail(key: string, pending = false): Try {
     const list = this.recent(key);
-    const at = this.now();
-    list.push(at);
+    const entry = { at: this.now(), pending };
+    list.push(entry);
     // Re-inserted, so the map runs from least to most recently failed.
     this.hits.delete(key);
     this.hits.set(key, list);
@@ -149,19 +155,28 @@ export class Limiter {
       for (const k of [...this.hits.keys()]) this.recent(k);
       if (this.hits.size > 10_000) for (const k of [...this.hits.keys()].slice(0, 1000)) this.hits.delete(k);
     }
-    return at;
+    return entry;
   }
 
-  /** Takes back one failure, counted at `at` before its answer was known and right after all. */
-  forgive(key: string, at: number) {
-    const list = this.hits.get(key);
-    const i = list?.indexOf(at) ?? -1;
-    if (i >= 0) list!.splice(i, 1);
-    if (list && !list.length) this.hits.delete(key);
+  /** The answer came and was wrong: the try stays counted, and the next `clear` may drop it. */
+  settle(entry: Try) {
+    entry.pending = false;
   }
 
+  /** Takes back one try, counted before its answer was known and right after all. */
+  forgive(key: string, entry: Try) {
+    this.keep(key, (t) => t !== entry);
+  }
+
+  /** Drops the failures. Tries still being checked stay counted: a success beside them says nothing about them. */
   clear(key: string) {
-    this.hits.delete(key);
+    this.keep(key, (t) => t.pending);
+  }
+
+  private keep(key: string, keeps: (t: Try) => boolean) {
+    const list = this.hits.get(key)?.filter(keeps);
+    if (list?.length) this.hits.set(key, list);
+    else this.hits.delete(key);
   }
 }
 

@@ -301,8 +301,10 @@ export interface OAuthDeps {
   people: People;
   /** Wrong passphrases, counted as signing in counts them. */
   limited: (c: Ctx, keys: string[]) => Response | null;
-  /** Counts a wrong try; what it returns takes the try back. */
-  failed: (keys: string[]) => () => void;
+  /** Counts a wrong try. */
+  failed: (keys: string[]) => void;
+  /** Counts a try while its passphrase is checked, and takes it back if it was right. */
+  counted: <T>(keys: string[], check: () => Promise<T>) => Promise<T>;
   perName: Limiter;
   /** One-time connect codes an owner made, to approve a chatbot without typing a passphrase. */
   connectCodes: CodeBook<{ personId: string }>;
@@ -658,13 +660,8 @@ ${error ? `<p class="err" role="alert">${esc(error)}</p>` : ''}${who}
     const keys = [`client:${clientKey(c)}`, `name:${nameKey(name)}`];
     const refused = deps.limited(c, keys);
     if (refused) return consent(c, requestId, p, 'Too many tries. Wait a few minutes, then try again.', name);
-    const takeBack = deps.failed(keys);
-    const signed = await people.signIn(name, field('passphrase').slice(0, 1024)).catch((e: unknown) => {
-      takeBack();
-      throw e;
-    });
+    const signed = await deps.counted(keys, () => people.signIn(name, field('passphrase').slice(0, 1024)));
     if (!signed) return consent(c, requestId, p, 'That name and passphrase don’t match.', name);
-    takeBack();
     // A sign-in made only to approve this app: its session isn't needed.
     people.signOut(signed.token);
     deps.perName.clear(keys[1]!);

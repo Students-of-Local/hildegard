@@ -292,12 +292,24 @@ describe('rate limits', () => {
     const l = new Limiter(2, 60_000, c.now);
     l.fail('a');
     c.add(1000);
-    const at = l.fail('a');
+    const second = l.fail('a', true);
     expect(l.wait('a')).toBeGreaterThan(0);
-    l.forgive('a', at);
+    l.forgive('a', second);
     expect([l.count('a'), l.wait('a')]).toEqual([1, 0]);
-    l.forgive('a', at);
-    l.forgive('b', at);
+    l.forgive('a', second);
+    l.forgive('b', second);
     expect([l.count('a'), l.count('b')]).toEqual([1, 0]);
+  });
+
+  it('clears the failures and keeps the tries still being checked', () => {
+    const l = new Limiter(2, 60_000, clock().now);
+    l.fail('a');
+    const waiting = l.fail('a', true);
+    l.clear('a');
+    expect(l.count('a')).toBe(1);
+    l.settle(waiting);
+    expect(l.count('a')).toBe(1);
+    l.clear('a');
+    expect(l.count('a')).toBe(0);
   });
 });

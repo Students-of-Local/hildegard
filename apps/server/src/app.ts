@@ -1964,16 +1964,27 @@ export function createApp(deps: AppDeps) {
       429,
     );
   };
-  /**
-   * Counts a wrong try, and returns how to take it back. A passphrase takes a moment to check, so its try is counted
-   * before the check and taken back if it was right: otherwise guesses sent together would all be checked. A throw is
-   * never a wrong passphrase, so it takes the try back too.
-   */
   const failed = (keys: string[]) => {
-    const at = keys.map((k) => limiter(k).fail(k));
-    return () => {
-      for (const [i, k] of keys.entries()) limiter(k).forgive(k, at[i]!);
-    };
+    for (const k of keys) limiter(k).fail(k);
+  };
+  /**
+   * Counts a try while `check` runs: a passphrase takes a moment to check, so guesses sent together would otherwise
+   * all be checked. A wrong answer leaves it counted; a right one takes it back. So does a throw, which is never a
+   * wrong passphrase.
+   */
+  const counted = async <T>(keys: string[], check: () => Promise<T>): Promise<T> => {
+    const tries = keys.map((k) => limiter(k).fail(k, true));
+    let wrong = false;
+    try {
+      const answer = await check();
+      wrong = !answer;
+      return answer;
+    } finally {
+      for (const [i, k] of keys.entries()) {
+        if (wrong) limiter(k).settle(tries[i]!);
+        else limiter(k).forgive(k, tries[i]!);
+      }
+    }
   };
   const authState = (c: Context): AuthState => ({
     local: local(c),
@@ -1997,13 +2008,8 @@ export function createApp(deps: AppDeps) {
     const keys = [`client:${clientKey(c)}`, `name:${nameKey(body.data.name)}`];
     const refused = limited(c, keys);
     if (refused) return refused;
-    const takeBack = failed(keys);
-    const r = await people.signIn(body.data.name, body.data.passphrase).catch((e: unknown) => {
-      takeBack();
-      throw e;
-    });
+    const r = await counted(keys, () => people.signIn(body.data.name, body.data.passphrase));
     if (!r) return c.json({ error: 'That name and passphrase don’t match.' }, 401);
-    takeBack();
     perName.clear(keys[1]!);
     sendCookie(c, r.token);
     return c.json({ local: local(c), person: r.person, owner: true } satisfies AuthState);
@@ -2030,14 +2036,12 @@ export function createApp(deps: AppDeps) {
     const keys = [`client:${clientKey(c)}`, `name:${nameKey(w.person.name)}`];
     const limitedNow = limited(c, keys);
     if (limitedNow) return limitedNow;
-    const takeBack = failed(keys);
+    const { current, next } = body.data;
     try {
-      if (!(await people.changePassphrase(w.person.id, body.data.current, body.data.next, w.session)))
+      if (!(await counted(keys, () => people.changePassphrase(w.person.id, current, next, w.session))))
         return c.json({ error: 'That isn’t your current passphrase.' }, 403);
-      takeBack();
       return c.json(authState(c));
     } catch (e) {
-      takeBack();
       return peopleFail(c, e);
     }
   });
@@ -2533,6 +2537,7 @@ export function createApp(deps: AppDeps) {
     people,
     limited,
     failed,
+    counted,
     perName,
     connectCodes,
     fetchMetadata: deps.fetchMetadata,

@@ -6,10 +6,11 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NewInvite } from '@hildegard/presets';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { parseArgs } from '../src/config.ts';
 import { challengeOf } from '../src/grants.ts';
 import type { Exec } from '../src/host.ts';
+import { People } from '../src/people.ts';
 import { type Running, startServer } from '../src/server.ts';
 import { memoryStore } from './helpers.ts';
 
@@ -105,6 +106,36 @@ describe('sign-in limits', { timeout: 60_000 }, () => {
     expect(tally((await Promise.all(all)).map((r) => r.status))).toEqual({ 401: 10, 429: 50 });
     // Guesses past the limit are refused, not checked, so they don’t count against the address.
     expect((await signIn('Ada', PASS, '203.0.113.60')).status).toBe(200);
+  });
+
+  it('still counts the guesses sent beside a right sign-in', async () => {
+    await person('Rosalind');
+    // Nine wrong guesses wait at their check while the right passphrase is checked and answered.
+    const check = People.prototype.signIn;
+    let letGo = () => {};
+    const held = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const spy = vi.spyOn(People.prototype, 'signIn').mockImplementation(async function (
+      this: People,
+      name,
+      pass,
+    ) {
+      if (pass === 'wrong') await held;
+      return check.call(this, name, pass);
+    });
+    try {
+      const all = times(9).map(() => signIn('Rosalind', 'wrong', '203.0.113.65'));
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(9), 10_000);
+      expect((await signIn('Rosalind', PASS, '203.0.113.64')).status).toBe(200);
+      letGo();
+      expect(tally((await Promise.all(all)).map((r) => r.status))).toEqual({ 401: 9 });
+    } finally {
+      letGo();
+      spy.mockRestore();
+    }
+    expect((await signIn('Rosalind', 'wrong', '203.0.113.66')).status).toBe(401);
+    expect((await signIn('Rosalind', PASS, '203.0.113.67')).status).toBe(429);
   });
 
   it('signs in after nine wrong tries, and any number of times when right', async () => {
