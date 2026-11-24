@@ -91,6 +91,76 @@ describe('HfLink', () => {
     expect(JSON.parse(store.value!).refresh_token).toBe('r1');
   });
 
+  const html = (status: number) =>
+    new Response('<html>try later</html>', { status, headers: { 'content-type': 'text/html' } });
+  const down = () => {
+    throw new TypeError('fetch failed');
+  };
+  const expiring = () =>
+    memoryStore(
+      JSON.stringify({ access_token: 'old', refresh_token: 'r1', expires_at: Date.now() + 1000, user: 'd' }),
+    );
+  it.each<[string, () => Response, boolean]>([
+    ['the network is down', down, true],
+    ['Hugging Face answers 503', () => html(503), true],
+    ['Hugging Face answers 500 with HTML', () => html(500), true],
+    ['Hugging Face answers 503 with JSON', () => json({ error: 'temporarily_unavailable' }, 503), true],
+    ['Hugging Face answers 429', () => json({}, 429), true],
+    ['something else answers 200 with HTML', () => html(200), true],
+    ['Hugging Face answers invalid_client', () => json({ error: 'invalid_client' }, 400), true],
+    ['Hugging Face answers invalid_grant', () => json({ error: 'invalid_grant' }, 400), false],
+  ])(
+    'a refresh when %s gives no token now, and loses the sign-in only if it is no longer good',
+    async (_when, answer, kept) => {
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const store = expiring();
+        const before = store.value;
+        let up = false;
+        const fetch = fakeFetch([
+          ['POST /oauth/token', () => (up ? json({ access_token: 'new', expires_in: 3600 }) : answer())],
+          ['GET /oauth/userinfo', down],
+        ]);
+        const onChange = vi.fn();
+        const hf = new HfLink({ store, clientId: 'client-1', onChange, fetch, retryMs: 1 });
+        expect(await hf.accessToken()).toBeNull();
+        expect(store.value).toBe(kept ? before : null);
+        expect(hf.state().linked).toBe(kept);
+        expect(onChange).toHaveBeenCalledTimes(kept ? 0 : 1);
+        expect(logged).toHaveBeenCalledTimes(kept ? 1 : 0);
+        up = true;
+        expect(await hf.accessToken()).toBe(kept ? 'new' : null);
+        if (kept)
+          expect(JSON.parse(store.value!)).toMatchObject({
+            access_token: 'new',
+            refresh_token: 'r1',
+            user: 'd',
+          });
+      } finally {
+        logged.mockRestore();
+      }
+    },
+  );
+
+  it('keeps the sign-in one refresh saved when another, sent with it, is told its token was used', async () => {
+    const store = expiring();
+    let asked = 0;
+    const fetch = fakeFetch([
+      [
+        'POST /oauth/token',
+        async () => {
+          if (++asked === 1) return json({ access_token: 'new', refresh_token: 'r2', expires_in: 3600 });
+          await new Promise((r) => setTimeout(r, 20));
+          return json({ error: 'invalid_grant' }, 400);
+        },
+      ],
+    ]);
+    const hf = new HfLink({ store, clientId: 'client-1', onChange: () => {}, fetch });
+    expect(await Promise.all([hf.accessToken(), hf.accessToken()])).toEqual(['new', 'new']);
+    expect(asked).toBe(2);
+    expect(JSON.parse(store.value!).refresh_token).toBe('r2');
+  });
+
   it('signs in from another device with a code, waiting while the person approves', async () => {
     vi.useFakeTimers();
     try {

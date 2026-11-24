@@ -392,7 +392,8 @@ export class HfLink {
     return body.error === 'invalid_client';
   }
 
-  private async tokenRequest(params: Record<string, string>): Promise<HfToken> {
+  /** `known` is the account's name where it is known already: then the new token doesn't wait on looking it up. */
+  private async tokenRequest(params: Record<string, string>, known?: string): Promise<HfToken> {
     const ask = () =>
       this.fetchFn(`${HF}/oauth/token`, {
         method: 'POST',
@@ -418,7 +419,7 @@ export class HfLink {
       err.oauth = body.error;
       throw err;
     }
-    const user = await this.userinfo(body.access_token);
+    const user = known ?? (await this.userinfo(body.access_token));
     return {
       access_token: body.access_token,
       refresh_token: body.refresh_token ?? params.refresh_token,
@@ -434,15 +435,26 @@ export class HfLink {
     return u.preferred_username ?? u.name ?? 'your account';
   }
 
-  /** A usable token for a download, refreshed if it is about to expire. */
+  /**
+   * A usable token for a download, refreshed if it is about to expire. A refresh that fails gives none for now; the
+   * sign-in is forgotten only when Hugging Face says it is no longer good, not when it can't be reached.
+   */
   async accessToken(): Promise<string | null> {
     if (!this.token) return this.fromEnv();
     const t = this.token;
     if (t.expires_at && t.expires_at - Date.now() < 60_000 && t.refresh_token && this.clientId) {
       try {
-        this.save(await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: t.refresh_token }));
-      } catch {
-        this.save(null);
+        this.save(
+          await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: t.refresh_token }, t.user),
+        );
+      } catch (e) {
+        // Another download's refresh, or a new sign-in, may have replaced this one meanwhile: that one stands.
+        if (this.token !== t) return this.token?.access_token ?? null;
+        if ((e as { oauth?: string }).oauth === 'invalid_grant') this.save(null);
+        else
+          console.error(
+            `Couldn’t renew the Hugging Face sign-in, so it is kept for the next try: ${(e as Error).message}`,
+          );
         return null;
       }
     }
