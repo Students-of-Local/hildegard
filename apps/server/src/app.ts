@@ -121,7 +121,7 @@ import { consentLinkRoutes, voiceRoutes } from './voice-routes.ts';
 import { WritingStore } from './writing.ts';
 import { writingRoutes } from './writing-routes.ts';
 
-export const VERSION = '0.1.17';
+export const VERSION = '0.1.18';
 
 /**
  * Where users of this server can get its source (AGPL-3.0 §13). A modified build should set HILDEGARD_SOURCE_URL to

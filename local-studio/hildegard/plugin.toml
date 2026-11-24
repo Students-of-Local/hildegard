@@ -1,7 +1,7 @@
 id = "hildegard"
 name = "Hildegard"
 icon = "icon.png"
-version = "0.1.17"
+version = "0.1.18"
 description = "Hildegard for Local Studio: images, video, speech, voices and clean audio on your own GPU, the craft skills for film, art, design, music, motion, sound, photos, video editing, 3D, the web and writing, and Hildegard's tools, each piece checked before you see it"
 skills = "skills"
 capabilities = ["mcp-server"]
