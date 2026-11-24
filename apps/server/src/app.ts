@@ -242,6 +242,8 @@ export interface AppDeps {
 /** The most text the prose lint takes, and the largest request body that can hold it. */
 const MAX_LINT_CHARS = 200_000;
 const MAX_LINT_BODY = 2_000_000;
+/** Signing in and OAuth, which anyone may call: a name, a passphrase and a few addresses, never more. */
+const MAX_SIGNIN_BODY = 64 * 1024;
 
 /** A loop's round or sheet, which an MCP result may link to like media. */
 const LOOP_FILE = /^\/api\/loops\/[a-f0-9]{16}\/files\/[\w.-]+$/;
@@ -431,6 +433,15 @@ export function createApp(deps: AppDeps) {
     // After the handler, so the new token rides on whatever it returned, a streamed video or file included.
     if (rotated) sendCookie(c, rotated);
   });
+  // These answer before anyone signs in, so a body is refused before it is read into memory.
+  for (const path of ['/oauth/*', '/api/auth/*'])
+    app.use(
+      path,
+      bodyLimit({
+        maxSize: MAX_SIGNIN_BODY,
+        onError: (c) => c.json({ error: 'That’s too much to send.' }, 413, { connection: 'close' }),
+      }),
+    );
   const whoOf = (c: Context) => c.get('who');
   /** The owner, here or signed in from elsewhere. */
   const isOwner = (c: Context) => {
