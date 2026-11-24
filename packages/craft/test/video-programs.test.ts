@@ -26,18 +26,32 @@ const run = (cmd: string, ...args: string[]) => {
     cwd: dir,
     env: { ...process.env, FIT: 'scale=160:90' },
   });
-  return { ok: r.status === 0, said: r.stdout + r.stderr };
+  return { ok: r.status === 0, said: (r.stdout + r.stderr).replaceAll('\r\n', '\n') };
 };
 const save = (name: string, body: string) => writeFileSync(join(dir, name), body);
-/** A transcript: one word every 0.4 s, 0.3 s long, the way faster-whisper writes it (a space before each word). */
-const words = (text: string) =>
-  JSON.stringify(text.split(' ').map((w, i) => ({ w: ` ${w}`, s: i * 0.4, e: i * 0.4 + 0.3 })));
+/** A transcript: one word every `step` s, the way faster-whisper writes it (a space before each word). */
+const words = (text: string, step = 0.4) =>
+  JSON.stringify(text.split(' ').map((w, i) => ({ w: ` ${w}`, s: i * step, e: i * step + step * 0.75 })));
 const said =
   'I was nine then. We sold the house in May. But we did not want to go. She never came back to see it.';
+/** Spans of whole words, cut as the skill says: 0.15 s outside, but never past the middle of the 0.1 s gap. */
 const spans = (...list: [number, number][]) =>
   list
-    .map(([i, j]) => `a.mkv ${(i * 0.4 - 0.05).toFixed(2)} ${((j - 1) * 0.4 + 0.35).toFixed(2)}`)
+    .map(([i, j]) => `tape.mkv ${(i * 0.4 - 0.05).toFixed(2)} ${((j - 1) * 0.4 + 0.35).toFixed(2)}`)
     .join('\n');
+const meaning = (text: string, list: [number, number][], cut?: string) => {
+  save('m.json', words(text));
+  save('spans.txt', `${spans(...list).replace('\n', '\ncard.mkv 0 3\n')}\n`); // a card where time jumps
+  if (cut) save('cut.json', words(cut));
+  return run(python, 'meaning.py', 'm.json', 'spans.txt', 'tape.mkv', ...(cut ? ['cut.json'] : []));
+};
+/** The same words, numbered from where each sentence starts. */
+const at = (text: string, from: string, to: string): [number, number] => {
+  const all = text.split(' ');
+  const word = (index: number) => text.slice(0, index).split(' ').length - 1;
+  const start = text.indexOf(from);
+  return [word(start), Math.min(all.length, word(text.indexOf(to, start)) + to.split(' ').length)];
+};
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'video-programs-'));
@@ -53,122 +67,281 @@ it('finds all four in the skill', () => {
 describe.skipIf(!has(python, '--version'))('the words', () => {
   vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
-  it('cap.py writes short lines that never overlap', () => {
-    const { said: srt } = run(python, 'cap.py', 'words.json');
-    const cues = srt.trim().split('\n\n');
-    let last = 0;
-    for (const cue of cues) {
-      const [, time = '', text = ''] = cue.split('\n');
-      const [from = 0, to = 0] = time.split(' --> ').map((t) => {
-        const [h = 0, m = 0, s = 0, ms = 0] = t.split(/[:,]/).map(Number);
-        return h * 3600 + m * 60 + s + ms / 1000;
-      });
-      expect(text.split(/\s/).length, text).toBeLessThanOrEqual(6);
-      expect(text).not.toMatch(/ {2}|^ /);
-      expect(from).toBeGreaterThanOrEqual(last);
-      expect(to).toBeGreaterThan(from);
-      last = to;
-    }
-    expect(cues.map((c) => c.split('\n')[2]).join(' ')).toBe(said);
-  });
+  it.each([0.4, 0.17])(
+    'cap.py: a word every %s s makes short lines, 1 s or more, none overlapping',
+    (step) => {
+      save('c.json', words(said, step));
+      const cues = run(python, 'cap.py', 'c.json').said.trim().split('\n\n');
+      let last = 0;
+      for (const cue of cues) {
+        const [, time = '', text = ''] = cue.split('\n');
+        const [from = 0, to = 0] = time.split(' --> ').map((t) => {
+          const [h = 0, m = 0, sec = 0, ms = 0] = t.split(/[:,]/).map(Number);
+          return h * 3600 + m * 60 + sec + ms / 1000;
+        });
+        expect(text.length).toBeLessThanOrEqual(56); // two lines of the vertical style
+        expect(text).not.toMatch(/ {2}|^ /);
+        expect(from).toBeGreaterThanOrEqual(last);
+        expect(to - from).toBeGreaterThanOrEqual(0.999);
+        last = to;
+      }
+      expect(cues.map((c) => c.split('\n')[2]).join(' ')).toBe(said);
+    },
+  );
 
-  it.each<[string, [number, number][], boolean, string]>([
+  const hit =
+    'Did you ever hit him? Of course I did not. Did you miss him? Every single day. I hated my father. I am joking of course.';
+  it.each<[string, string, [string, string][], boolean, string]>([
     [
-      'whole sentences in order',
+      'whole sentences in order, a card between',
+      said,
       [
-        [0, 4],
-        [17, 24],
+        ['I was', 'then.'],
+        ['She never', 'see it.'],
       ],
       true,
       'span 2',
     ],
     [
-      'a kept line whose next sentence takes it back',
-      [[4, 10]],
+      'the next sentence takes it back',
+      said,
+      [['We sold', 'in May.']],
       true,
-      'LOOK the next sentence takes it back',
+      'LOOK the next sentence may take it back',
     ],
-    ['a cut inside a sentence', [[4, 8]], false, 'FIX ends inside a sentence'],
+    ['it was a joke', hit, [['I hated', 'my father.']], true, 'LOOK the next sentence may take it back'],
+    ['its question is cut', hit, [['Every', 'single day.']], true, 'LOOK its question is cut'],
+    [
+      'a question with its own answer',
+      hit,
+      [
+        ['Did you miss', 'him?'],
+        ['Every', 'single day.'],
+      ],
+      true,
+      'span 2',
+    ],
+    [
+      'an answer under another question',
+      hit,
+      [
+        ['Did you ever', 'hit him?'],
+        ['Every', 'single day.'],
+      ],
+      false,
+      'FIX answers a question',
+    ],
+    ['a cut inside a sentence', said, [['We sold', 'the house']], false, 'FIX ends inside a sentence'],
     [
       'an answer moved earlier',
+      said,
       [
-        [17, 24],
-        [0, 4],
+        ['She never', 'see it.'],
+        ['I was', 'then.'],
       ],
       false,
       'FIX is earlier on the tape',
     ],
-  ])('meaning.py: %s', (_, list, ok, line) => {
-    save('spans.txt', spans(...list));
-    const r = run(python, 'meaning.py', 'words.json', 'spans.txt');
+  ])('meaning.py: %s', (_, text, list, ok, line) => {
+    const r = meaning(
+      text,
+      list.map(([a, b]) => at(text, a, b)),
+    );
     expect(r.ok, r.said).toBe(ok);
     expect(r.said).toContain(line);
   });
 
-  it('meaning.py fails a film that lost a "not"', () => {
-    save('spans.txt', spans([10, 17], [17, 24]));
-    save('cut.json', words('But we did not want to go. She never came back to see it.'));
-    const same = run(python, 'meaning.py', 'words.json', 'spans.txt', 'cut.json');
+  it('meaning.py fails a tape that no span names', () => {
+    save('spans.txt', 'other.mkv 0 4\n');
+    expect(run(python, 'meaning.py', 'words.json', 'spans.txt', 'tape.mkv').ok).toBe(false);
+  });
+
+  const long =
+    'So the years went by and the town grew and the mill closed and the river came up twice in one spring before anybody built the wall we have';
+  it.each([
+    ['I did not forgive him.', 'I did forgive him.'],
+    ['I cannot forgive him.', 'I can forgive him.'],
+    ['I don\u2019t forgive him.', 'I do forgive him.'],
+  ])('meaning.py fails a film where "%s" became "%s"', (was, now) => {
+    const all: [number, number][] = [[0, `${long} ${was}`.split(' ').length]];
+    const same = meaning(`${long} ${was}`, all, `${long} ${was.replace('\u2019', "'")}`);
     expect(same.ok, same.said).toBe(true);
-    save('cut.json', words('But we did want to go. She never came back to see it.'));
-    const lost = run(python, 'meaning.py', 'words.json', 'spans.txt', 'cut.json');
+    const lost = meaning(`${long} ${was}`, all, `${long} ${now}`);
     expect(lost.ok).toBe(false);
     expect(lost.said).toContain('a not, if or maybe changed');
   });
 });
 
-describe.skipIf(!hasFfmpeg || process.platform === 'win32')('spans.sh', () => {
+const noWindows = process.platform === 'win32';
+describe.skipIf(!hasFfmpeg || noWindows)('spans.sh', () => {
+  vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
+  const ff = (...args: string[]) => {
+    const r = run('ffmpeg', '-v', 'error', '-y', ...args);
+    expect(r.ok, r.said).toBe(true);
+  };
+  const join3 = (list: string, env: Record<string, string> = {}) => {
+    save('spans.txt', list);
+    const r = spawnSync('bash', ['spans.sh'], {
+      encoding: 'utf8',
+      cwd: dir,
+      env: { ...process.env, FIT: 'scale=32:32', ...env },
+    });
+    return { ok: r.status === 0, said: r.stdout + r.stderr };
+  };
   beforeAll(() => {
-    const source = ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=25:d=6'];
-    run('ffmpeg', ...source, '-f', 'lavfi', '-i', 'sine=d=6', '-c:v', 'libx264', '-c:a', 'aac', 'a.mkv');
-    run('ffmpeg', ...source, '-c:v', 'libx264', 'silent.mkv');
+    const source = ['-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=25:d=6'];
+    ff(...source, '-f', 'lavfi', '-i', 'sine=d=6', '-c:v', 'libx264', '-c:a', 'aac', 'a.mkv');
+    ff(...source, '-c:v', 'libx264', 'silent.mkv');
+    ff(...source, '-f', 'lavfi', '-i', 'sine=d=3', '-c:v', 'libx264', '-c:a', 'aac', 'mic.mkv'); // the mic died at 3 s
+    // One event at 60 fps, its brightness the frame number; the second camera started 121 frames (2.01667 s) in: half a frame off at 30 fps.
+    ff(
+      '-f',
+      'lavfi',
+      '-i',
+      "nullsrc=s=32x32:r=60:d=40,geq=lum='16+mod(N,200)':cb=128:cr=128",
+      '-c:v',
+      'libx264',
+      '-crf',
+      '4',
+      'event.mkv',
+    );
+    ff(
+      '-i',
+      'event.mkv',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=d=40',
+      '-vf',
+      'fps=30',
+      '-c:v',
+      'libx264',
+      '-crf',
+      '4',
+      '-c:a',
+      'pcm_s16le',
+      'one.mkv',
+    );
+    ff(
+      '-i',
+      'event.mkv',
+      '-vf',
+      "select='gte(n,121)',setpts=N/60/TB,fps=30",
+      '-c:v',
+      'libx264',
+      '-crf',
+      '4',
+      'two.mkv',
+    );
   });
-  it('joins to the frame, a silent file and a last line with no newline included', () => {
-    save('spans.txt', 'a.mkv 0.51 2.02\nsilent.mkv 1 2.5 setpts=PTS-STARTPTS\na.mkv 3.333 4.1');
-    const r = run('bash', 'spans.sh');
+
+  it('joins to the frame: a silent file, a blank line, a last line with no newline', () => {
+    const r = join3('a.mkv 0.51 2.02\n\nsilent.mkv 1 2.5 setpts=PTS-STARTPTS\na.mkv 3.333 4.1');
     expect(r.ok, r.said).toBe(true);
     expect(r.said).toMatch(/OK frames 114 of 114/);
+    expect(join3('a.mkv 0.5 4.1\n', { FPS: '30000/1001' }).said).toMatch(/OK frames 108 of 108/);
   });
-  it('fails a span past the end of its file', () => {
-    save('spans.txt', 'a.mkv 0.5 2\na.mkv 5 8\n');
-    const r = run('bash', 'spans.sh');
-    expect(r.ok).toBe(false);
-    expect(r.said).toContain('FIX frames');
+  it('fails a span past the end of its file, and one whose sound runs out', () => {
+    const past = join3('a.mkv 0.5 2\na.mkv 5 8\n');
+    expect(past.ok).toBe(false);
+    expect(past.said).toContain('FIX frames');
+    const mic = join3('mic.mkv 1 5\n');
+    expect(mic.ok).toBe(false);
+    expect(mic.said).toContain('FIX span 1: mic.mkv has sound for 2.0');
+  });
+  it('keeps the picture on the main clock through 20 camera changes', () => {
+    save('sync.txt', 'two.mkv 2.01667 0.0\n');
+    const list = Array.from(
+      { length: 20 },
+      (_, i) =>
+        `${i % 2 ? 'two' : 'one'}.mkv ${(5 + i * 1.5183).toFixed(4)} ${(5 + (i + 1) * 1.5183).toFixed(4)}`,
+    );
+    const r = join3(list.join('\n'));
+    rmSync(join(dir, 'sync.txt'));
+    expect(r.ok, r.said).toBe(true);
+    const px = spawnSync(
+      'ffmpeg',
+      ['-v', 'error', '-i', 'assembly.mkv', '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'],
+      { cwd: dir, maxBuffer: 1 << 26 },
+    ).stdout;
+    let worst = 0;
+    for (let k = 0; k < px.length / 1536; k++) {
+      const off = (((((px[k * 1536 + 500] ?? 0) - 16 - (150 + k) * 2) % 200) + 300) % 200) - 100;
+      worst = Math.max(worst, Math.abs(off));
+    }
+    expect(worst).toBeLessThanOrEqual(2); // in 60 fps frames: one frame of the film at most, at the end as at the start
+  });
+  it('makes a file section 6 can burn captions on and keep its sound', () => {
+    expect(join3('a.mkv 0.5 2\n').ok).toBe(true);
+    const out = skill.match(/-c:a copy -crf 17 (captioned\.\w+)/)?.[1] ?? 'none';
+    ff('-i', 'assembly.mkv', '-vf', 'null', '-c:a', 'copy', '-crf', '17', out);
+    expect(out).toMatch(/\.mkv$/);
   });
 });
 
 describe.skipIf(!hasFfmpeg || !has(python, '-c', 'import numpy'))('sync.py', () => {
+  vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
   beforeAll(() => {
-    const noise = (seed: number, d: number) =>
-      `anoisesrc=d=${d}:c=pink:seed=${seed}:r=16000,tremolo=f=0.7:d=0.9`;
-    const wav = (out: string, input: string, ...more: string[]) =>
-      run('ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', input, ...more, out);
-    wav('main.wav', noise(3, 120));
-    wav('other.wav', noise(8, 80));
-    run(
-      'ffmpeg',
-      '-v',
-      'error',
-      '-y',
-      '-ss',
-      '17.42',
-      '-t',
-      '80',
+    const noise = (seed: number, d: number) => [
+      '-f',
+      'lavfi',
       '-i',
-      'main.wav',
-      '-af',
-      'volume=0.4',
-      'cam.wav',
+      `anoisesrc=d=${d}:c=pink:seed=${seed}:r=48000,tremolo=f=0.7:d=0.9`,
+    ];
+    const ff = (...args: string[]) => run('ffmpeg', '-v', 'error', '-y', ...args);
+    ff(...noise(3, 240), 'main.wav');
+    ff(...noise(8, 80), 'other.wav');
+    ff('-ss', '17.42', '-t', '200', '-i', 'main.wav', 'cut.wav');
+    // a phone 100 ppm slow, quieter, with its own hiss
+    ff(
+      '-i',
+      'cut.wav',
+      ...noise(5, 200),
+      '-filter_complex',
+      '[0]asetrate=48000*1.0001,aresample=48000,volume=0.5[a];[1]volume=0.1[b];[a][b]amix=duration=first',
+      'phone.wav',
     );
+    ff('-ss', '10', '-t', '60', '-i', 'main.wav', 'p1.wav');
+    ff('-ss', '130', '-t', '60', '-i', 'main.wav', 'p2.wav');
+    ff('-i', 'p1.wav', '-i', 'p2.wav', '-filter_complex', '[0][1]concat=n=2:v=0:a=1', 'paused.wav');
+    ff(
+      '-f',
+      'lavfi',
+      '-i',
+      'color=s=32x32:d=200',
+      '-itsoffset',
+      '0.5',
+      '-i',
+      'cut.wav',
+      '-map',
+      '0:v',
+      '-map',
+      '1:a',
+      '-c:a',
+      'pcm_s16le',
+      '-shortest',
+      'late.mkv',
+    );
+    ff('-f', 'lavfi', '-i', 'color=s=32x32:d=12', 'drone.mkv');
   });
-  it('finds where a camera starts', () => {
-    const r = run(python, 'sync.py', 'main.wav', 'cam.wav');
+  it('finds a camera with drift and hiss, and one whose sound starts late', () => {
+    const r = run(python, 'sync.py', 'main.wav', 'phone.wav', 'late.mkv');
     expect(r.ok, r.said).toBe(true);
-    expect(Number(r.said.match(/starts \+?(-?[\d.]+) s/)?.[1])).toBeCloseTo(17.42, 2);
+    const [phone = [], late = []] = readFileSync(join(dir, 'sync.txt'), 'utf8')
+      .trim()
+      .split(/\r?\n/)
+      .map((l) => l.split(' '));
+    expect(Number(phone[1])).toBeCloseTo(17.42, 2);
+    expect(Number(phone[2])).toBeGreaterThan(90);
+    expect(Number(phone[2])).toBeLessThan(110);
+    expect(Math.abs(Number(late[1]) - 16.92)).toBeLessThan(0.03);
   });
-  it('fails a track from another event', () => {
-    const r = run(python, 'sync.py', 'main.wav', 'other.wav');
+  it('fails another event, a paused camera and a file with no sound, and still reads the one after', () => {
+    const r = run(python, 'sync.py', 'main.wav', 'other.wav', 'drone.mkv', 'paused.wav', 'cut.wav');
     expect(r.ok).toBe(false);
-    expect(r.said).toContain('FIX other.wav');
+    expect(r.said).toContain('FIX other.wav matched in');
+    expect(r.said).toContain('FIX drone.mkv has no sound');
+    expect(r.said).toContain('FIX paused.wav jumps');
+    expect(r.said).toContain('OK  cut.wav starts +17.420');
   });
 });
