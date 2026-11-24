@@ -1,6 +1,6 @@
 ---
 name: hildegard-video-edit
-description: Cut clips into a reel with titles and music, edit or trim video, crossfades, grade, captions, reframe for vertical, mix sound and loudness with FFmpeg, checked with hildegard review.
+description: Edit or trim video with FFmpeg, checked - clips into a reel, or a short film from long recordings (screen, several cameras, interview), titles, grade, captions, vertical, music and loudness.
 ---
 
 # Editing video
@@ -9,7 +9,7 @@ description: Cut clips into a reel with titles and music, edit or trim video, cr
 
 The person's request is at the top of this message and after `</skill>`.
 
-For a short film from long recordings (a screen, several cameras, an interview), follow section 8. Otherwise first run `python3 -B <folder>/scripts/cut_reel.py` as in the Fast path's step 4, with the person's clips, then `python3 -B <folder>/scripts/check_video.py out.mp4` with the brief's numbers. Every line must say OK.
+For a short film from long recordings (a screen, several cameras, an interview), follow section 8 and save its programs in your working folder, never `<folder>`. Otherwise first run `python3 -B <folder>/scripts/cut_reel.py` as in the Fast path's step 4, with the person's clips, then `python3 -B <folder>/scripts/check_video.py out.mp4` with the brief's numbers. Every line must say OK.
 
 `<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
@@ -245,21 +245,22 @@ the target without pumping (a quiet mic with loud peaks). Then put `acompressor=
 
 ## 8. A short film from long recordings
 
-Ask for the one sentence a viewer should leave with: it picks the hook and which minutes survive. Say what was assumed and go on.
+Ask for the one sentence a viewer should leave with: it picks the hook and which minutes survive. Say what was assumed and go on. Save each
+program below under its name in your working folder, never in this skill's folder, and run it there. Give recordings names without spaces.
 
 Write one line per span in `spans.txt` (`file in out [filter]`, seconds) and render with this. It snaps every cut to a whole frame, keeps the
 sound PCM, and fails when frames are missing or picture and sound end apart:
 
 ```bash
 #!/usr/bin/env bash
-# Join spans of one or more recordings. spans.txt: file in out [filter for this span], one per line. Edit the settings.
+# bash spans.sh: join spans of one or more recordings. spans.txt: file in out [filter for this span], one per line. Edit the settings.
 set -euo pipefail
 OUT=${OUT:-assembly.mkv}; FPS=${FPS:-30}; FIT=${FIT:-scale=1080:1350:force_original_aspect_ratio=decrease,pad=1080:1350:-1:-1}
 P=$(mktemp -d parts.XXXX); n=0
-while read -r f a b vf; do
-  n=$((n+1)); p=$(printf "$P/%03d.mkv" $n)
+while read -r f a b vf || [ -n "$f" ]; do
+  n=$((n+1)); p=$(printf "$P/%03d.mkv" $n); q=(); [ -n "$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f")" ] || q=(-f lavfi -i anullsrc=r=48000:cl=stereo -map 0:v -map 1:a)   # a silent file gets silence
   read -r s d o < <(awk -v a="$a" -v b="$b" -v r="$FPS" 'BEGIN{x=int(a*r+.5); y=int(b*r+.5); printf "%.6f %.6f %.6f\n", x/r, (y-x)/r, (y-x)/r-.01}')   # whole frames
-  ffmpeg -nostdin -v error -y -ss "$s" -t "$d" -i "$f" -vf "${vf:+$vf,}$FIT,fps=$FPS,setsar=1,format=yuv420p" \
+  ffmpeg -nostdin -v error -y -ss "$s" -t "$d" -i "$f" ${q[@]+"${q[@]}"} -vf "${vf:+$vf,}$FIT,setpts=if(eq(N\,0)*lt(T\,0.06)\,0\,PTS),fps=$FPS,tpad=stop=2:stop_mode=clone,setsar=1,format=yuv420p" \
     -af "aresample=48000:async=1:first_pts=0,aformat=channel_layouts=stereo,afade=t=in:d=0.01,afade=t=out:st=$o:d=0.01,apad" \
     -t "$d" -c:v libx264 -crf 10 -preset fast -c:a pcm_s16le "$p"
   echo "file '$p'" >> "$P.txt"
@@ -271,7 +272,8 @@ w=$(awk -v r="$FPS" '{t+=int($3*r+.5)-int($2*r+.5)} END{print t}' spans.txt)
 awk -v v="$v" -v a="$a" -v r="$FPS" -v w="$w" 'BEGIN{d=v/r-a/96000; if(d<0)d=-d; bad=(v!=w || d>1/r); printf "%s frames %d of %d, picture and sound end %.0f ms apart\n", bad?"FIX":"OK", v, w, d*1000; exit bad}'
 ```
 
-Show your user the list (start, end, words, why it stays) before rendering: that is the cheap place to change the film. Then, whatever the film:
+Short of frames means a span past the end of its file, or a screen recording or phone file with a variable frame rate: make that one constant
+first, `ffmpeg -i in.mov -r 30 -fps_mode cfr -c:v libx264 -crf 12 -preset fast -c:a copy in_cfr.mkv`, and use it. Show your user the list (start, end, words, why it stays) before rendering: that is the cheap place to change the film. Then, whatever the film:
 
 1. **Cut from the words.** Transcribe with word times (`faster-whisper` with `word_timestamps=True`, or Hildegard's `transcribe`) to `words.json`
    (`[{"w": "word,", "s": 1.23, "e": 1.60}]`), fix names by ear, cut 0.15 s outside the word edges. A cut that changes what someone meant is out.
@@ -281,20 +283,19 @@ Show your user the list (start, end, words, why it stays) before rendering: that
 ```python
 # python3 cap.py cut_words.json > captions.srt: lines of 3 to 6 words, broken at pauses and punctuation, at least 1 s on screen
 import sys, json
-W, L = json.load(open(sys.argv[1])), [[]]
+W, L = [x for x in json.load(open(sys.argv[1])) if x["w"].strip()], [[]]
 for k, w in enumerate(W):
     L[-1].append(w); nxt = W[k+1]["s"] if k + 1 < len(W) else 1e9
-    if len(L[-1]) >= 6 or sum(len(x["w"]) + 1 for x in L[-1]) > 24 or nxt - w["e"] > .5 or (w["w"][-1] in ".?!,;:" and len(L[-1]) > 2): L.append([])
+    if len(L[-1]) >= 6 or sum(len(x["w"]) + 1 for x in L[-1]) > 24 or nxt - w["e"] > .5 or (w["w"].strip()[-1] in ".?!,;:" and len(L[-1]) > 2): L.append([])
 L = [l for l in L if l]; T = lambda t: (lambda m: "%02d:%02d:%02d,%03d" % (m//3600000, m//60000 % 60, m//1000 % 60, m % 1000))(round(t*1000))
 for n, l in enumerate(L, 1):
     end = max(l[-1]["e"] + .2, l[0]["s"] + 1); end = min(end, L[n][0]["s"]) if n < len(L) else end
-    print(n, f"{T(l[0]['s'])} --> {T(end)}", " ".join(w["w"] for w in l), "", sep="\n")
+    print(n, f"{T(l[0]['s'])} --> {T(end)}", " ".join(w["w"].strip() for w in l), "", sep="\n")
 ```
 
 ### A screen recording to a vertical clip
 
-Ask for the one sentence a viewer should leave with: it picks the hook and which minutes survive. List 5 to 7 spans, the strongest line first,
-the result last. Waiting (a build, a search) goes, or is
+List 5 to 7 spans, the strongest line first, the result last. Waiting (a build, a search) goes, or is
 rendered first at 4x (`setpts=PTS/4`, no sound) as a file of its own and listed as a span like any other.
 
 1. **Choose the crop by letter height.** A 1440p screen squeezed to 1080 wide can't be read on a phone. Per span, crop the part being
@@ -386,7 +387,7 @@ shows ticks evenly spaced or not. Last, someone in the family who knows the stor
 ```python
 # python3 meaning.py words.json spans.txt [cut_words.json]: what the cut does to what was said. words.json: [{"w": "word,", "s": 1.23, "e": 1.60}, ...]
 import sys, json, re, difflib
-W = json.load(open(sys.argv[1])); S = [list(map(float, l.split()[1:3])) for l in open(sys.argv[2]) if l.strip()]; bad, kept = 0, []
+W = [{**w, "w": w["w"].strip()} for w in json.load(open(sys.argv[1])) if w["w"].strip()]; S = [list(map(float, l.split()[1:3])) for l in open(sys.argv[2]) if l.strip()]; bad, kept = 0, []
 txt = lambda i, j: " ".join(w["w"] for w in W[max(0, i):max(0, j)]); END = re.compile(r"[.?!][\"')]*$")
 HEDGE = re.compile(r"n't\b|\b(not|no|never|if|unless|maybe|think|guess|probably|sometimes|only|almost|suppose|joking)\b", re.I)
 for n, (a, b) in enumerate(S, 1):
