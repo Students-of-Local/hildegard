@@ -40,7 +40,9 @@ python3 -B <folder>/scripts/contact_sheet.py compare.png photo.jpg out.jpg      
 
 - **Never invent scenery.** No sky replacement, no gradient painted over a sky, no cloned or generated pixels, no added text, border or
   filter. These tools only turn, cut, multiply and curve the pixels the photo already has. A washed-out sky is brought back by lowering
-  exposure, never by drawing a new one.
+  exposure, never by drawing a new one. The one exception is a plain background the brief asks for (Cut a product out, below).
+- **No shell here, or your user runs the steps: don't hand over these script names.** They may not have this folder. Give the method as the
+  ImageMagick or short Python in this file, whole, with the number each step must reach; name a script only as the shorter way.
 - **Straighten by the measurement, never by eye.** `straighten.py` finds the tilt from the straight lines, turns the right way, and
   cuts to the largest rectangle with **no black wedges**. If it refuses ("not clear enough"), leave the photo as shot and say so, or give
   `--angle` only when a measurement (not a hunch) says what it is. A wrong turn makes a photo worse.
@@ -147,6 +149,108 @@ magick in.jpg \( +clone -region 24x24+1310+842 -blur 0x3 \) -composite fixed.jpg
 
 - Bigger repairs (a sign, a passer-by): say so to your user first. A documentary or news photo is never altered beyond exposure,
   colour and crop.
+
+## Cut a product out onto white
+
+Straighten and correct the colour first, cut out second: a cast is easier to see with the old background still there. This is the one
+place pixels are replaced, and only because the brief asks for a plain background. Ask what changes the result (the shop's size, how much
+of the frame the product fills, whether a soft shadow is allowed), or take square, 2000 px, 85 percent, no shadow, and say so.
+
+1. **White balance from something grey, not from the product.** Auto white balance reads brown wood, brass or leather as a cast and drains
+   it. Find paper, a white label, a steel sink or a plate's rim *under the same light* (a window's white edge is another light) and read it
+   off. With nothing grey in the frame, use `color.py --wb none --warmth -3`, compare with the real object, and say the colour is judged.
+2. **Cut on the full-size file.** `python3 -m pip install "rembg[cpu,cli]" pymatting`, then `rembg i -m birefnet-general graded.png cut.png`
+   (the model downloads once, about 1 GB; `-m isnet-general-use` is smaller and softer at the edges). Look at the matte on magenta at 200
+   percent: holes in pale wood grain, a missing rim, and the shadow kept as if it were the board are the usual faults. A hard product edge
+   should be one to two pixels wide, so don't feather it more than half a pixel. Straight edges that wobble get a drawn mask instead.
+3. **Take the old light out of the edge**, or a warm line rings the product: `estimate_foreground_ml` from pymatting on the edge pixels only.
+4. **Put it on 255 and check every pixel**, never a few samples. Save the JPEG at 4:4:4, quality 92 or more, since 4:2:0 bleeds colour
+   past the edge; then run the check on the JPEG, not on the PNG before it.
+
+```python
+# wb_patch.py in.jpg graded.png X Y W H     X Y W H: a patch that is really grey or white, in pixels
+import io, sys, numpy as np
+from PIL import Image, ImageCms, ImageOps
+src, out, x, y, w, h = sys.argv[1], sys.argv[2], *map(int, sys.argv[3:7])
+im = Image.open(src); icc = im.info.get("icc_profile"); im = ImageOps.exif_transpose(im).convert("RGB")
+if icc: im = ImageCms.profileToProfile(im, ImageCms.ImageCmsProfile(io.BytesIO(icc)), ImageCms.createProfile("sRGB"))   # phones shoot Display P3
+a = np.asarray(im, float) / 255
+lin = np.where(a <= .04045, a / 12.92, ((a + .055) / 1.055) ** 2.4)          # gains belong in linear light
+patch = lin[y:y+h, x:x+w].reshape(-1, 3)
+if patch.max() > .95 or patch.min() < .02: sys.exit("patch is clipped or black: pick another")
+gain = patch.mean(0)[1] / patch.mean(0); lin = np.clip(lin * gain, 0, 1)     # green stays, red and blue move
+srgb = np.where(lin <= .0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - .055)
+print("gains R %.3f G 1 B %.3f" % (gain[0], gain[2]))
+Image.fromarray((srgb * 255 + .5).astype("uint8")).save(out)
+```
+
+```python
+# on_white.py graded.png cut.png out.jpg     composite, then read the JPEG back and judge it; exit 1 on a FIX
+import sys, numpy as np
+from PIL import Image
+from pymatting import estimate_foreground_ml
+rgb = np.asarray(Image.open(sys.argv[1]).convert("RGB"), float) / 255
+al = np.asarray(Image.open(sys.argv[2]).split()[-1], float) / 255
+edge = (al > 0) & (al < 1); fg = rgb.copy(); fg[edge] = estimate_foreground_ml(rgb, al)[edge]
+comp = fg * al[..., None] + (1 - al[..., None])
+Image.fromarray((np.clip(comp, 0, 1) * 255 + .5).astype("uint8")).save(sys.argv[3], quality=95, subsampling=0)
+got = np.asarray(Image.open(sys.argv[3]).convert("RGB"), float); ok = True
+def far(mask, n):                                                            # grow a mask by n pixels
+    for _ in range(n):
+        mask = mask | np.roll(mask, 1, 0) | np.roll(mask, -1, 0) | np.roll(mask, 1, 1) | np.roll(mask, -1, 1)
+    return mask
+def say(name, value, good):
+    global ok; ok &= bool(good); print(f"{'OK ' if good else 'FIX'} {name}: {value}")
+bg = ~far(al > .5, 8); inside = ~far(al < 1, 12)                             # 8 px from the product, smudges in the matte still count
+say("background pixels under 255", int((got[bg].min(1) < 255).sum()), (got[bg] == 255).all())
+say("product share of the frame", "%.0f%%" % (100 * (al > .5).mean()), .05 < (al > .5).mean() < .95)
+fine = lambda im: np.diff(im.mean(2), axis=1)[inside[:, 1:]]   # pixel-to-pixel detail inside the product
+kept = np.corrcoef(fine(got), fine(rgb * 255))[0, 1]; say("grain kept (smoothed or redrawn wood reads under 0.9)", "%.2f" % kept, kept > .9)
+shift = np.abs(got[inside].mean(0) - rgb[inside].mean(0) * 255).max(); say("colour moved by the cutout", "%.1f of 255" % shift, shift < 2)
+sys.exit(0 if ok else 1)
+```
+
+Resize after this check with Lanczos, sharpen once, and count the background again on the final file. Then look at it three ways: the edge at
+200 percent on white and on black, the whole picture at phone size, and the wood beside the original. Say what no check can see: real
+colour needs the real board next to a calibrated screen.
+
+## People, buildings and print
+
+The order: profile, lens, keystone, crop, overall light, each face, distractions, resize, sharpen. Anything that moves pixels comes before
+anything painted on them.
+
+- **A building leaning back is perspective, not tilt.** Read the ends of two upright edges and pull them 60 to 80 percent of the way to
+  parallel; all the way stretches the people at the frame's edge and looks top-heavy. Measure after: the uprights as planned, and the
+  outermost face's width over height changed by under 3 percent. Crop inside the empty corners, never fill them.
+  `magick in.png -virtual-pixel black -distort Perspective "TLx,TLy TLx2,TLy  TRx,TRy TRx2,TRy  BLx,BLy BLx,BLy  BRx,BRy BRx,BRy" key.png`
+- **A group is wider than tall**: nine people want 10x8, not 8x10; offer both when the brief says 8x10. No joint cut at the edge, no head
+  within 5 percent of it.
+- **Noon eyes**: overall shadows up a little (`color.py --exposure auto`, or a curve), then each face on its own. The socket over the cheek
+  reads about 0.35 to 0.5 at noon; bring it to 0.6 to 0.75. At 1 it looks like a flash, and over one stop the noise shows.
+- **A colour that steals the eye** is dulled, not removed: mask it by hue inside a drawn region (so no orange face or brick moves), take 60 to
+  80 percent of its saturation and bring its brightness to the shirt beside it. Its cloth stays. Say it was done.
+- **Print**: 8x10 at 300 ppi is 2400x3000; under 240 ppi say so before enlarging. Keep 0.25 inch (75 px) inside every edge for the trim.
+  Labs want sRGB unless they send a profile; with one, soft-proof it. Prints come back darker than screens: middle tones up 5 to 8 percent,
+  and a 4x6 test print first. Sharpen last at print size, a little past what looks right on screen.
+
+```python
+# faces.py in.png out.png  SOCKET CHEEK [SOCKET CHEEK ...]   each X,Y,W,H in pixels; lifts each socket toward its own cheek, exit 1 on a FIX
+import sys, numpy as np
+from PIL import Image, ImageFilter
+a = np.asarray(Image.open(sys.argv[1]).convert("RGB"), float) / 255
+lin = np.where(a <= .04045, a / 12.92, ((a + .055) / 1.055) ** 2.4); Y = lambda im: im @ [.2126, .7152, .0722]
+box = [tuple(map(int, v.split(","))) for v in sys.argv[3:]]; ok = True
+mean = lambda im, b: Y(im)[b[1]:b[1]+b[3], b[0]:b[0]+b[2]].mean()
+for socket, cheek in zip(box[::2], box[1::2]):
+    was = mean(lin, socket) / mean(lin, cheek); gain = min(.68 / was, 2) if was < .6 else 1          # one stop at most
+    r = max(2, socket[3] // 4); m = np.zeros(Y(lin).shape)                                          # r: the feather, outside the socket
+    m[max(0, socket[1]-r):socket[1]+socket[3]+r, max(0, socket[0]-r):socket[0]+socket[2]+r] = 255
+    m = np.asarray(Image.fromarray(m.astype("uint8")).filter(ImageFilter.GaussianBlur(r / 2)), float)[..., None] / 255
+    lin = np.clip(lin * (1 + (gain - 1) * m), 0, 1); now = mean(lin, socket) / mean(lin, cheek)
+    good = .55 <= now <= .8; ok &= good; print("OK " if good else "FIX", socket, "socket over cheek %.2f to %.2f" % (was, now))
+out = np.where(lin <= .0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - .055)
+Image.fromarray((out * 255 + .5).astype("uint8")).save(sys.argv[2]); sys.exit(0 if ok else 1)
+```
 
 ## Export
 
