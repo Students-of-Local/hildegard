@@ -222,7 +222,45 @@ ffmpeg -i mixed.mp4 -af "loudnorm=I=-14:TP=-1.5:LRA=11:measured_I=<input_i>:meas
 
 Use -16 LUFS for speech-only pieces and podcasts.
 
-## 8. Deliver
+## 8. A short clip from a long recording (screen, talk, interview)
+
+Ask for the one sentence a viewer should leave with: it picks the hook and which minutes survive. Say what was assumed and go on.
+
+1. **Cut from the words.** Transcribe with word times (`faster-whisper`, or Hildegard's `transcribe`), list 5 to 7 spans that add up to the
+   length, the strongest line first, the result last. Cut on word edges with 0.15 s either side, 10 ms audio fades. Show your user the list
+   (start, end, why it stays) before rendering; a cut that changes what someone meant is out.
+2. **Choose the crop by letter height.** A 1440p screen squeezed to 1080 wide can't be read on a phone. Per span, crop the part being
+   talked about and enlarge it: small letters (an x) need 18 px or more in the delivered frame. Crop width = 1080 x (source x height) / 18 at
+   most, so text 11 px tall allows a 660 px window. When the action is wider than that, stack two windows, or re-show the line as text.
+   Screen in the top 1080 x 1350, captions on the plain band under it, so they never cover code.
+3. **Take the fan out with a sample of the fan.** Find a pause with `silencedetect`, then hand that second to `afftdn`:
+   `highpass=f=80,asendcmd=c='2.8 afftdn sn start; 3.8 afftdn sn stop',afftdn=nr=18:nf=-40`. It only knows the noise from then on, so use a
+   pause before the first span, or prepend it and trim. On a test recording this took a pause from 20 to 39 dB under the voice; `afftdn=tn=1`
+   alone, which guesses, reached 24. Over `nr=20` voices go watery: listen. Then loudness (section 7), never before.
+4. **Captions come from the finished cut**, not the source, so their times are right: transcribe it again, fix names and code words by
+   hand, 4 to 6 words a line, section 6's vertical command.
+
+Checks that can fail, run on the delivered file:
+
+```sh
+F=clip.mp4
+ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration -of default=nw=1 $F
+mkdir -p f && ffmpeg -v error -y -i $F -vf fps=1 f/%03d.png                                  # one frame a second
+for p in f/*.png; do                                                                         # letters: words with no tall letters, median px
+  px=$(tesseract $p - --psm 6 tsv 2>/dev/null | awk -F'\t' '$11>60 && $12 ~ /^[acemnorsuvwxz]+$/ {print $10}' | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}')
+  [ "${px:-99}" -lt 18 ] && echo "FIX $p letters $px px"; done
+for p in f/*.png; do tesseract $p - --psm 6 2>/dev/null |                                    # secrets: names the second, never prints the text
+  grep -Eqi 'sk-|ghp_|AKIA|api.?key|secret|token|passw|PRIVATE KEY|[a-z0-9._]+@[a-z0-9-]+\.[a-z]{2,}|/(home|Users)/[a-z]+' && echo "LOOK second $p"; done
+pause() { ffmpeg -hide_banner -ss $2 -t $3 -i $1 -af astats -f null - 2>&1 | awk '/Overall/{o=1} o&&/RMS level dB/{print $NF; exit}'; }
+echo "pause $(pause $F 12.4 0.6) dB, voice $(pause $F 13.2 1.5) dB"                           # 30 dB or more apart; use your own times
+```
+
+Then four by eye and ear: a sheet with a frame at 0.5 s, 3 s, every splice and the end (the hook reads with the sound off, no crop cuts a line
+of code); re-transcribe and compare with the captions (two words in a hundred off, and no name wrong); each burned caption against its
+line; once through on headphones. OCR misses small or blurred text, so the secrets pass finds leaks and never proves there are none: look
+at every span that shows a terminal, a `.env`, mail or a notification, and cut or cover it.
+
+## 9. Deliver
 
 ```sh
 ffmpeg -i master.mp4 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 192k final.mp4
