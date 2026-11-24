@@ -2,6 +2,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import markGreen from './assets/mark-green.svg';
 import markVellum from './assets/mark-vellum.svg';
+import { MovedNotice } from './components/MovedNotice.tsx';
 import { RecordDialog } from './components/RecordDialog.tsx';
 import { Icon, Toasts } from './components/ui.tsx';
 import { reconcile } from './lib/draft.ts';
@@ -206,6 +207,7 @@ export function App() {
         </div>
       ) : null}
       {recording ? <RecordDialog onClose={() => setRecording(false)} /> : null}
+      {isOwner(auth) ? <MovedNotice /> : null}
       <Toasts />
     </div>
   );
