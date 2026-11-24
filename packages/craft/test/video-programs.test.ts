@@ -186,6 +186,67 @@ describe.skipIf(!has(python, '--version'))('the words', () => {
     expect(r.ok, r.said).toBe(true);
   });
 
+  it('meaning.py takes a camera change mid-sentence and mid-word as no cut, and keeps every word', () => {
+    save('m.json', words(said));
+    save('cut.json', words(said));
+    save('spans.txt', 'tape.mkv 0 2.1\nside.mkv 2.1 3.95\ntape.mkv 3.95 4\nside.mkv 4 10\n'); // 2.1 s is inside "sold"
+    const r = run(python, 'meaning.py', 'm.json', 'spans.txt', 'tape.mkv,side.mkv', 'cut.json');
+    expect(r.ok, r.said).toBe(true);
+    expect(r.said).toContain('OK 0 of 24 words differ');
+    save('spans.txt', 'tape.mkv 0 2.1\ncard.png 0 3\nside.mkv 2.1 10\n'); // the card breaks the voice
+    const cut = run(python, 'meaning.py', 'm.json', 'spans.txt', 'tape.mkv,side.mkv');
+    expect(cut.said).toContain('FIX cuts through a word');
+  });
+
+  it('meaning.py reads two interviews, each against its own words', () => {
+    const [anna, ben] = ['Did you miss him? Every single day.', 'We never spoke again. I was nine then.'];
+    save('anna.json', words(anna));
+    save('ben.json', words(ben));
+    save('spans.txt', 'anna.mkv 0 1.55\nben.mkv 0 1.55\nanna.mkv 1.55 2.75\n');
+    const go = (film: string) => {
+      save('cut.json', words(film));
+      return run(python, 'meaning.py', 'anna.json+ben.json', 'spans.txt', 'anna.mkv+ben.mkv', 'cut.json');
+    };
+    const film = 'Did you miss him? We never spoke again. Every single day.';
+    expect(go(film).ok, go(film).said).toBe(true);
+    expect(go(film).said).toContain('LOOK follows a question that was put to someone else');
+    expect(go(film.replace('never ', '')).ok).toBe(false);
+  });
+
+  it.each([
+    [
+      'Arabic',
+      '\u0647\u0644 \u0647\u0648 \u0647\u0646\u0627\u061f',
+      '\u0646\u0639\u0645 \u0647\u0646\u0627\u06d4',
+    ],
+    ['Japanese', '\u5143\u6c17\u3067\u3059 \u304b\uff1f', '\u5143\u6c17 \u3067\u3059\u3002'],
+    ['Hindi', '\u0935\u0939 \u0926\u0940\u0928 \u0925\u093e\u0964', '\u0926\u093f\u0928 \u0925\u093e\u0964'],
+    ['French', '\u00ab Il est venu. \u00bb', 'Elle aussi.'],
+  ])('meaning.py knows where a sentence ends in %s', (_, one, two) => {
+    const all = `${one} ${two} ${one}`;
+    const n = one.split(' ').length;
+    const r = meaning(all, [
+      [0, n],
+      [n, n + two.split(' ').length],
+    ]);
+    expect(r.ok, r.said).toBe(true);
+    const swapped = meaning(`${one} ${two} ${two}`, [
+      [0, n],
+      [n + two.split(' ').length, n + 2 * two.split(' ').length],
+    ]);
+    expect(swapped.said.includes('FIX answers a question')).toBe(/[\u061f\uff1f]$/.test(one));
+  });
+
+  it('meaning.py tells words apart by a vowel sign, and not by an accent written another way or an opening quote', () => {
+    const day = '\u0926\u093f\u0928';
+    const all: [number, number][] = [[0, 3]];
+    expect(meaning(`${day} ${day} ${day}\u0964`, all, `${day} ${day} \u0926\u0940\u0928\u0964`).ok).toBe(
+      false,
+    );
+    const same = meaning('caf\u00e9 was \u2018not.\u2019', all, 'cafe\u0301 was not.');
+    expect(same.ok, same.said).toBe(true);
+  });
+
   it('meaning.py compares other alphabets word by word and says it knows no negations there', () => {
     const was =
       '\u041e\u043d \u0431\u044b\u043b \u0434\u043e\u0431\u0440. \u042f \u043f\u043e\u043c\u043d\u044e.';
@@ -336,6 +397,20 @@ describe.skipIf(!hasFfmpeg || noWindows)('spans.sh', () => {
     const r = join3('a.mkv 0.5 2\ncard.png 0 3\na.mkv 2 3\n');
     expect(r.ok, r.said).toBe(true);
     expect(r.said).toContain('OK frames 165 of 165');
+    const rgb = spawnSync(
+      'ffmpeg',
+      [
+        ...['-v', 'error', '-ss', '3', '-i', 'assembly.mkv', '-frames:v', '1', '-f', 'rawvideo'],
+        ...['-vf', 'scale=in_color_matrix=bt709:in_range=tv,format=rgb24', '-'],
+      ],
+      { cwd: dir },
+    ).stdout;
+    expect(Math.abs((rgb[0] ?? 0) - 254)).toBeLessThan(6); // red as the camera's matrix shows it
+    expect(Math.max(rgb[1] ?? 99, rgb[2] ?? 99)).toBeLessThan(6);
+    save('sync.txt', 'one.mkv 0 0\n'); // a photo keeps the main clock's frames: 10.016 to 13.05 is 392 - 300 of them
+    const clock = join3('one.mkv 9 10.016\ncard.png 10.016 13.05\none.mkv 13.05 14\n', { SOUND: '0' });
+    rmSync(join(dir, 'sync.txt'));
+    expect(clock.said).toContain('OK frames 150 of 150');
     expect(join3('mic.mkv 1 5\n', { SOUND: '0' }).ok).toBe(true);
   });
   it('makes a file section 6 can burn captions on and keep its sound', () => {
@@ -420,7 +495,7 @@ describe.skipIf(!hasFfmpeg || !has(python, '-c', 'import numpy'))('sync.py', () 
     ).split(' ');
     expect(Number(from)).toBeLessThan(20);
     expect(Number(to)).toBeGreaterThan(100); // the camera hears the event until 10 + 110 s, then something else
-    expect(Number(to)).toBeLessThan(165);
+    expect(Number(to)).toBeLessThan(146); // the last matched window's end, no guess past it
   });
   it('fails another event, a paused camera and a file with no sound, and still reads the one after', () => {
     const r = run(python, 'sync.py', 'main.wav', 'other.wav', 'drone.mkv', 'paused.wav', 'cut.wav');
