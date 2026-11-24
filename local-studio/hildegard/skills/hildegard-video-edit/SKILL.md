@@ -255,18 +255,22 @@ sound PCM, and fails when frames are missing, a span's sound runs out or picture
 
 ```bash
 #!/usr/bin/env bash
-# bash spans.sh: join spans of one or more recordings. spans.txt: file in out [filter], one per line, seconds; with a sync.txt from sync.py, in and out are on the main clock.
+# bash spans.sh: join spans of one or more recordings. spans.txt: file in out [filter], one per line, seconds. With a sync.txt from sync.py, in and out are on the main clock. SOUND=0: picture only.
 set -euo pipefail
 OUT=${OUT:-assembly.mkv}; FPS=${FPS:-30}; FIT=${FIT:-scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1}
-R=$(awk "BEGIN{printf \"%.9f\", $FPS}"); P=$(mktemp -d parts.XXXX); n=0; want=0; short=0
+R=$(awk "BEGIN{printf \"%.9f\", $FPS}"); P=$(mktemp -d parts.XXXX); n=0; want=0; bad=0
 while read -r f a b vf || [ -n "$f" ]; do
-  [ -n "$f" ] || continue; n=$((n+1)); p=$(printf "$P/%03d.mkv" $n)
-  read -r s d o c < <(awk -v f="$f" -v a="$a" -v b="$b" -v r="$R" '$1==f && NF>2{k=$2; m=$3} END{x=int(a*r+.5); y=int(b*r+.5); t=(x/r-k)/(1+m/1000000); printf "%.6f %.6f %.6f %d\n", t, (y-x)/r, (y-x)/r-.01, y-x}' $( [ ! -f sync.txt ] || echo sync.txt ) /dev/null)   # whole frames of the main clock
+  [ -n "$f" ] || continue; n=$((n+1)); p=$(printf "$P/%03d.mkv" $n); l=(); row=
+  case "$f" in *.png|*.jpg|*.jpeg|*.webp|*.PNG|*.JPG|*.JPEG) l=(-loop 1 -framerate "$FPS"); b=$(awk "BEGIN{print $b-$a}"); a=0; row="x 0 0";; esac    # a photo or a card
+  if [ -z "$row" ] && [ -f sync.txt ]; then row=$(awk -v f="$f" '$1==f{r=$0} END{print r}' sync.txt)
+    if [ -z "$row" ]; then echo "FIX span $n: $f has no line in sync.txt"; bad=1; fi
+    if awk -v a="$a" -v b="$b" '{exit !(NF>4 && (a<$4 || b>$5))}' <<< "$row"; then echo "FIX span $n: $f only matched the main sound from $(cut -d' ' -f4,5 <<< "$row") s; look there by eye and edit its line"; bad=1; fi; fi
+  read -r s d o c < <(awk -v a="$a" -v b="$b" -v r="$R" '{x=int(a*r+.5); y=int(b*r+.5); printf "%.6f %.6f %.6f %d\n", (x/r-$2)/(1+$3/1000000), (y-x)/r, (y-x)/r-.01, y-x}' <<< "${row:-x 0 0}")   # whole frames of the main clock
   want=$((want+c)); q=(-map 0:V:0 -map 0:a:0)
-  if [ -z "$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f")" ]; then q=(-f lavfi -i anullsrc=r=48000:cl=stereo -map 0:V:0 -map 1:a)   # a silent file gets silence
+  if [ "${SOUND:-1}" = 0 ] || [ -z "$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f")" ]; then q=(-f lavfi -i anullsrc=r=48000:cl=stereo -map 0:V:0 -map 1:a)   # a silent file gets silence, and so does every file with SOUND=0
   else got=$(ffmpeg -nostdin -v error -ss "$s" -t "$d" -i "$f" -map 0:a:0 -af aresample=48000:async=1:first_pts=0 -ac 1 -f s16le - | wc -c)
-    awk -v g="$got" -v d="$d" 'BEGIN{exit !(g/96000 < d-.1)}' && { echo "FIX span $n: $f has sound for $(awk -v g="$got" 'BEGIN{printf "%.2f", g/96000}') of $d s"; short=1; }; fi
-  ffmpeg -nostdin -v error -y -ss "$s" -t "$d" -i "$f" "${q[@]}" -vf "${vf:+$vf,}$FIT,setpts=if(eq(N\,0)*lt(T\,0.06)\,0\,PTS),fps=$FPS,tpad=stop=2:stop_mode=clone,setsar=1,format=yuv420p" \
+    awk -v g="$got" -v d="$d" 'BEGIN{exit !(g/96000 < d-.1)}' && { echo "FIX span $n: $f has sound for $(awk -v g="$got" 'BEGIN{printf "%.2f", g/96000}') of $d s"; bad=1; }; fi
+  ffmpeg -nostdin -v error -y ${l[@]+"${l[@]}"} -ss "$s" -t "$d" -i "$f" "${q[@]}" -vf "${vf:+$vf,}$FIT,setpts=if(eq(N\,0)*lt(T\,0.06)\,0\,PTS),fps=$FPS,tpad=stop=2:stop_mode=clone,setsar=1,format=yuv420p" \
     -af "aresample=48000:async=1:first_pts=0,aformat=channel_layouts=stereo,afade=t=in:d=0.01,afade=t=out:st=$o:d=0.01,apad" \
     -t "$d" -c:v libx264 -crf 10 -preset fast -c:a pcm_s16le "$p"
   echo "file '$p'" >> "$P.txt"
@@ -274,7 +278,7 @@ done < spans.txt
 ffmpeg -nostdin -v error -y -f concat -safe 0 -i "$P.txt" -c copy "$OUT"     # PCM sound: AAC parts leave a gap at every join
 v=$(ffprobe -v error -count_packets -select_streams v -show_entries stream=nb_read_packets -of csv=p=0 "$OUT" | tr -d ,)
 a=$(ffmpeg -nostdin -v error -i "$OUT" -map 0:a -f s16le -ac 1 -ar 48000 - | wc -c)
-awk -v v="$v" -v a="$a" -v r="$R" -v w="$want" -v s="$short" 'BEGIN{d=v/r-a/96000; if(d<0)d=-d; bad=(v!=w || d>1/r); printf "%s frames %d of %d, picture and sound end %.0f ms apart\n", bad?"FIX":"OK", v, w, d*1000; exit bad||s}'
+awk -v v="$v" -v a="$a" -v r="$R" -v w="$want" -v s="$bad" 'BEGIN{d=v/r-a/96000; if(d<0)d=-d; bad=(v!=w || d>1/r); printf "%s frames %d of %d, picture and sound end %.0f ms apart\n", bad?"FIX":"OK", v, w, d*1000; exit bad||s}'
 ```
 
 Short of frames means a span past the end of its file, or a screen recording or phone file with a variable frame rate: make that one constant
@@ -342,11 +346,11 @@ at every span that shows a terminal, a `.env`, mail or a notification, and cut o
 ### Several cameras, not synced
 
 1. Pick the one with the best sound as the main clock and use its sound all the way through, so a camera change is never heard. Find the
-   others on it with this; it fails on a track that does not match or jumps (a paused camera), and shows drift (phones drift 20 to 100 ppm,
+   others on it with `python3 sync.py --write main.mov cam2.mp4 cam3.mp4`; it fails on a track that does not match or jumps (a paused camera), and shows drift (phones drift 20 to 100 ppm,
    30 to 150 ms over 25 minutes):
 
 ```python
-# python3 sync.py main.mp4 cam2.mp4 cam3.mp4: where each file starts on the main file's clock, and its drift; writes sync.txt. Needs ffmpeg and numpy.
+# python3 sync.py main.mp4 cam2.mp4 cam3.mp4: where each file starts on the main file's clock, and its drift. With --write first: saves it in sync.txt. Needs ffmpeg and numpy.
 import subprocess, sys, numpy as np
 R = 8000
 def load(p): return np.frombuffer(subprocess.run(["ffmpeg","-nostdin","-v","error","-i",p,"-map","0:a:0","-af",f"aresample={R}:async=1:first_pts=0","-ac","1","-f","f32le","-"], stdout=subprocess.PIPE, check=True).stdout, np.float32)
@@ -354,8 +358,8 @@ def lag(a, b):                                    # GCC-PHAT: lag of b in a, and
     n = 1 << int(np.ceil(np.log2(len(a) + len(b)))); X = np.fft.rfft(a, n) * np.conj(np.fft.rfft(b, n))
     c = np.fft.irfft(X / (np.abs(X) + 1e-9), n); k = int(c.argmax()); top = c[k]; c[max(0, k - R//10):k + R//10] = 0
     return (k if k < len(a) else k - n) / R, top / c.max()
-main, bad, found = load(sys.argv[1]), 0, []
-for p in sys.argv[2:]:
+F = [a for a in sys.argv[1:] if a != "--write"]; main, bad, found = load(F[0]), 0, [f"{F[0]} 0 0\n"]
+for p in F[1:]:
     try: x = load(p)
     except subprocess.CalledProcessError: x = np.zeros(0)
     if len(x) < 10 * R: print("FIX", p, "has no sound, or under 10 s of it: sync it by eye"); bad = 1; continue
@@ -366,14 +370,18 @@ for p in sys.argv[2:]:
     if len(got) < 4: print("FIX", p, "matched in", len(got), "of 9 places: sync it by a clap or a word"); bad = 1; continue
     t, s = np.array(got).T; keep = abs(s - np.median(s)) < .5
     if not keep.all(): print("FIX", p, "jumps (a pause, or a part that repeats); split it where its start changes:", *(f"at {a:.0f} s starts {b:+.2f};" for a, b in got)); bad = 1; continue
-    m, b = np.polyfit(t + win/2, s, 1); err = abs(s - (m*(t + win/2) + b)).max()*1000
-    ok = err < 20; bad |= not ok; found += [f"{p} {b:.4f} {m*1e6:.1f}\n"] if ok else []
-    print("OK " if ok else "FIX", p, f"starts {b:+.3f} s on the main clock, drift {m*1e6:+.0f} ppm ({m*1.5e6:+.0f} ms over 25 min), worst error {err:.0f} ms, {len(got)} of 9 places")
-open("sync.txt", "w").writelines(found); sys.exit(bad)
+    m, b = np.polyfit(t + win/2, s, 1) if np.ptp(t) > 120 else (0, s.mean()); step = (len(x)/R - win) / 8      # too short to tell drift: none
+    err = abs(s - (m*(t + win/2) + b)).max()*1000
+    ok = err < 20 and abs(m) < 3e-4; bad |= not ok; lo, hi = t[0] + b - step, t[-1] + win + b + step                       # the stretch the match covers
+    found += [f"{p} {b:.4f} {m*1e6:.1f} {lo:.1f} {hi:.1f}\n"] if ok else []
+    print("OK " if ok else "FIX", p, f"starts {b:+.3f} s on the main clock, drift {m*1e6:+.0f} ppm ({m*1.5e6:+.0f} ms over 25 min), worst error {err:.0f} ms, {len(got)} of 9 places, good from {lo:.0f} to {hi:.0f} s")
+if "--write" in sys.argv: open("sync.txt", "w").writelines(found)
+sys.exit(bad)
 ```
 
 2. Every time in `spans.txt` is on the main clock, whichever camera the shot comes from: `spans.sh` reads `sync.txt` and finds the same moment in
-   that file, so a camera change never costs a frame. One `spans.txt` per scene, then one unbroken piece of the main sound under it, scenes joined on a breath or under music:
+   that file, so a camera change never costs a frame. It refuses a file with no line there (`file start ppm`): sync a constant-rate copy again,
+   write the start of one synced by eye with 0 ppm, and give a card `card.mkv 0 0`. One `spans.txt` per scene and `SOUND=0 bash spans.sh`, then one unbroken piece of the main sound under it, scenes joined on a breath or under music:
    `ffmpeg -nostdin -i assembly.mkv -ss SCENE_IN -t SCENE_LENGTH -i main.mov -map 0:v -map 1:a -c:v copy -c:a pcm_s16le -ar 48000 -ac 2 scene1.mkv`.
 3. Convert HDR (section 2) before matching color. A portrait shot: crop to 16:9 when it is 4K and the faces allow it, else whole over a blurred copy.
    Grade the others to the main camera by a white shirt or wall they share.
@@ -382,13 +390,13 @@ open("sync.txt", "w").writelines(found); sys.exit(bad)
    who asked not to be filmed: ask before the edit.
 5. Music only under the opening, the turnover and the close; the words, the water and the applause stay. Ask which song they may use.
 
-Check: the sync script on each scene against the main file (`OK`, and the start you meant); the picture of every other camera against the
+Check: the sync script, without `--write`, on each scene against the main file (`OK`, and the start you meant); the picture of every other camera against the
 sound at one hard moment (a splash, a clap); a frame either side of every camera change; a table of person, seconds, name card, and fail if anyone is missing or has under half the median.
 
 ### An interview, without putting words in someone's mouth
 
 1. Spans stay in tape order, start and end on whole sentences, and keep the not, the if and the maybe. No cut inside a sentence to make it
-   tidier, no answer under another question. Where time jumps, show it: a photo, or a card with the question.
+   tidier, no answer under another question. Where time jumps, show it: a photo, or a card with the question (a PNG or JPEG is a span like any other).
 2. Look at both channels (`astats`): one lav is often on the left only. `pan=mono|c0=c0` before anything else. `highpass=f=80`, then a gentle
    `afftdn` from a sampled pause if there is hiss.
 3. **A clock tick stays.** Measured on a tick 26 dB down: `afftdn` took 4 dB, `adeclick` 1 to 2, a gate 14 but only in pauses, where its coming
@@ -402,13 +410,15 @@ beat: `ffmpeg -ss JOIN-3 -t 6 -i film.wav -lavfi "highpass=f=2000,highpass=f=200
 shows ticks evenly spaced or not. Last, someone in the family who knows the story watches it before anyone else does.
 
 ```python
-# python3 meaning.py words.json spans.txt TAPE [cut_words.json]: what the cut does to what was said. TAPE: the interview's file name in spans.txt (cards and other files are skipped)
+# python3 meaning.py words.json spans.txt TAPE[,TAPE2] [cut_words.json]: what the cut does to what was said. TAPE: the interview's file in spans.txt, or its cameras on one clock
 import sys, json, re, difflib
-read = lambda p: [{**w, "w": w["w"].strip().replace("’", "'")} for w in json.load(open(p, encoding="utf-8")) if w["w"].strip()]
-W = read(sys.argv[1]); S = [list(map(float, l.split()[1:3])) for l in open(sys.argv[2], encoding="utf-8") if l.split() and l.split()[0] == sys.argv[3]]; bad, kept, end = not S, [], None
+Q = str.maketrans("\u2018\u2019\u201c\u201d", "''\"\""); read = lambda p: [{**w, "w": w["w"].strip().translate(Q)} for w in json.load(open(p, encoding="utf-8")) if w["w"].strip()]
+W = read(sys.argv[1]); L = [l.split() for l in open(sys.argv[2], encoding="utf-8") if l.strip()]; tape = sys.argv[3].split(",")
+S = [list(map(float, l[1:3])) for l in L if l[0] in tape]; bad, kept, end = not S, [], None; print("not read, no words of the tape:", *sorted({l[0] for l in L} - set(tape)))
 txt = lambda i, j: " ".join(w["w"] for w in W[max(0, i):max(0, j)]); END = re.compile(r"[.?!][\"')]*$"); ASK = re.compile(r"\?[\"')]*$")
 HEDGE = re.compile(r"n't\b|\b(not|cannot|no|never|nothing|nobody|none|neither|nor|without|hardly|if|unless|maybe|perhaps|might|may|could|think|guess|probably|sometimes|only|almost|suppose|joking|kidding)\b", re.I)
 BACK = re.compile(r"^(but|unless|if|only|except|although|though|actually|well|no|not|maybe)\b|\b(jok|kidding|think|guess|suppose|maybe|perhaps|probably|unless|anyway|actually|not true|wrong)", re.I)
+if sum(w["w"].lower().strip(".,?!") in "the and to of a i it in was that you we".split() for w in W) < .1*len(W): print("LOOK not English? the not, if and maybe checks read English only: read every span yourself")
 if not S: print("FIX no span of", sys.argv[3], "in", sys.argv[2])
 for n, (a, b) in enumerate(S, 1):
     I = [k for k, w in enumerate(W) if w["s"] > a - .05 and w["e"] < b + .05]; fix, look = [], []
@@ -420,11 +430,12 @@ for n, (a, b) in enumerate(S, 1):
     if n > 1 and a < S[n-2][1]: fix.append("is earlier on the tape than the span before it")
     if end is not None and ASK.search(W[end-1]["w"]) and i != end: fix.append("answers a question that was not its own: the span before ends on one")
     if BACK.search(txt(j, e)): look.append("the next sentence may take it back or limit it: " + txt(j, e))
-    if i and i != end and ASK.search(W[i-1]["w"]): look.append("its question is cut")
+    if i and i != end:                                           # every join: what was said just before it on the tape, two sentences back
+        k = [k for k in range(i - 1) if END.search(W[k]["w"])][-2:]; look.append("cut just before it: " + txt(k[0] + 1 if len(k) == 2 else 0, i))
     if re.match(r"(and|but|so|because|he|she|it|they|that|this|yes|no|yeah)\b", W[i]["w"], re.I): look.append("leans on what came before (who? which question?)")
     end = j; bad |= bool(fix); print(f"\nspan {n}: [{txt(i-12, i)}] {txt(i, j)} [{txt(j, j+12)}]", *["\n  FIX " + f for f in fix], *["\n  LOOK " + l for l in look], sep="")
 if len(sys.argv) > 4:                                           # the delivered film, transcribed again, against the words you chose
-    norm = lambda L: [re.sub(r"[^a-z0-9']", "", w["w"].lower()) for w in L]; A, B = norm(kept), norm(read(sys.argv[4]))
+    norm = lambda L: [re.sub(r"[^\w']", "", w["w"].lower()) for w in L]; A, B = norm(kept), norm(read(sys.argv[4]))
     d = [(A[p:q], B[r:s]) for t, p, q, r, s in difflib.SequenceMatcher(None, A, B, autojunk=False).get_opcodes() if t != "equal"]
     n = sum(max(len(p), len(q)) for p, q in d); hot = [x for x in d if HEDGE.search(" ".join(x[0] + x[1]))]
     bad |= n > .03*len(A) or bool(hot); print("\nFIX" if n > .03*len(A) or hot else "\nOK", f"{n} of {len(A)} words differ", *d[:20], *(["a not, if or maybe changed"] if hot else []))
@@ -434,7 +445,7 @@ sys.exit(bool(bad))
 ## 9. Deliver
 
 ```sh
-ffmpeg -i master.mp4 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 192k final.mp4
+ffmpeg -i master.mp4 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -movflags +faststart -c:a copy final.mp4   # the sound is section 7's AAC, untouched
 hildegard review final.mp4 --final --film --audio --sheet final-sheet.jpg   # Hildegard installed
 python3 -B <folder>/scripts/check_video.py final.mp4 --lufs -14 --size 1920x1080         # without Hildegard; then the sheet and spec.json checks above, with "final": true
 ```
