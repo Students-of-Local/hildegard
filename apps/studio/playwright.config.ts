@@ -31,6 +31,15 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
+    // The Studio opens with the Local Studio move notice closed, so the card never covers what a test clicks;
+    // moved.spec.ts starts without this and checks the notice itself.
+    storageState: {
+      cookies: [],
+      origins: [port, hostPort].map((p) => ({
+        origin: `http://127.0.0.1:${p}`,
+        localStorage: [{ name: 'hildegard.movedToLocalStudio', value: 'true' }],
+      })),
+    },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     launchOptions: chromium,

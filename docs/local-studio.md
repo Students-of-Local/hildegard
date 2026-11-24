@@ -1,5 +1,31 @@
 # Hildegard in Local Studio
 
+Hildegard is now a plugin in [Local Studio](https://github.com/baney75/local-studio). The Hildegard app (its window,
+tray and Studio) keeps working and gets fixes, but new features go into the plugin. Nothing you made moves: the plugin
+runs on the same Hildegard engine, with the same projects, voices and models.
+
+## Moving from the Hildegard app
+
+1. Update Hildegard to 0.1.18 or later: `hildegard update`. The plugin runs `hildegard make` and `hildegard mcp
+   --skills`, which older versions don't have.
+2. Run the engine without the app. Quit the Hildegard app first, then run `hildegard install --yes --server`. On
+   macOS and Linux it sets Hildegard up as a user service (a LaunchAgent on macOS, a user systemd unit on Linux) that
+   starts at login. It keeps the ComfyUI and models you have, and sets up speech for Talk if it isn't there yet.
+   Windows has no Hildegard service yet, so on Windows keep the app, which starts the engine.
+3. Install [Local Studio](https://github.com/baney75/local-studio#install), then the Hildegard plugin from its catalog:
+   **Settings › Plugins › Hildegard › Install**, or `local-studio plugin install hildegard`. Allow its tools on the
+   consent sheet. A Local Studio from before the catalog listed Hildegard (November 23, 2026) won't find it there; run
+   `hildegard connect local-studio` instead, which installs the plugin this Hildegard carries (see [Install](#install)).
+4. On macOS and Linux, remove the app if you like. On macOS, delete `Hildegard.app` from `~/Applications` (or
+   `/Applications`); on Linux, remove the Hildegard desktop entry. Keep the Hildegard folder
+   (`~/Library/Application Support/Hildegard` or `~/.local/share/hildegard`): it holds the engine, your models and
+   everything you made.
+
+The Studio is still at `hildegard open` whenever you want it, and cloning a voice still happens there (see
+[Cloning stays with the person](#cloning-stays-with-the-person)).
+
+## What the plugin adds
+
 Local Studio runs coding agents on local models. Hildegard's plugin for it (`local-studio/hildegard`) adds seventeen
 commands to its palette and Hildegard's tools. Six make media, each one a short skill that a small model can follow:
 
