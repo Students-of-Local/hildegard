@@ -288,7 +288,7 @@ describe('sites', { timeout: 60_000 }, () => {
     expect(await allow('http://[::1]/')).toBe(false);
     expect(await allow('file:///etc/passwd')).toBe(false);
     expect(await allow('https://gpu-a.example.ts.net/')).toBe(false);
-    // Each of these names an address above another way: inside an IPv6 address, as one number, with a trailing dot.
+    // Private addresses, plain and written other ways: inside an IPv6 address, as one number, with a trailing dot.
     for (const host of [
       '[::ffff:127.0.0.1]',
       '[::ffff:100.100.1.1]',
@@ -302,6 +302,10 @@ describe('sites', { timeout: 60_000 }, () => {
       '[2002:7f00:1::]',
       '[2001:0:7f00:1::1]',
       '[2001:db8::1]',
+      '[2001:2::1]',
+      '[3fff::1]',
+      '192.0.0.1',
+      '192.0.2.1',
       '[::ffff:0:127.0.0.1]',
       '[100::1]',
       '[fc::1]',
@@ -319,7 +323,14 @@ describe('sites', { timeout: 60_000 }, () => {
       '169.254.1.1',
     ])
       expect(await allow(`http://${host}/`), host).toBe(false);
-    for (const host of ['example.com', 'example.com.', '[2606:4700::1111]', '[64:ff9b::5db8:d822]'])
+    for (const host of [
+      'example.com',
+      'example.com.',
+      '[2606:4700::1111]',
+      '[64:ff9b::5db8:d822]',
+      '192.0.78.24',
+      '[64:ff9b::c000:4e18]',
+    ])
       expect(await allow(`https://${host}/`), host).toBe(true);
     const mixed = publicOnly(async () => ['93.184.216.34', '::ffff:10.0.0.1']);
     expect(await mixed('https://mixed.test/')).toBe(false);

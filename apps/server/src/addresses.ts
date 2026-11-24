@@ -12,7 +12,8 @@ for (const [net, prefix] of [
   ['127.0.0.0', 8],
   ['169.254.0.0', 16],
   ['172.16.0.0', 12],
-  ['192.0.0.0', 16],
+  ['192.0.0.0', 24], // protocol assignments
+  ['192.0.2.0', 24], // documentation
   ['192.168.0.0', 16],
   ['198.18.0.0', 15],
   ['224.0.0.0', 3],
@@ -21,9 +22,10 @@ for (const [net, prefix] of [
   V6.addSubnet(`64:ff9b::${net}`, 96 + prefix, 'ipv6');
 }
 for (const [net, prefix] of [
-  ['2001::', 32], // Teredo
+  ['2001::', 23], // protocol assignments, Teredo among them
   ['2001:db8::', 32], // documentation
   ['2002::', 16], // 6to4
+  ['3fff::', 20], // documentation
 ] as const)
   V6.addSubnet(net, prefix, 'ipv6');
 
@@ -35,7 +37,8 @@ GLOBAL6.addSubnet('64:ff9b::', 96, 'ipv6');
 
 /**
  * True for addresses on the owner's own computer, network or tailnet, and anything else that isn't the public internet.
- * A NAT64 address is as private as the IPv4 address it carries; any other IPv6 address that carries one is refused.
+ * An address in NAT64's own prefix is as private as the IPv4 address it carries; IPv4-mapped, IPv4-compatible, 6to4
+ * and Teredo addresses are refused. A network that gives NAT64 a prefix of its own isn't recognized.
  */
 export function privateAddress(ip: string): boolean {
   const v = isIP(ip);
