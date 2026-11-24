@@ -9,7 +9,7 @@ description: Use when asked to edit, fix, retouch, grade, crop, resize or animat
 
 The person's request is at the top of this message and after `</skill>`.
 
-For a product cut out onto white, uprights that lean toward each other or the faces in a group, follow that section: save its programs in your working folder, never `<folder>`, and skip `fix.py`. Otherwise (a tilt, a cast, exposure, a crop, of a house or a print too) first run `python3 -B <folder>/scripts/fix.py <photo> out.jpg` with the flags the Fast path picks from the brief, then `python3 -B <folder>/scripts/measure.py out.jpg <photo>` and read each line. Never overwrite the original.
+First pick the path. A product cut out onto white, uprights that lean toward each other or the faces in a group: follow that section, save its programs in your working folder, never `<folder>`, and skip `fix.py`. Anything else (a tilt, a cast, exposure, a crop, of a house or a print too): run `python3 -B <folder>/scripts/fix.py <photo> out.jpg` with the flags the Fast path picks from the brief, then `python3 -B <folder>/scripts/measure.py out.jpg <photo>` and read each line. Never overwrite the original.
 
 `<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
