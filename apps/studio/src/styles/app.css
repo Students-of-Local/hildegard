@@ -260,10 +260,10 @@ dialog.hg-modal--bottom.st-dialog .st-dialog__f .hg-btn--force { flex: 1 1 100%;
 .hg-toast.err { border-color: var(--burgundy-text); }
 .hg-toast.err > .i { color: var(--burgundy-text); }
 .hg-app[data-wc="compact"] ~ .hg-toasts { bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 12px); }
-.hg-moved { position: fixed; right: 24px; top: calc(var(--topbar-height) + 12px); z-index: 50; display: flex; align-items: flex-start; gap: 10px; width: min(420px, calc(100vw - 24px)); padding: 12px 8px 12px 14px; border-radius: var(--radius-md); background: var(--raised); border: 1px solid var(--border-control); box-shadow: var(--shadow-2); font-size: 14px; line-height: 20px; animation: hg-in .18s ease-out; }
+.hg-moved { position: fixed; right: 24px; top: calc(var(--topbar-height) + 12px); z-index: 25; display: flex; align-items: flex-start; gap: 10px; width: min(420px, calc(100vw - 24px)); padding: 12px 8px 12px 14px; border-radius: var(--radius-md); background: var(--raised); border: 1px solid var(--border-control); box-shadow: var(--shadow-2); font-size: 14px; line-height: 20px; animation: hg-in .18s ease-out; }
 .hg-moved > .i { flex: none; margin-top: 1px; color: var(--brand-text); }
 .hg-moved > p { flex: 1; margin: 0; }
-.hg-app[data-wc="compact"] ~ .hg-moved { right: 12px; left: 12px; width: auto; }
+.hg-moved:has(~ .hg-app[data-wc="compact"]) { right: 12px; left: 12px; width: auto; }
 
 /* ── Queue ───────────────────────────────────────────────────────────────────────────────────── */
 .st-job > img { display: block; }

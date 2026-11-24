@@ -137,3 +137,27 @@ test('phone: queue filters stay on one line and the badge sits in the tab bar', 
   expect(badge!.y).toBeGreaterThanOrEqual(bar!.y);
   expect(errors).toEqual([]);
 });
+
+test.describe('phone: the Local Studio move notice', () => {
+  // The config closes the notice for every other test; this one opens the Studio fresh.
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('spans the screen under the header and leaves the tab bar free', async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto('/#/queue');
+    const notice = page.getByRole('complementary', { name: 'Hildegard is now a Local Studio plugin' });
+    await expect(notice).toBeVisible();
+    const box = (await notice.boundingBox())!;
+    const vp = page.viewportSize()!;
+    expect(Math.round(box.x)).toBe(12);
+    expect(Math.round(box.x + box.width)).toBe(vp.width - 12);
+    const tabs = (await page.locator('.hg-tabbar').boundingBox())!;
+    expect(box.y + box.height).toBeLessThan(tabs.y);
+    await expectAccessible(page, 'phone move notice');
+    await page.locator('.hg-tabbar').getByRole('link', { name: 'Voice' }).click();
+    await expect(page).toHaveURL(/#\/voice/);
+    await notice.getByRole('button', { name: 'Close' }).click();
+    await expect(notice).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+});

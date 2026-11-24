@@ -169,6 +169,8 @@ export function App() {
       <a className="hg-skip" href="#main">
         Skip to content
       </a>
+      {/* Before the app, so its link and Close come first in tab order, as the card sits at the top. */}
+      {auth?.local ? <MovedNotice /> : null}
       <div ref={app} className="hg-app cs-v2" data-wc={wc} data-forced={forced ? '' : undefined}>
         <nav className="hg-app__nav st-nav" aria-label="Main">
           <div className="hg-app__brand">
@@ -207,7 +209,6 @@ export function App() {
         </div>
       ) : null}
       {recording ? <RecordDialog onClose={() => setRecording(false)} /> : null}
-      {isOwner(auth) ? <MovedNotice /> : null}
       <Toasts />
     </div>
   );

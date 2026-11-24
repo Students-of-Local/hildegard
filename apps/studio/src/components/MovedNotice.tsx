@@ -8,17 +8,17 @@ export const MOVED_URL =
 export const MOVED_KEY = 'hildegard.movedToLocalStudio';
 
 /**
- * Hildegard is moving into Local Studio as a plugin. The owner sees this once per browser until they close it. The
- * Studio keeps working; the card only says where new work goes and links to how to switch.
+ * Hildegard is now a plugin in Local Studio. The owner, on the computer Hildegard runs on, sees this until they close
+ * it, once per browser. The Studio keeps working; the card only says where new work goes and links to how to switch.
  */
 export function MovedNotice() {
   const [seen, setSeen] = useLocal(MOVED_KEY, false);
   if (seen) return null;
   return (
-    <aside className="hg-moved" aria-label="Hildegard is moving to Local Studio">
+    <aside className="hg-moved" aria-label="Hildegard is now a Local Studio plugin">
       <Icon name="sparkle" size={18} />
       <p>
-        <strong>Hildegard is now a Local Studio plugin.</strong> This app keeps working, and your projects,
+        <strong>Hildegard is now a Local Studio plugin.</strong> The Studio keeps working, and your projects,
         voices and models stay. New features go into the plugin.{' '}
         <a href={MOVED_URL} target="_blank" rel="noreferrer">
           How to switch

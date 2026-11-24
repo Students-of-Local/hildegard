@@ -8,7 +8,7 @@ test.use({ storageState: { cookies: [], origins: [] } });
 test('the owner sees that Hildegard moved to Local Studio, once', async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto('/');
-  const notice = page.getByRole('complementary', { name: 'Hildegard is moving to Local Studio' });
+  const notice = page.getByRole('complementary', { name: 'Hildegard is now a Local Studio plugin' });
   await expect(notice).toBeVisible();
   await expect(notice).toContainText('Hildegard is now a Local Studio plugin.');
   await expect(notice.getByRole('link', { name: 'How to switch' })).toHaveAttribute(
