@@ -76,6 +76,12 @@ export function cleanName(raw: string): string {
   return n;
 }
 
+/**
+ * A name however it was typed, as names are compared: one accent form, single spaces, no case. Sign-in limits count
+ * on it too, so every spelling that reaches an account counts against that account.
+ */
+export const nameKey = (raw: string) => raw.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+
 // ── Tokens ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** 32 random bytes, base64url: an invite link's secret, or a session cookie. */
@@ -99,8 +105,14 @@ function findByHash<T extends { hash: string }>(token: string, list: readonly T[
 // ── Rate limits ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Counts failures per key in a sliding window. Successes clear a key; the map forgets idle keys. */
+export interface Try {
+  readonly at: number;
+  /** Counted before its answer was known; `settle` or `forgive` ends that. */
+  pending: boolean;
+}
+
 export class Limiter {
-  private readonly hits = new Map<string, number[]>();
+  private readonly hits = new Map<string, Try[]>();
   private readonly limit: number;
   private readonly windowMs: number;
   private readonly now: () => number;
@@ -110,9 +122,9 @@ export class Limiter {
     this.now = now;
   }
 
-  private recent(key: string): number[] {
+  private recent(key: string): Try[] {
     const since = this.now() - this.windowMs;
-    const list = (this.hits.get(key) ?? []).filter((t) => t > since);
+    const list = (this.hits.get(key) ?? []).filter((t) => t.at > since);
     if (list.length) this.hits.set(key, list);
     else this.hits.delete(key);
     return list;
@@ -127,12 +139,14 @@ export class Limiter {
   wait(key: string): number {
     const list = this.recent(key);
     if (list.length < this.limit) return 0;
-    return Math.max(1, Math.ceil((list[list.length - this.limit]! + this.windowMs - this.now()) / 1000));
+    return Math.max(1, Math.ceil((list[list.length - this.limit]!.at + this.windowMs - this.now()) / 1000));
   }
 
-  fail(key: string) {
+  /** Counts a failure now, or a try whose answer isn’t known yet. Returns it, for `settle` and `forgive`. */
+  fail(key: string, pending = false): Try {
     const list = this.recent(key);
-    list.push(this.now());
+    const entry = { at: this.now(), pending };
+    list.push(entry);
     // Re-inserted, so the map runs from least to most recently failed.
     this.hits.delete(key);
     this.hits.set(key, list);
@@ -142,10 +156,28 @@ export class Limiter {
       for (const k of [...this.hits.keys()]) this.recent(k);
       if (this.hits.size > 10_000) for (const k of [...this.hits.keys()].slice(0, 1000)) this.hits.delete(k);
     }
+    return entry;
   }
 
+  /** The answer came and was wrong: the try stays counted, and the next `clear` may drop it. */
+  settle(entry: Try) {
+    entry.pending = false;
+  }
+
+  /** Takes back one try, counted before its answer was known and right after all. */
+  forgive(key: string, entry: Try) {
+    this.keep(key, (t) => t !== entry);
+  }
+
+  /** Drops the failures. Tries still being checked stay counted: a success beside them says nothing about them. */
   clear(key: string) {
-    this.hits.delete(key);
+    this.keep(key, (t) => t.pending);
+  }
+
+  private keep(key: string, keeps: (t: Try) => boolean) {
+    const list = this.hits.get(key)?.filter(keeps);
+    if (list?.length) this.hits.set(key, list);
+    else this.hits.delete(key);
   }
 }
 
@@ -328,8 +360,8 @@ export class People {
   }
 
   private byName(name: string) {
-    const n = name.toLocaleLowerCase();
-    return this.data.people.find((p) => p.name.toLocaleLowerCase() === n);
+    const n = nameKey(name);
+    return this.data.people.find((p) => nameKey(p.name) === n);
   }
 
   /** Drop expired invites and sessions. */
@@ -446,7 +478,7 @@ export class People {
 
   /** A session token for a correct name and passphrase, or null. Unknown names cost as much time as known ones. */
   async signIn(name: string, pass: string): Promise<{ person: Signed['person']; token: string } | null> {
-    const p = this.byName(name.normalize('NFC').replace(/\s+/g, ' ').trim());
+    const p = this.byName(name);
     if (!p) {
       decoy ??= hashPassphrase(randomBytes(16).toString('hex'));
       await verifyPassphrase(pass, await decoy);
@@ -551,7 +583,7 @@ export class People {
 
   /** Find someone by name, for the command line. */
   find(name: string) {
-    const p = this.byName(name.trim());
+    const p = this.byName(name);
     return p ? this.get(p.id)! : undefined;
   }
 }

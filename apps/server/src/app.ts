@@ -93,7 +93,15 @@ import { loopRoutes } from './loop-routes.ts';
 import { ModelError, type ModelManager } from './models.ts';
 import { type FetchMetadata, oauthRoutes } from './oauth.ts';
 import { type OpenScad, usesManifold } from './openscad.ts';
-import { DIRECTOR_QUEUE, INVITE_HOURS, Limiter, type People, PeopleError, SESSION } from './people.ts';
+import {
+  DIRECTOR_QUEUE,
+  INVITE_HOURS,
+  Limiter,
+  nameKey,
+  type People,
+  PeopleError,
+  SESSION,
+} from './people.ts';
 import {
   findSlicer,
   type Printer,
@@ -1954,9 +1962,10 @@ export function createApp(deps: AppDeps) {
   // ── Signing in, from other devices ─────────────────────────────────────────────────────────────────────────
   const perName = new Limiter(deps.limits?.perName ?? 10, 15 * 60_000);
   const perClient = new Limiter(deps.limits?.perClient ?? 30, 15 * 60_000);
+  const limiter = (key: string) => (key.startsWith('name:') ? perName : perClient);
   /** Too many wrong tries: from this address, or at this account from anywhere. */
   const limited = (c: Context, keys: string[]) => {
-    const wait = Math.max(...keys.map((k) => (k.startsWith('name:') ? perName : perClient).wait(k)));
+    const wait = Math.max(...keys.map((k) => limiter(k).wait(k)));
     if (!wait) return null;
     c.header('retry-after', String(wait));
     return c.json(
@@ -1967,7 +1976,26 @@ export function createApp(deps: AppDeps) {
     );
   };
   const failed = (keys: string[]) => {
-    for (const k of keys) (k.startsWith('name:') ? perName : perClient).fail(k);
+    for (const k of keys) limiter(k).fail(k);
+  };
+  /**
+   * Counts a try while `check` runs: a passphrase takes a moment to check, so guesses sent together would otherwise
+   * all be checked. A wrong answer leaves it counted; a right one takes it back. So does a throw, which is never a
+   * wrong passphrase.
+   */
+  const counted = async <T>(keys: string[], check: () => Promise<T>): Promise<T> => {
+    const tries = keys.map((k) => limiter(k).fail(k, true));
+    let wrong = false;
+    try {
+      const answer = await check();
+      wrong = !answer;
+      return answer;
+    } finally {
+      for (const [i, k] of keys.entries()) {
+        if (wrong) limiter(k).settle(tries[i]!);
+        else limiter(k).forgive(k, tries[i]!);
+      }
+    }
   };
   const authState = (c: Context): AuthState => ({
     local: local(c),
@@ -1988,14 +2016,11 @@ export function createApp(deps: AppDeps) {
     c.header('cache-control', 'no-store');
     const body = Credentials.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'Give your name and passphrase.' }, 400);
-    const keys = [`client:${clientKey(c)}`, `name:${body.data.name.trim().toLocaleLowerCase()}`];
+    const keys = [`client:${clientKey(c)}`, `name:${nameKey(body.data.name)}`];
     const refused = limited(c, keys);
     if (refused) return refused;
-    const r = await people.signIn(body.data.name, body.data.passphrase);
-    if (!r) {
-      failed(keys);
-      return c.json({ error: 'That name and passphrase don’t match.' }, 401);
-    }
+    const r = await counted(keys, () => people.signIn(body.data.name, body.data.passphrase));
+    if (!r) return c.json({ error: 'That name and passphrase don’t match.' }, 401);
     perName.clear(keys[1]!);
     sendCookie(c, r.token);
     return c.json({ local: local(c), person: r.person, owner: true } satisfies AuthState);
@@ -2019,14 +2044,13 @@ export function createApp(deps: AppDeps) {
       .object({ current: z.string().max(1024), next: z.string().max(1024) })
       .safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'Give your current passphrase and a new one.' }, 400);
-    const keys = [`client:${clientKey(c)}`, `name:${w.person.name.toLocaleLowerCase()}`];
+    const keys = [`client:${clientKey(c)}`, `name:${nameKey(w.person.name)}`];
     const limitedNow = limited(c, keys);
     if (limitedNow) return limitedNow;
+    const { current, next } = body.data;
     try {
-      if (!(await people.changePassphrase(w.person.id, body.data.current, body.data.next, w.session))) {
-        failed(keys);
+      if (!(await counted(keys, () => people.changePassphrase(w.person.id, current, next, w.session))))
         return c.json({ error: 'That isn’t your current passphrase.' }, 403);
-      }
       return c.json(authState(c));
     } catch (e) {
       return peopleFail(c, e);
@@ -2524,6 +2548,7 @@ export function createApp(deps: AppDeps) {
     people,
     limited,
     failed,
+    counted,
     perName,
     connectCodes,
     fetchMetadata: deps.fetchMetadata,
