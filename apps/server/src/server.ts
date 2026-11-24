@@ -223,7 +223,10 @@ async function serveStudio(
     comfyUrl = fake.url;
   }
 
+  // Read before anything starts: a file here that isn’t whole stops Hildegard.
   const store = new Store(config.dataDir);
+  // People who sign in from other devices.
+  const people = new People({ dataDir: config.dataDir, now: opts.now });
   const comfy: EngineState['comfy'] = config.fake
     ? 'fake'
     : config.comfyExternal
@@ -441,8 +444,7 @@ async function serveStudio(
     talk: () => nodeTalk,
   });
 
-  // People who sign in from other devices, and the link they reach this Hildegard at.
-  const people = new People({ dataDir: config.dataDir, now: opts.now });
+  // What people approved, and the link they reach this Hildegard at.
   const grants = new Grants({ dataDir: config.dataDir, person: (id) => people.get(id) });
   const signer = new MediaSigner({ dataDir: config.dataDir });
   const llm = new LocalModels({ dataDir: config.dataDir, secrets: secretsFor, ...opts.llm });

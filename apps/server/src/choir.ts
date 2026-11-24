@@ -18,6 +18,7 @@ import { CODE_LIMITS, CodeBook, looksLikeCode, normalizeCode } from './codes.ts'
 import type { SecretStore } from './hf.ts';
 import { Limiter } from './people.ts';
 import { type NodeInfo, REFUSED, RemoteEngine, shortGpu } from './remote-engine.ts';
+import { readState } from './state-file.ts';
 
 /** Said on a refusal after the sharing device answered 200: it has taken the code by then. */
 const USED_UP = ' The short code was used up; ask for a new one with `hildegard choir invite`.';
@@ -272,13 +273,6 @@ function save(path: string, data: unknown) {
   chmodSync(tmp, 0o600);
   renameSync(tmp, path);
 }
-function load<T>(path: string, fallback: T): T {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8')) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 /**
  * Both halves of a Choir on one device: the devices it joined (and which one renders), and whether it shares its own
@@ -332,10 +326,10 @@ export class Choir {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       writeFileSync(idFile, this.id, { mode: 0o600 });
     }
-    const sharing = load<SharingFile | null>(join(this.dir, 'sharing.json'), null);
+    const sharing = readState<SharingFile>(join(this.dir, 'sharing.json'));
     this.sharing = sharing?.url && Array.isArray(sharing.keys) ? sharing : null;
-    this.joined = load<DevicesFile>(join(this.dir, 'devices.json'), { use: 'local', devices: [] });
-    const settings = load<Partial<SettingsFile>>(join(this.dir, 'settings.json'), {});
+    this.joined = readState<DevicesFile>(join(this.dir, 'devices.json')) ?? { use: 'local', devices: [] };
+    const settings = readState<Partial<SettingsFile>>(join(this.dir, 'settings.json')) ?? {};
     this.settings = {
       opportunistic: settings.opportunistic === true,
       primary:

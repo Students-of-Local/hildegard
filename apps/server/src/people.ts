@@ -5,9 +5,10 @@
  * 256-bit tokens kept only as SHA-256 hashes, in files only the owner's account can read.
  */
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PendingInvite, Person, Role } from '@hildegard/presets';
+import { readState } from './state-file.ts';
 
 export class PeopleError extends Error {
   readonly status: 400 | 403 | 404 | 409;
@@ -212,13 +213,6 @@ function save(path: string, data: unknown) {
   chmodSync(tmp, 0o600);
   renameSync(tmp, path);
 }
-function load<T>(path: string, fallback: T): T {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8')) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 /** A hash to check unknown names against, so a wrong name takes as long as a wrong passphrase. */
 let decoy: Promise<string> | null = null;
@@ -238,8 +232,8 @@ export class People {
     this.file = join(dir, 'people.json');
     this.sessionsFile = join(dir, 'sessions.json');
     this.now = opts.now ?? Date.now;
-    this.data = load<PeopleFile>(this.file, { version: 1, people: [], invites: [] });
-    this.sessions = load<{ sessions: StoredSession[] }>(this.sessionsFile, { sessions: [] }).sessions;
+    this.data = readState<PeopleFile>(this.file, { needed: true }) ?? { version: 1, people: [], invites: [] };
+    this.sessions = readState<{ sessions: StoredSession[] }>(this.sessionsFile)?.sessions ?? [];
   }
 
   /** Called after anyone is removed, signs out or changes role, so open event streams check again. */

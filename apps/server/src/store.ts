@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Character, Project, ServerEvent, Shot, Still, Take } from '@hildegard/presets';
+import { readState } from './state-file.ts';
 
 interface StateFile {
   version: 1;
@@ -35,12 +36,8 @@ export class Store {
   }
 
   private load() {
-    let data: StateFile;
-    try {
-      data = JSON.parse(readFileSync(this.file, 'utf8')) as StateFile;
-    } catch {
-      return;
-    }
+    const data = readState<StateFile>(this.file, { needed: true });
+    if (!data) return;
     for (const p of data.projects ?? []) this.projects.set(p.id, p);
     for (const s of data.shots ?? []) this.shots.set(s.id, s);
     for (const t of data.takes ?? []) {

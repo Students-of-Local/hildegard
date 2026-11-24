@@ -10,9 +10,10 @@
  * person ends all of theirs; a new passphrase ends their chatbot grants, since those were won with the old one.
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentGrant } from '@hildegard/presets';
+import { readState, setAside } from './state-file.ts';
 
 export class GrantError extends Error {
   /** The OAuth error code (RFC 6749 §5.2) when it comes from the token endpoint. */
@@ -138,13 +139,12 @@ export class Grants {
     this.file = join(opts.dataDir, 'people', 'grants.json');
     this.now = opts.now ?? Date.now;
     this.person = opts.person;
-    try {
-      this.data = JSON.parse(readFileSync(this.file, 'utf8')) as GrantsFile;
-      if (this.data.version !== 1 || !Array.isArray(this.data.grants)) throw new Error('unknown');
-      this.data.clients ??= [];
-    } catch {
-      this.data = { version: 1, grants: [], clients: [] };
-    }
+    const saved = readState<GrantsFile>(this.file);
+    const known = saved?.version === 1 && Array.isArray(saved.grants);
+    if (saved && !known)
+      console.error(`Hildegard doesn’t know how to read ${this.file}. It is kept as ${setAside(this.file)}.`);
+    this.data = known ? saved : { version: 1, grants: [], clients: [] };
+    this.data.clients ??= [];
     this.index();
   }
 

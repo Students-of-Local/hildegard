@@ -24,6 +24,7 @@ import {
 } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readState } from './state-file.ts';
 
 /** How long a consent link works. */
 export const CONSENT_HOURS = 24;
@@ -143,11 +144,7 @@ export class Likeness {
     const pub = createPublicKey(this.key);
     this.publicPem = pub.export({ type: 'spki', format: 'pem' }).toString();
     this.keyId = sha256(pub.export({ type: 'spki', format: 'der' }));
-    try {
-      this.state = JSON.parse(readFileSync(this.file, 'utf8')) as FileShape;
-    } catch {
-      this.state = { version: 1, pending: [], given: [] };
-    }
+    this.state = readState<FileShape>(this.file) ?? { version: 1, pending: [], given: [] };
   }
 
   private save() {
