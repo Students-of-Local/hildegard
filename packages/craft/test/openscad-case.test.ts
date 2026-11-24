@@ -35,7 +35,10 @@ const renderText = (text: string, part: string, ...set: string[]) => {
   return r.status === 0 ? 'solid' : said;
 };
 
-it('finds the enclosure in the skill', () => expect(source).toContain('module board_ghost('));
+it('finds the enclosure in the skill, its printed pieces named for the loop', () => {
+  expect(source).toContain('module board_ghost(');
+  expect(source).toMatch(/^parts = \["base", "lid"\];/m);
+});
 
 describe.skipIf(!has)('the enclosure', () => {
   vi.setConfig({ testTimeout: 300_000 });
@@ -51,11 +54,13 @@ describe.skipIf(!has)('the enclosure', () => {
     expect(render(part)).toBe('empty'),
   );
   it.each([
-    ['the board moved 1 mm', 'clash', 'probe=true'],
+    ['the board 1 mm into a wall', 'clash', 'probe=true'],
     ['no openings', 'clash', 'open=[]'],
+    ['plugs alone, no openings', 'clash', 'open=[]', 'up=[]'],
+    ['no room for the front sockets on the way in', 'drop', 'clr=0.5'],
     ['a lid too low over the sockets', 'clash', 'tall=17.2'],
     ['a rim and snaps with no clearance', 'mate', 'fit=-0.3'],
-  ])('a fault shows as a solid: %s', (_, part, fault) => expect(render(part, fault)).toBe('solid'));
+  ])('a fault shows as a solid: %s', (_, part, ...fault) => expect(render(part, ...fault)).toBe('solid'));
   const edit = (from: string, to: string) => {
     expect(source.split(from)).toHaveLength(2);
     return source.replace(from, to);
@@ -64,25 +69,33 @@ describe.skipIf(!has)('the enclosure', () => {
     ['USB-C has no opening', '["front", 11.2, -2.4, 5.6, 13.5], ', ''],
     ['USB-C opens in the wrong place', '["front", 11.2, -2.4', '["front", 51.2, -2.4'],
     ['the card slot is too low', '["left", 28, -5, 0', '["left", 28, -5, -2'],
-    ['the button opening is too high', '-0.75, 3.25, 5', '0.75, 3.25, 5'],
+    ['a post off its hole', 'posts = [[3.5, 3.5], [61.5', 'posts = [[3.5, 3.5], [58'],
+    ['the button opening is too high', '-0.75, 3.25, 4.6', '0.75, 3.25, 4.6'],
   ])('an opening on its own: %s', (_, from, to) => expect(renderText(edit(from, to), 'clash')).toBe('solid'));
   it('the board goes straight in, and not past a closed socket window', () => {
     expect(renderText(edit('-0.4, 99, 17]', '-0.4, 14.2, 17]'), 'drop')).toBe('solid');
   });
-  it('a lid lifted 1 mm is held, and not by hooks that stop short of their windows', () => {
+  it('a lid lifted 1 mm is held, and not when its windows are too tall to catch', () => {
     expect(render('pull')).toBe('solid');
-    expect(render('pull', 'hook=-0.1')).toBe('empty');
+    expect(render('pull', 'play=2')).toBe('empty');
   });
   it('the lid slots go through a thicker lid', () => {
-    const pin = `${source}\nif (part == "pin") intersection() { lid(); translate([vent_at[0] + 1, vent_at[1] + 5, h]) cylinder(d = 1, h = 9); }`;
-    expect(renderText(pin, 'pin', 'lid_t=4', 'floor_t=2')).toBe('empty');
-    expect(renderText(pin, 'pin', 'vent=[0.2, 14]')).toBe('solid');
+    const pin = edit(
+      'intersection() { base(); lid(); }',
+      'intersection() { lid(); translate([vent_at[0] + 1, vent_at[1] + 5, h]) cylinder(d = 1, h = 9); }',
+    );
+    expect(renderText(pin, 'mate', 'lid_t=4', 'floor_t=2')).toBe('empty');
+    expect(renderText(pin, 'mate', 'vent=[0.2, 14]')).toBe('solid');
   });
   it.each([
     ['snap too stiff', 'arm_l=6'],
     ['no room for solder joints', 'post_h=2'],
     ['a snap arm reaches the board', 'arm_l=20'],
     ['a skirt above the rim', 'tall=16.8'],
+    ['hook too small to hold', 'hook=0.1'],
+    ['a lid resting on the base', 'gap=0'],
+    ['no part named', 'part="dropp"'],
+    ['no side named', 'snaps=[["rigth", 8]]'],
   ])('a number that cannot work stops the render: %s', (why, fault) =>
     expect(render('lid', fault)).toContain(why),
   );

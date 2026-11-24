@@ -166,19 +166,21 @@ What decides whether a case around a board works, and what each round checks:
 
 ```openscad
 part  = "all";      // all, base, lid, lid_print; checks: clash, drop, mate, pull
-parts = ["base", "lid"];   // Hildegard renders each on its own and measures the fit
-probe = false;      // true: shift the ghost 1 mm, so clash must report a solid (the negative control)
-fit = 0.2; wall = 2.4; floor_t = 2; lid_t = 2; clr = 0.5; eps = 0.01; gap = 0.02; $fn = $preview ? 32 : 64;      // gap: a real one between parts that rest on each other
+parts = ["base", "lid"];   // the printed pieces, each rendered on its own
+probe = false;      // true: the ghost goes 1 mm into the left wall, so clash must report a solid (the negative control)
+fit = 0.2; wall = 2.4; floor_t = 2; lid_t = 2; over = 1.5; clr = over + fit; eps = 0.01; gap = 0.02; $fn = $preview ? 32 : 64;      // over: how far the front sockets stand past the board (assumed, measure yours); gap: a real one between parts that rest on each other
 
 /* [Board] Raspberry Pi 5, from its maker's drawing: what is there. Nothing below is cut from this list, so a wrong cut shows */
 board = [85, 56, 1.4]; holes = [[3.5, 3.5], [61.5, 3.5], [3.5, 52.5], [61.5, 52.5]]; hole_d = 2.7;
 post_h = 5; post_d = 5.5; pilot_d = 2.1; tall = 20;               // M2.5 screws hold the board; tall: highest part above it, plus air
-up = [[7, 50, 51, 5, 8.5], [66, 2.2, 22, 16, 13.5], [71, 21.3, 17, 33.5, 16]];             // x, y, width, depth, height: GPIO, Ethernet, both USB stacks
+up = [[7, 50, 51, 5, 8.5], [66, 2.2, 22, 16, 13.5], [71, 21.3, 17, 33.5, 16],              // x, y, width, depth, height: GPIO, Ethernet, both USB stacks
+      [6.7, -over, 9, 7, 3.2], [22.55, -over, 6.5, 7, 2.9], [35.95, -over, 6.5, 7, 2.9]];  // USB-C, micro HDMI
 plugs = [["front", 11.2, [13, 7.5], 1.6], ["front", 25.8, [11, 8], 1.45], ["front", 39.2, [11, 8], 1.45],      // side, center, body w x h, center above the board: USB-C, micro HDMI
          ["right", 10.2, [12, 14], 6.75], ["right", 38.05, [33, 16], 8], ["left", 28, [11, 1], -2], ["left", 18.4, [3, 3], 1.25]];   // Ethernet, USB, microSD card, a pen tip on the button
-/* [Openings] side, center, from, to above the board, width. Up to 99: open to the rim, and the lid's skirt closes what is left above the socket */
+/* [Openings and posts] side, center, from, to above the board, width. Up to 99: open to the rim, and the lid's skirt closes what is left above the socket */
 open = [["front", 11.2, -2.4, 5.6, 13.5], ["front", 25.8, -2.8, 5.7, 11.5], ["front", 39.2, -2.8, 5.7, 11.5],
-        ["right", 10.2, -0.4, 99, 17], ["right", 38.05, -0.4, 99, 34.5], ["left", 28, -5, 0, 12], ["left", 18.4, -0.75, 3.25, 5]];
+        ["right", 10.2, -0.4, 99, 17], ["right", 38.05, -0.4, 99, 34.5], ["left", 28, -5, 0, 12], ["left", 18.4, -0.75, 3.25, 4.6]];
+posts = [[3.5, 3.5], [61.5, 3.5], [3.5, 52.5], [61.5, 52.5]];
 skirt = [["right", 10.2, 14.5, 17], ["right", 38.05, 17, 34.5]];                           // side, center, from above the board, width of the opening it fills
 // closed on purpose: GPIO, camera and display ribbons, PCIe, the fan plug (all inside); say so to your user
 /* [Snaps] side, center: both halves read this one list */
@@ -192,11 +194,15 @@ free = arm_l - rim_h - hook_h / 2;                          // the rim holds the
 strain = 1.5 * arm_t * (hook + fit) / pow(free, 2);         // straight rectangular cantilever
 echo(outer = [in_l + 2 * wall, in_w + 2 * wall, h + gap + lid_t], strain = strain);
 assert(strain <= strain_max, "snap too stiff: longer or thinner arm, or a smaller hook");
+assert(hook >= 2 * fit, "hook too small to hold");
+assert(gap > 0, "a lid resting on the base merges with it");
+assert(len([for (p = ["all", "base", "lid", "lid_print", "clash", "drop", "mate", "pull"]) if (p == part) p]) == 1, str("no part named ", part));     // an unknown one is empty, which would pass
 assert(post_h >= 3, "no room for solder joints under the board");
 assert(h - arm_l > top, "a snap arm reaches the board");
 for (s = skirt) assert(top + s[2] < h, "a skirt above the rim");
 
 module at(side, x) {                                        // +y points out of the wall, y = 0 on its inner face
+    assert(len([for (s = ["front", "back", "left", "right"]) if (s == side) s]) == 1, str("no side named ", side));
     if (side == "front") translate([x, -clr, 0]) rotate(180) children();
     if (side == "back") translate([x, board[1] + clr, 0]) children();
     if (side == "right") translate([board[0] + clr, x, 0]) rotate(-90) children();
@@ -208,9 +214,9 @@ module slots(z, t) for (i = [0 : vent_n - 1]) translate([vent_at[0] + i * vent_p
 module base() difference() {
     union() {
         difference() { shell(h); translate([-clr, -clr, floor_t]) cube([in_l, in_w, h]); }
-        for (p = holes) translate([p[0], p[1], 0]) translate([0, 0, floor_t - eps]) cylinder(d = post_d, h = post_h + eps);
+        for (p = posts) translate([p[0], p[1], floor_t - eps]) cylinder(d = post_d, h = post_h + eps);
     }
-    for (p = holes) translate([p[0], p[1], floor_t + 1]) cylinder(d = pilot_d, h = post_h);
+    for (p = posts) translate([p[0], p[1], floor_t + 1]) cylinder(d = pilot_d, h = post_h);
     for (o = open) at(o[0], o[1]) translate([0, -eps, 0]) box(o[4], wall + 2 * eps, top + o[2], min(top + o[3], h + eps));      // the plug's body must pass, not only its tip
     for (s = snaps) at(s[0], s[1]) translate([0, -eps, 0]) box(arm_w + 2 * play, wall + 2 * eps, h - arm_l - play, h - arm_l + hook_h + play);
     for (i = [0 : inlet_n - 1]) at("back", inlet_at + i * vent_p) translate([0, -eps, 0]) box(inlet[0], wall + 2 * eps, floor_t + 1, floor_t + 1 + inlet[1]);
@@ -230,18 +236,19 @@ module lid() difference() {
     }
     slots(h + gap, lid_t);
 }
-module board_ghost(rise = 0) translate([probe ? -1 : 0, 0, floor_t + post_h + gap]) {
+module board_ghost(rise = 0) translate([probe ? -clr - 1 : 0, 0, floor_t + post_h + gap]) {
     difference() { cube(board + [0, 0, rise]); for (p = holes) translate([p[0], p[1], -eps]) cylinder(d = hole_d, h = board[2] + rise + 2 * eps); }
     for (u = up) translate([u[0], u[1], board[2]]) cube([u[2], u[3], u[4] + rise]);
 }
+module screw_ghost() for (p = holes) translate([p[0], p[1], floor_t + 1 + gap]) cylinder(d = pilot_d - 0.2, h = post_h);
 module plug_ghost() for (p = plugs) at(p[0], p[1]) translate([0, gap, 0]) box(p[2][0], 20, top + p[3] - p[2][1] / 2, top + p[3] + p[2][1] / 2);
 
 if (part == "all" || part == "base") base();
 if (part == "all" || part == "lid") lid();
 if (part == "lid_print") translate([0, 0, h + gap + lid_t]) rotate([180, 0, 0]) lid();       // outside face on the bed
 if (part == "mate") intersection() { base(); lid(); }
-if (part == "pull") intersection() { base(); translate([0, 0, 1]) lid(); }                  // lifted 1 mm the hooks must catch
-if (part == "clash") intersection() { union() { base(); lid(); } union() { board_ghost(); plug_ghost(); } }
+if (part == "pull") intersection() { base(); translate([0, 0, 1]) lid(); }                  // lifted 1 mm, a hook must catch
+if (part == "clash") intersection() { union() { base(); lid(); } union() { board_ghost(); plug_ghost(); screw_ghost(); } }
 if (part == "drop") intersection() { base(); board_ghost(h); }              // the board goes straight down into place
 ```
 
@@ -251,10 +258,11 @@ if (part == "drop") intersection() { base(); board_ghost(h); }              // t
 openscad --hardwarnings -o base.stl -D 'part="base"' case.scad                      # want: a solid
 openscad --hardwarnings -o lid.stl -D 'part="lid_print"' case.scad                  # want: a solid
 openscad --hardwarnings -o clash.stl -D 'part="clash"' case.scad                    # board and plugs against the case, want: empty
-openscad --hardwarnings -o probe.stl -D 'part="clash"' -D probe=true case.scad      # the board moved 1 mm, want: a solid, or the check is dead
-openscad --hardwarnings -o drop.stl -D 'part="drop"' case.scad                      # the board's way in, want: empty
-openscad --hardwarnings -o mate.stl -D 'part="mate"' case.scad                      # lid against base, want: empty
-openscad --hardwarnings -o pull.stl -D 'part="pull"' case.scad                      # lid lifted 1 mm, want: a solid, or nothing latches
+openscad --hardwarnings -o probe.stl -D 'part="clash"' -D probe=true case.scad      # the board 1 mm into a wall, want: a solid, or the check is dead
+openscad --hardwarnings -o probe2.stl -D 'part="clash"' -D 'open=[]' -D 'up=[]' case.scad  # only plugs, no openings, want: a solid
+openscad --hardwarnings -o drop.stl -D 'part="drop"' case.scad                      # the board's way in, want: empty; with -D clr=0.5: a solid
+openscad --hardwarnings -o mate.stl -D 'part="mate"' case.scad                      # lid against base, want: empty; with -D fit=-0.3: a solid
+openscad --hardwarnings -o pull.stl -D 'part="pull"' case.scad                      # lid lifted 1 mm, want: a solid (at least one hook overlaps), or nothing latches
 ```
 
 **A clip that grips a pipe or hose** can't be checked by a clash with the part seated: that only tests the bore. Measure the bore and the
@@ -265,7 +273,7 @@ the desk slot and the ring face different ways, one of them has that lip, and it
 ```openscad
 R = (bore + wall) / 2;  phi = 180 - asin(mouth / bore);    // the arm is an arc from the back of the ring to the lip
 strain = wall * ((body - mouth) / 2) / (2 * R * R * (phi * PI / 360 - sin(2 * phi) / 4));      // pushing the lips open by the body
-assert(strain <= 0.04, "clip too stiff: thinner wall or wider mouth");                         // PETG; a straight-arm formula misreads a ring
+assert(strain <= strain_max, "clip too stiff: thinner wall or wider mouth");                   // 0.02: PETG opened often (0.04 if fitted once, PLA half); a straight-arm formula misreads a ring
 module gauge(d, reach) translate([0, 0, 1]) linear_extrude(height = height - 2) hull() { circle(d = d); translate([0, reach]) circle(d = d); }
 if (part == "bore")  intersection() { clip(); gauge(pin, 0); }      // pin = bore - 0.2: want empty; bore + 0.2: want a solid
 if (part == "mouth") intersection() { clip(); gauge(pin, bore); }   // pin = mouth - 0.1: want empty; mouth + 0.2: want a solid
