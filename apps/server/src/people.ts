@@ -75,6 +75,12 @@ export function cleanName(raw: string): string {
   return n;
 }
 
+/**
+ * A name however it was typed, as names are compared: one accent form, single spaces, no case. Sign-in limits count
+ * on it too, so every spelling that reaches an account counts against that account.
+ */
+export const nameKey = (raw: string) => raw.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+
 // ── Tokens ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** 32 random bytes, base64url: an invite link's secret, or a session cookie. */
@@ -129,9 +135,11 @@ export class Limiter {
     return Math.max(1, Math.ceil((list[list.length - this.limit]! + this.windowMs - this.now()) / 1000));
   }
 
-  fail(key: string) {
+  /** Counts a failure now. Returns its time, for `forgive`. */
+  fail(key: string): number {
     const list = this.recent(key);
-    list.push(this.now());
+    const at = this.now();
+    list.push(at);
     // Re-inserted, so the map runs from least to most recently failed.
     this.hits.delete(key);
     this.hits.set(key, list);
@@ -141,6 +149,15 @@ export class Limiter {
       for (const k of [...this.hits.keys()]) this.recent(k);
       if (this.hits.size > 10_000) for (const k of [...this.hits.keys()].slice(0, 1000)) this.hits.delete(k);
     }
+    return at;
+  }
+
+  /** Takes back one failure, counted at `at` before its answer was known and right after all. */
+  forgive(key: string, at: number) {
+    const list = this.hits.get(key);
+    const i = list?.indexOf(at) ?? -1;
+    if (i >= 0) list!.splice(i, 1);
+    if (list && !list.length) this.hits.delete(key);
   }
 
   clear(key: string) {
@@ -334,8 +351,8 @@ export class People {
   }
 
   private byName(name: string) {
-    const n = name.toLocaleLowerCase();
-    return this.data.people.find((p) => p.name.toLocaleLowerCase() === n);
+    const n = nameKey(name);
+    return this.data.people.find((p) => nameKey(p.name) === n);
   }
 
   /** Drop expired invites and sessions. */
@@ -452,7 +469,7 @@ export class People {
 
   /** A session token for a correct name and passphrase, or null. Unknown names cost as much time as known ones. */
   async signIn(name: string, pass: string): Promise<{ person: Signed['person']; token: string } | null> {
-    const p = this.byName(name.normalize('NFC').replace(/\s+/g, ' ').trim());
+    const p = this.byName(name);
     if (!p) {
       decoy ??= hashPassphrase(randomBytes(16).toString('hex'));
       await verifyPassphrase(pass, await decoy);
@@ -557,7 +574,7 @@ export class People {
 
   /** Find someone by name, for the command line. */
   find(name: string) {
-    const p = this.byName(name.trim());
+    const p = this.byName(name);
     return p ? this.get(p.id)! : undefined;
   }
 }

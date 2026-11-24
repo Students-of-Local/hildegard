@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   hashPassphrase,
   Limiter,
+  nameKey,
   People,
   PeopleError,
   passphraseProblem,
@@ -252,6 +253,21 @@ describe('the director queue limit', () => {
   });
 });
 
+describe('names', () => {
+  it('finds one account, and counts one key, however its name is typed', async () => {
+    const { people } = fresh();
+    await people.setOwner('Zoë  Smith', PASS);
+    const id = people.find('Zoë Smith')!.id;
+    for (const typed of ['zoë smith', ' ZOË \t SMITH ', 'Zoe\u0308 Smith', 'zoë\u00a0smith']) {
+      expect(nameKey(typed), typed).toBe('zoë smith');
+      expect(people.find(typed)?.id, typed).toBe(id);
+      expect((await people.signIn(typed, PASS))?.person.id, typed).toBe(id);
+    }
+    expect(people.find('Zoe Smith')).toBeUndefined();
+    expect(nameKey('Zoe Smith')).not.toBe(nameKey('Zoë Smith'));
+  });
+});
+
 describe('rate limits', () => {
   it('blocks a key after its failures, says how long, and forgets as the window slides', () => {
     const c = clock();
@@ -269,5 +285,19 @@ describe('rate limits', () => {
     expect(l.wait('a')).toBeGreaterThan(0);
     l.clear('a');
     expect(l.wait('a')).toBe(0);
+  });
+
+  it('takes back one try, and only that one', () => {
+    const c = clock();
+    const l = new Limiter(2, 60_000, c.now);
+    l.fail('a');
+    c.add(1000);
+    const at = l.fail('a');
+    expect(l.wait('a')).toBeGreaterThan(0);
+    l.forgive('a', at);
+    expect([l.count('a'), l.wait('a')]).toEqual([1, 0]);
+    l.forgive('a', at);
+    l.forgive('b', at);
+    expect([l.count('a'), l.count('b')]).toEqual([1, 0]);
   });
 });

@@ -93,7 +93,15 @@ import { loopRoutes } from './loop-routes.ts';
 import { ModelError, type ModelManager } from './models.ts';
 import { type FetchMetadata, oauthRoutes } from './oauth.ts';
 import { type OpenScad, usesManifold } from './openscad.ts';
-import { DIRECTOR_QUEUE, INVITE_HOURS, Limiter, type People, PeopleError, SESSION } from './people.ts';
+import {
+  DIRECTOR_QUEUE,
+  INVITE_HOURS,
+  Limiter,
+  nameKey,
+  type People,
+  PeopleError,
+  SESSION,
+} from './people.ts';
 import {
   findSlicer,
   type Printer,
@@ -1943,9 +1951,10 @@ export function createApp(deps: AppDeps) {
   // ── Signing in, from other devices ─────────────────────────────────────────────────────────────────────────
   const perName = new Limiter(deps.limits?.perName ?? 10, 15 * 60_000);
   const perClient = new Limiter(deps.limits?.perClient ?? 30, 15 * 60_000);
+  const limiter = (key: string) => (key.startsWith('name:') ? perName : perClient);
   /** Too many wrong tries: from this address, or at this account from anywhere. */
   const limited = (c: Context, keys: string[]) => {
-    const wait = Math.max(...keys.map((k) => (k.startsWith('name:') ? perName : perClient).wait(k)));
+    const wait = Math.max(...keys.map((k) => limiter(k).wait(k)));
     if (!wait) return null;
     c.header('retry-after', String(wait));
     return c.json(
@@ -1955,8 +1964,15 @@ export function createApp(deps: AppDeps) {
       429,
     );
   };
+  /**
+   * Counts a wrong try, and returns how to take it back. A passphrase takes a moment to check, so its try is counted
+   * before the check and taken back if it was right: otherwise guesses sent together would all be checked.
+   */
   const failed = (keys: string[]) => {
-    for (const k of keys) (k.startsWith('name:') ? perName : perClient).fail(k);
+    const at = keys.map((k) => limiter(k).fail(k));
+    return () => {
+      for (const [i, k] of keys.entries()) limiter(k).forgive(k, at[i]!);
+    };
   };
   const authState = (c: Context): AuthState => ({
     local: local(c),
@@ -1977,14 +1993,13 @@ export function createApp(deps: AppDeps) {
     c.header('cache-control', 'no-store');
     const body = Credentials.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'Give your name and passphrase.' }, 400);
-    const keys = [`client:${clientKey(c)}`, `name:${body.data.name.trim().toLocaleLowerCase()}`];
+    const keys = [`client:${clientKey(c)}`, `name:${nameKey(body.data.name)}`];
     const refused = limited(c, keys);
     if (refused) return refused;
+    const takeBack = failed(keys);
     const r = await people.signIn(body.data.name, body.data.passphrase);
-    if (!r) {
-      failed(keys);
-      return c.json({ error: 'That name and passphrase don’t match.' }, 401);
-    }
+    if (!r) return c.json({ error: 'That name and passphrase don’t match.' }, 401);
+    takeBack();
     perName.clear(keys[1]!);
     sendCookie(c, r.token);
     return c.json({ local: local(c), person: r.person, owner: true } satisfies AuthState);
@@ -2008,16 +2023,18 @@ export function createApp(deps: AppDeps) {
       .object({ current: z.string().max(1024), next: z.string().max(1024) })
       .safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'Give your current passphrase and a new one.' }, 400);
-    const keys = [`client:${clientKey(c)}`, `name:${w.person.name.toLocaleLowerCase()}`];
+    const keys = [`client:${clientKey(c)}`, `name:${nameKey(w.person.name)}`];
     const limitedNow = limited(c, keys);
     if (limitedNow) return limitedNow;
+    const takeBack = failed(keys);
     try {
-      if (!(await people.changePassphrase(w.person.id, body.data.current, body.data.next, w.session))) {
-        failed(keys);
+      if (!(await people.changePassphrase(w.person.id, body.data.current, body.data.next, w.session)))
         return c.json({ error: 'That isn’t your current passphrase.' }, 403);
-      }
+      takeBack();
       return c.json(authState(c));
     } catch (e) {
+      // The new passphrase won’t do: the current one was never checked, so this was no guess.
+      if (e instanceof PeopleError) takeBack();
       return peopleFail(c, e);
     }
   });
