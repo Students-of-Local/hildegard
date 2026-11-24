@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           cd "$GITHUB_WORKSPACE/.github/workflows"
-          if grep -nE '^ *(- )?uses:' *.y*ml | grep -vE 'uses: *(\./|baney75/)|@[0-9a-f]{40}( |$)'; then exit 1; fi
+          if grep -nE '^[ -]*"?uses"? *:' *.y*ml | sed 's/ #.*//' | grep -vE 'uses"? *: *(\./|baney75/|[^ ]+@[0-9a-f]{40} *$)'; then exit 1; fi
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
