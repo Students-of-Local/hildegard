@@ -48,10 +48,16 @@ describe.skipIf(!has('PIL, numpy'))('hildegard-photo-edit embedded programs', ()
   it('wb_patch refuses a clipped patch, and with no patch turns the photo upright', () => {
     expect(tool('wb_patch', f('ramp.png'), f('o.png'), '0', '0', '50', '50').said).toContain('pick another');
     expect(tool('keystone', f('turned.jpg'), f('o.png')).said).toContain('run wb_patch.py first');
-    expect(tool('faces', f('turned.jpg'), f('o.png'), '9,9,9,9', '9,9,9,9').said).toContain('run wb_patch.py first');
+    expect(tool('faces', f('turned.jpg'), f('o.png'), '9,9,9,9', '9,9,9,9').said).toContain(
+      'run wb_patch.py first',
+    );
     expect(tool('wb_patch', f('turned.jpg'), f('o.png')).ok).toBe(true);
-    expect(tool('faces', f('o.png'), f('o2.png'), '0,0,40,40', '700,0,40,40').said).toContain('off the picture');
-    expect(tool('faces', f('o.png'), f('o2.png'), '0,0,40,40', '0,700,40,40').said).not.toContain('off the picture');
+    expect(tool('faces', f('o.png'), f('o2.png'), '0,0,40,40', '700,0,40,40').said).toContain(
+      'off the picture',
+    );
+    expect(tool('faces', f('o.png'), f('o2.png'), '0,0,40,40', '0,700,40,40').said).not.toContain(
+      'off the picture',
+    );
   });
 
   describe.skipIf(!has('pymatting, scipy'))('on_white', () => {
@@ -80,7 +86,9 @@ describe.skipIf(!has('PIL, numpy'))('hildegard-photo-edit embedded programs', ()
       expect(r.said).toContain(`FIX ${line}`);
     });
     it('refuses a photo that is turned', () => {
-      expect(tool('on_white', f('turned.jpg'), f('good.png'), f('o.jpg')).said).toContain('run wb_patch.py first');
+      expect(tool('on_white', f('turned.jpg'), f('good.png'), f('o.jpg')).said).toContain(
+        'run wb_patch.py first',
+      );
     });
   });
 
