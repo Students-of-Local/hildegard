@@ -659,7 +659,10 @@ ${error ? `<p class="err" role="alert">${esc(error)}</p>` : ''}${who}
     const refused = deps.limited(c, keys);
     if (refused) return consent(c, requestId, p, 'Too many tries. Wait a few minutes, then try again.', name);
     const takeBack = deps.failed(keys);
-    const signed = await people.signIn(name, field('passphrase').slice(0, 1024));
+    const signed = await people.signIn(name, field('passphrase').slice(0, 1024)).catch((e: unknown) => {
+      takeBack();
+      throw e;
+    });
     if (!signed) return consent(c, requestId, p, 'That name and passphrase don’t match.', name);
     takeBack();
     // A sign-in made only to approve this app: its session isn't needed.

@@ -1966,7 +1966,8 @@ export function createApp(deps: AppDeps) {
   };
   /**
    * Counts a wrong try, and returns how to take it back. A passphrase takes a moment to check, so its try is counted
-   * before the check and taken back if it was right: otherwise guesses sent together would all be checked.
+   * before the check and taken back if it was right: otherwise guesses sent together would all be checked. A throw is
+   * never a wrong passphrase, so it takes the try back too.
    */
   const failed = (keys: string[]) => {
     const at = keys.map((k) => limiter(k).fail(k));
@@ -1997,7 +1998,10 @@ export function createApp(deps: AppDeps) {
     const refused = limited(c, keys);
     if (refused) return refused;
     const takeBack = failed(keys);
-    const r = await people.signIn(body.data.name, body.data.passphrase);
+    const r = await people.signIn(body.data.name, body.data.passphrase).catch((e: unknown) => {
+      takeBack();
+      throw e;
+    });
     if (!r) return c.json({ error: 'That name and passphrase don’t match.' }, 401);
     takeBack();
     perName.clear(keys[1]!);
@@ -2033,8 +2037,7 @@ export function createApp(deps: AppDeps) {
       takeBack();
       return c.json(authState(c));
     } catch (e) {
-      // The new passphrase won’t do: the current one was never checked, so this was no guess.
-      if (e instanceof PeopleError) takeBack();
+      takeBack();
       return peopleFail(c, e);
     }
   });

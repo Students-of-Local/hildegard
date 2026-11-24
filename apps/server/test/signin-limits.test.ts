@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Guessing passphrases over the link: ten tries at an account, whatever its name is spelled like and however many
 // guesses are sent at once.
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +28,7 @@ const exec: Exec = async (_cmd, args) => ({
       : '{}',
 });
 
+const dir = mkdtempSync(join(tmpdir(), 'hg-limits-'));
 let srv: Running;
 let remote: string;
 
@@ -63,7 +64,7 @@ beforeAll(async () => {
     });
   });
   srv = await startServer(
-    { ...parseArgs(['--fake-gpu', '--data', mkdtempSync(join(tmpdir(), 'hg-limits-'))]), port: 0, hostPort },
+    { ...parseArgs(['--fake-gpu', '--data', dir]), port: 0, hostPort },
     // As shipped: 10 tries at a name and 30 from an address, in 15 minutes.
     { fakeTickMs: 25, secrets: memoryStore(), exec },
   );
@@ -82,6 +83,20 @@ describe('sign-in limits', { timeout: 60_000 }, () => {
       got.push((await signIn(name, 'wrong', `203.0.113.${i + 1}`)).status);
     expect(got).toEqual([...Array(10).fill(401), ...Array(4).fill(429)]);
     expect((await signIn('zoë smith', PASS, '203.0.113.50')).status).toBe(429);
+  });
+
+  it('counts nothing when the right passphrase’s session can’t be saved', async () => {
+    await person('Hilda');
+    const file = join(dir, 'people', 'sessions.json');
+    renameSync(file, `${file}.kept`);
+    mkdirSync(join(file, 'full'), { recursive: true }); // a folder in its place: saving fails, as on a full disk
+    try {
+      for (let i = 0; i < 12; i++) expect((await signIn('Hilda', PASS, '203.0.113.80')).status).toBe(500);
+    } finally {
+      rmSync(file, { recursive: true });
+      renameSync(`${file}.kept`, file);
+    }
+    expect((await signIn('Hilda', PASS, '203.0.113.80')).status).toBe(200);
   });
 
   it('checks at most ten guesses sent at once', async () => {
