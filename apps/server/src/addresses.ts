@@ -4,6 +4,7 @@ import { BlockList, isIP } from 'node:net';
 
 // One list per family: in a shared one, Node also holds an IPv4 address against ::ffff:0:0/96, which refuses them all.
 const V4 = new BlockList();
+const V6 = new BlockList();
 for (const [net, prefix] of [
   ['0.0.0.0', 8],
   ['10.0.0.0', 8],
@@ -15,29 +16,30 @@ for (const [net, prefix] of [
   ['192.168.0.0', 16],
   ['198.18.0.0', 15],
   ['224.0.0.0', 3],
-] as const)
+] as const) {
   V4.addSubnet(net, prefix, 'ipv4');
-
-const V6 = new BlockList();
+  V6.addSubnet(`64:ff9b::${net}`, 96 + prefix, 'ipv6');
+}
 for (const [net, prefix] of [
-  ['::', 96], // unspecified, loopback and IPv4-compatible
-  ['::ffff:0:0', 96], // IPv4-mapped
-  ['64:ff9b::', 32], // NAT64, 64:ff9b::/96 and 64:ff9b:1::/48
+  ['2001::', 32], // Teredo
   ['2001:db8::', 32], // documentation
   ['2002::', 16], // 6to4
-  ['fc00::', 7],
-  ['fe80::', 9], // link-local and the old site-local
-  ['ff00::', 8],
 ] as const)
   V6.addSubnet(net, prefix, 'ipv6');
 
+// The only IPv6 addresses that can be the public internet: global unicast, and NAT64, which is how a network without
+// IPv4 reaches a public IPv4 site.
+const GLOBAL6 = new BlockList();
+GLOBAL6.addSubnet('2000::', 3, 'ipv6');
+GLOBAL6.addSubnet('64:ff9b::', 96, 'ipv6');
+
 /**
  * True for addresses on the owner's own computer, network or tailnet, and anything else that isn't the public internet.
- * An IPv6 address that carries an IPv4 one is refused whatever it carries: no public site is reached that way.
+ * A NAT64 address is as private as the IPv4 address it carries; any other IPv6 address that carries one is refused.
  */
 export function privateAddress(ip: string): boolean {
   const v = isIP(ip);
   if (v === 4) return V4.check(ip, 'ipv4');
-  if (v === 6) return V6.check(ip, 'ipv6');
+  if (v === 6) return !GLOBAL6.check(ip, 'ipv6') || V6.check(ip, 'ipv6');
   return true;
 }

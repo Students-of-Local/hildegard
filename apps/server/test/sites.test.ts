@@ -295,9 +295,18 @@ describe('sites', { timeout: 60_000 }, () => {
       '[::ffff:192.168.1.1]',
       '[::ffff:93.184.216.34]',
       '[64:ff9b::7f00:1]',
+      '[64:ff9b::a00:5]',
+      '[64:ff9b::6440:1]',
       '[64:ff9b:1::1]',
       '[::127.0.0.1]',
       '[2002:7f00:1::]',
+      '[2001:0:7f00:1::1]',
+      '[2001:db8::1]',
+      '[::ffff:0:127.0.0.1]',
+      '[100::1]',
+      '[fc::1]',
+      '[fec0::1]',
+      '[ff02::1]',
       'localhost.',
       'foo.ts.net.',
       '127.0.0.1',
@@ -310,7 +319,7 @@ describe('sites', { timeout: 60_000 }, () => {
       '169.254.1.1',
     ])
       expect(await allow(`http://${host}/`), host).toBe(false);
-    for (const host of ['example.com', 'example.com.', '[2606:4700::1111]'])
+    for (const host of ['example.com', 'example.com.', '[2606:4700::1111]', '[64:ff9b::5db8:d822]'])
       expect(await allow(`https://${host}/`), host).toBe(true);
     const mixed = publicOnly(async () => ['93.184.216.34', '::ffff:10.0.0.1']);
     expect(await mixed('https://mixed.test/')).toBe(false);
