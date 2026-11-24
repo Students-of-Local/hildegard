@@ -136,7 +136,7 @@ Model the parts **assembled**, where they sit together; say how each pair mates 
 (`{"a": "lid", "b": "box", "kind": "slide"}`) and how each prints in `print_pose`. Size every mating feature from the
 printer's clearance, never a guessed number: a 20 mm boss in a slide fit gets a hole of `20 + 2 * fit`.
 
-## 6. Enclosures, ports and snap fits
+## 6. Enclosures, snap fits, clips and threads
 
 What decides whether a case around a board works, and what each round checks:
 
@@ -151,6 +151,9 @@ What decides whether a case around a board works, and what each round checks:
 - **Air**: an inlet low and an outlet high, slots at most 3 mm wide (a fingertip and a screw stay out), the outlet over the hottest chip.
 - **A clash render with a control.** Intersect the case with a ghost of the board and its plugs: it must be empty. Then break it on purpose
   (`probe = true`, or delete the ports): it must not be. A check that can't fail has not checked anything.
+- **Checks your user runs stand alone.** They have the `.scad` and OpenSCAD, not this skill's scripts: give `openscad` commands with the
+  answer each must print, or the whole script. Numbers you expect come from an `echo` in the file, never from your head: a mouth cut or a
+  rounded tip moves the outside size too.
 
 ```openscad
 part  = "all";      // all, base, lid, clash, mate
@@ -212,6 +215,22 @@ openscad -o c.stl -D 'part="clash"' case.scad                        # want: "Cu
 openscad -o c.stl -D 'part="clash"' -D probe=true case.scad          # want: a solid, or the check is dead
 openscad -o c.stl -D 'part="mate"' case.scad                         # lid against base: want empty
 ```
+
+**A clip that grips a pipe or hose** can't be checked by a clash with the part seated: that only tests the bore. Measure the bore and the
+mouth with gauge pins, as a machinist would: the go pin passes (empty), the no-go pin doesn't (a solid). Round or flare the lips outward
+from the mouth, never into it, and keep the screw heads where a driver reaches them straight on with the ring in the way.
+
+```openscad
+R = (bore + wall) / 2;  phi = 180 - asin(mouth / bore);    // the arm is an arc from the back of the ring to the lip
+strain = wall * ((body - mouth) / 2) / (2 * R * R * (phi * PI / 360 - sin(2 * phi) / 4));      // pushing the lips open by the body
+assert(strain <= 0.04, "clip too stiff: thinner wall or wider mouth");                         // PETG; a straight-arm formula misreads a ring
+module gauge(d, reach) translate([0, 0, 1]) linear_extrude(height - 2) hull() { circle(d = d); translate([0, reach]) circle(d = d); }
+if (part == "bore")  intersection() { clip(); gauge(pin, 0); }      // pin = bore - 0.2: want empty; bore + 0.2: want a solid
+if (part == "mouth") intersection() { clip(); gauge(pin, bore); }   // pin = mouth - 0.1: want empty; mouth + 0.2: want a solid
+```
+
+**A threaded lid** is turned and lifted together in its clash check, `translate([0, 0, pitch * a / 360]) rotate(a) lid();`, or a good
+thread fails at every angle but one. Try both signs of `a` once: a wrong phase fails the good part.
 
 Print one corner with one snap and one port first (20 minutes), then the case. The comments in a `.scad` you hand over name the part, its
 numbers and where they came from, never the tool that made it.
