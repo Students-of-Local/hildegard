@@ -358,7 +358,7 @@ export const FIRST = {
     folder,
   ],
   'hildegard-photo-edit': [
-    'For a product cut out onto white, or a group, a building or a print job, follow its section and skip `fix.py`. Otherwise first run `python3 -B <folder>/scripts/fix.py <photo> out.jpg` with the flags the Fast path picks from the brief, then `python3 -B <folder>/scripts/measure.py out.jpg <photo>` and read each line. Never overwrite the original.',
+    'For a product cut out onto white, uprights that lean toward each other or the faces in a group, follow that section: save its programs in your working folder, never `<folder>`, and skip `fix.py`. Otherwise (a tilt, a cast, exposure, a crop, of a house or a print too) first run `python3 -B <folder>/scripts/fix.py <photo> out.jpg` with the flags the Fast path picks from the brief, then `python3 -B <folder>/scripts/measure.py out.jpg <photo>` and read each line. Never overwrite the original.',
     folder,
   ],
   'hildegard-video-edit': [

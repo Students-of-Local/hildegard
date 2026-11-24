@@ -1,17 +1,17 @@
 ---
 name: hildegard-photo-edit
-description: Use when asked to edit, fix, retouch, grade, crop, resize or animate a photo - tested Python tools (straighten, colour, crop, denoise, measure) and ImageMagick recipes for a professional result.
+description: Use when asked to edit, fix, retouch, grade, crop, resize or animate a photo, cut a product out onto white (remove the background), or finish a group, building or print - measured, tested tools.
 ---
 
 # Editing photos
 
 ## FAST PATH: this skill is all you need
 
-**A product cut out onto white, or a group, a building or a print job, starts at its own section below, not with `fix.py`**: that one corrects
-colour by itself, crops and sharpens, and those jobs need each of them later or by measurement.
+**Three jobs start at their own section below, not with `fix.py`**, which corrects colour by itself, crops and sharpens: a product cut out onto
+white, uprights that lean toward each other, and a group's faces. A tilt, a cast, exposure or a crop is `fix.py`'s, for a house or a print too.
 
 The scripts in this skill's `scripts/` folder do the measuring for you, so you never judge a tilt, a colour cast or a crop by eye.
-Install once (Pillow and numpy; nothing else, no OpenCV): `python3 -m pip install pillow numpy`
+Install once (the folder's scripts need Pillow and numpy; nothing else, no OpenCV): `python3 -m pip install pillow numpy`
 
 ```sh
 # needs: python3 -m pip install pillow numpy
@@ -149,91 +149,112 @@ magick in.jpg \( +clone -region 24x24+1310+842 -blur 0x3 \) -composite fixed.jpg
 ## Cut a product out onto white
 
 Straighten and correct the colour first, cut out second: a cast is easier to see with the old background still there. This is the one
-place pixels are replaced, and only because the brief asks for a plain background. Ask the shop's size and how much of the frame the product
-fills, or take square, 2000 px, 85 percent, and say so. This recipe makes no shadow; a shop that wants one gets it as a separate, named step.
+place pixels are replaced, and only because the brief asks for a plain background. Ask the shop's size, file cap and how much of the frame the
+product fills, or take square, 2000 px, 85 percent, and say so. This recipe makes no shadow; a shop that wants one gets it as a separate, named
+step. Save each program below under its name in your working folder, never in this skill's folder, and run it there with `python3 -B`.
 
 1. **White balance from something grey, not from the product** (`wb_patch.py`). Auto white balance reads brown wood, brass or leather as a
    cast and drains it. Find paper, a white label, a steel sink or a plate's rim *under the same light* (a window's white edge is another
-   light) and read it off. With nothing grey in the frame, leave the colour alone, put the photo beside the real object, move the warmth one
-   step at a time toward it, and say the colour is judged.
-2. **Cut on the full-size file, twice.** `python3 -m pip install "rembg[cpu,cli]" pymatting`, then `rembg i -m birefnet-general graded.png cut.png`
-   (the model downloads once, about 1 GB; `-m isnet-general-use` is smaller and softer at the edges). The model looks at 1024 px, so crop the
+   light) and read it off. With nothing grey in the frame run it with no patch (it still turns the photo upright and into sRGB), put the photo
+   beside the real object, move the warmth one step at a time toward it, and say the colour is judged.
+2. **Cut on the full-size file, twice.** Ask first: this installs rembg and pymatting and downloads a model of about 1 GB, once
+   (`-m isnet-general-use` is smaller and softer at the edges). `python3 -m pip install "rembg[cpu,cli]" pymatting`, then
+   `rembg i -m birefnet-general graded.png cut.png`. The model looks at 1024 px, so crop the
    photo to the product plus a tenth and cut that crop again: the edge comes out sharper. Look at the matte on magenta at 200 percent:
-   holes in pale wood grain, a missing rim, and the shadow kept as if it were the board are the usual faults. Straight edges that wobble get
-   a drawn mask instead.
+   holes in pale wood grain, a missing rim, and the shadow kept as if it were the board are the usual faults. Straight edges that wobble,
+   and a person who wants no download, get a drawn mask: `magick graded.png \( +clone -fill black -colorize 100 -fill white -draw "polygon X,Y X,Y
+   X,Y X,Y" -blur 0x0.7 \) -alpha off -compose CopyOpacity -composite cut.png` (`on_white.py` still needs pymatting).
 3. **Put it on 255 and check the file you deliver** (`on_white.py`). It takes the old light out of the edge, sizes, sharpens once, writes one
-   JPEG at 4:4:4 (4:2:0 bleeds colour past the edge) and reads that JPEG back. A second save after it undoes the check.
+   JPEG at 4:4:4 (4:2:0 bleeds colour past the edge) under the cap and reads that JPEG back. A second save after it undoes the check, so
+   `measure.py` doesn't judge this file: a product on white reads bright and clipped, as asked.
 
 ```python
-# wb_patch.py in.jpg graded.png X Y W H     X Y W H: a patch that is really grey or white, in pixels
+# wb_patch.py in.jpg graded.png [X Y W H]     a patch that is really grey or white, in pixels; none: only upright and sRGB, colour left alone
 import io, sys, numpy as np
 from PIL import Image, ImageCms, ImageOps
-src, out, x, y, w, h = sys.argv[1], sys.argv[2], *map(int, sys.argv[3:7])
+src, out, box = sys.argv[1], sys.argv[2], list(map(int, sys.argv[3:]))
 im = Image.open(src); icc = im.info.get("icc_profile"); im = ImageOps.exif_transpose(im)
 if icc: im = ImageCms.profileToProfile(im, ImageCms.ImageCmsProfile(io.BytesIO(icc)), ImageCms.createProfile("sRGB"), outputMode="RGB")   # phones shoot Display P3
 a = np.asarray(im.convert("RGB"), float) / 255
-lin = np.where(a <= .04045, a / 12.92, ((a + .055) / 1.055) ** 2.4)          # gains belong in linear light
+if not box: Image.fromarray((a * 255 + .5).astype("uint8")).save(out); print("upright and sRGB, colour left alone"); sys.exit(0)
+x, y, w, h = box; lin = np.where(a <= .04045, a / 12.92, ((a + .055) / 1.055) ** 2.4)                                      # gains belong in linear light
 patch = lin[y:y+h, x:x+w].reshape(-1, 3)
 if not patch.size or patch.max() > .95 or patch.min() < .02: sys.exit("patch is empty, clipped or black: pick another")
-gain = patch.mean(0)[1] / patch.mean(0)                                      # green stays, red and blue move
-blown = np.clip((a.min(2, keepdims=True) - .94) / .05, 0, 1)                 # a blown highlight has no colour to correct: it stays white
-lin = np.clip(lin * (gain * (1 - blown) + blown), 0, 1)
-srgb = np.where(lin <= .0031308, lin * 12.92, 1.055 * lin ** (1 / 2.4) - .055)
-left = np.abs(lin[y:y+h, x:x+w].reshape(-1, 3).mean(0) / lin[y:y+h, x:x+w].reshape(-1, 3).mean(0)[1] - 1).max()
+gain = patch.mean(0)[1] / patch.mean(0); new = np.clip(lin * gain, 0, 1)     # green stays, red and blue move
+other = np.dstack([np.minimum(new[..., (c + 1) % 3], new[..., (c + 2) % 3]) for c in range(3)])
+new += np.clip((lin - .9) / .1, 0, 1) * np.maximum(0, other - new)           # a channel at its limit was brighter than it says: raise it, or highlights ring
+srgb = np.where(new <= .0031308, new * 12.92, 1.055 * new ** (1 / 2.4) - .055)
+now = new[y:y+h, x:x+w].reshape(-1, 3).mean(0); left = np.abs(now / now[1] - 1).max()
 print("gains R %.3f G 1 B %.3f, cast left in the patch %.1f%%" % (gain[0], gain[2], 100 * left))
 Image.fromarray((srgb * 255 + .5).astype("uint8")).save(out); sys.exit(int(left > .02))
 ```
 
 ```python
-# on_white.py graded.png cut.png out.jpg [2000 [85]]     square size, percent the product fills; writes the JPEG once, reads it back, exit 1 on a FIX
-import sys, numpy as np
+# on_white.py graded.png cut.png out.jpg [--size 2000 or 1600x2000] [--fill 85] [--max-bytes N] [--parts 1]     writes the JPEG once, reads it back, exit 1 on a FIX
+import argparse, io, sys, numpy as np
 from PIL import Image, ImageFilter
 from pymatting import estimate_foreground_ml
-N, fill = int((sys.argv[4:] + [2000])[0]), float((sys.argv[5:] + [85])[0]) / 100
-rgb = np.asarray(Image.open(sys.argv[1]).convert("RGB"), float) / 255
-al = np.asarray(Image.open(sys.argv[2]).split()[-1], float) / 255
-if al.shape != rgb.shape[:2]: sys.exit("the matte and the photo are not the same size")
-al = np.where(al > .98, 1, np.where(al < .02, 0, al)); ys, xs = np.where(al > .5)
-if not (al == 1).any() or (al > .5).all(): sys.exit("the matte is empty or full")
-edge = (al > 0) & (al < 1); fg = rgb.copy()
-if edge.any(): fg[edge] = estimate_foreground_ml(rgb, al)[edge]              # the old light out of the edge, the inside untouched
-x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
-side = max(x1 - x0, y1 - y0) / fill; s = N / side; cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-size = (round(rgb.shape[1] * s), round(rgb.shape[0] * s)); shift = (1, 0, cx * s - N / 2, 0, 1, cy * s - N / 2)
-fit = lambda b, back: np.asarray(Image.fromarray(b.astype("float32")).resize(size, Image.LANCZOS).transform((N, N), Image.AFFINE, shift, fillcolor=back)).clip(0, 1)
-A = fit(al, 0); A = np.where(A > .99, 1, np.where(A < .01, 0, A)); C = np.dstack([fit(fg[..., c] * al + 1 - al, 1) for c in range(3)])
-C = np.where(A[..., None] == 0, 1, C); whole = C.copy()
-im = Image.fromarray((C * 255 + .5).astype("uint8")).filter(ImageFilter.UnsharpMask(.7, 50, 2))                 # once, at delivery size
-im = np.where(A[..., None] == 0, 255, np.asarray(im)); Image.fromarray(im.astype("uint8")).save(sys.argv[3], quality=95, subsampling=0)
-got = np.asarray(Image.open(sys.argv[3]).convert("RGB"), float); ok = True
+from scipy import ndimage as nd
+p = argparse.ArgumentParser(); [p.add_argument(n) for n in ("photo", "matte", "out")]; p.add_argument("--size", default="2000")
+p.add_argument("--fill", type=float, default=85); p.add_argument("--max-bytes", type=int, default=0); p.add_argument("--parts", type=int, default=1); o = p.parse_args()
+W, H = (list(map(int, o.size.split("x"))) * 2)[:2]; fill = o.fill / 100; ok = True
 def say(name, value, good):
     global ok; ok &= bool(good); print(f"{'OK ' if good else 'FIX'} {name}: {value}")
+im = Image.open(o.photo)
+if im.info.get("icc_profile") or im.getexif().get(274, 1) != 1: sys.exit("run wb_patch.py first (no patch is fine), and cut the file it writes")
+rgb = np.asarray(im.convert("RGB"), float) / 255; al = np.asarray(Image.open(o.matte).convert("RGBA").split()[3], float) / 255
+if al.shape != rgb.shape[:2]: sys.exit("the matte and the photo are not the same size")
+al = np.where(al > .98, 1, np.where(al < .02, 0, al))
+if not (al == 1).any() or (al > .5).all(): sys.exit("the matte is empty or full")
+lab, n = nd.label(al > .5); area = np.bincount(lab.ravel())[1:]; order = np.argsort(-area); keep = order[:o.parts] + 1; crumbs = area[order[o.parts:]]
+if n > 1: al = np.where(np.isin(lab[tuple(nd.distance_transform_edt(lab == 0, return_distances=False, return_indices=True))], keep), al, 0)   # each soft pixel belongs to its nearest part
+say("loose pieces dropped", "%d, largest %d px" % (crumbs.size, crumbs.max(initial=0)), crumbs.max(initial=0) < .01 * area.max())   # a bigger one is a second object: --parts 2
+deep = (al > 0) & (al < 1) & (nd.distance_transform_edt(al > 0) > max(8, max(al.shape) / 250)); al[deep & (al > .9)] = 1; deep &= al < 1
+say("see-through pixels inside the product", int(deep.sum()), not deep.any())  # a fault in the matte: paint it in. Glass: say so to the shop
+holes = nd.label(al < .02)[0]; holes = np.setdiff1d(np.unique(holes), np.unique(np.r_[holes[0], holes[-1], holes[:, 0], holes[:, -1], 0])).size
+print("LOOK holes right through the product:", holes)                        # a handle or a ring is one; pale wood grain is not
+edge = (al > 0) & (al < 1); fg = rgb.copy(); ys, xs = np.where(al > .5)
+if edge.any(): fg[edge] = estimate_foreground_ml(rgb, al)[edge]              # the old light out of the edge, the inside untouched
+x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1; s = fill * min(W / (x1 - x0), H / (y1 - y0)); cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+size = (round(rgb.shape[1] * s), round(rgb.shape[0] * s)); shift = (1, 0, cx * s - W / 2, 0, 1, cy * s - H / 2)
+fit = lambda b, back: np.asarray(Image.fromarray(b.astype("float32")).resize(size, Image.LANCZOS).transform((W, H), Image.AFFINE, shift, fillcolor=back)).clip(0, 1)
+A = fit(al, 0); A = np.where(A > .99, 1, np.where(A < .01, 0, A)); C = np.dstack([fit(fg[..., c] * al + 1 - al, 1) for c in range(3)])
+C = np.where(A[..., None] == 0, 1, C); real = np.dstack([fit(rgb[..., c], 1) for c in range(3)])
+im = Image.fromarray((C * 255 + .5).astype("uint8")).filter(ImageFilter.UnsharpMask(.7, 50, 2))                 # once, at delivery size
+im = Image.fromarray(np.where(A[..., None] == 0, 255, np.asarray(im)).astype("uint8")); q = 95
+while True:
+    f = io.BytesIO(); im.save(f, "JPEG", quality=q, subsampling=0)
+    if not o.max_bytes or f.tell() <= o.max_bytes or q <= 70: break
+    q -= 1
+open(o.out, "wb").write(f.getvalue()); say("file", "%d bytes at quality %d" % (f.tell(), q), not o.max_bytes or f.tell() <= o.max_bytes)
+got = np.asarray(Image.open(o.out).convert("RGB"), float)
 def near(m, n): return np.asarray(Image.fromarray((m * 255).astype("uint8")).filter(ImageFilter.MaxFilter(2 * n + 1))) > 0
-block = lambda m: np.kron(np.add.reduceat(np.add.reduceat(m, range(0, N, 8), 0), range(0, N, 8), 1) > 0, np.ones((8, 8), bool))[:N, :N]
+block = lambda m: np.kron(np.add.reduceat(np.add.reduceat(m, range(0, H, 8), 0), range(0, W, 8), 1) > 0, np.ones((8, 8), bool))[:H, :W]
 clean = ~block((A > 0).astype(int)); rim = ~near(A > .5, 4) & ~clean          # clean: JPEG blocks the product never touches
 say("background pixels under 255", int((got[clean].min(1) < 255).sum()), clean.any() and (got[clean] == 255).all())
-say("pixels under 245 in the 8 px next to the product", int((got[rim].min(1) < 245).sum()), (got[rim].min(1) < 245).mean() < .002 if rim.any() else True)
+say("pixels under 245 in the 8 px next to the product", int((got[rim].min(1) < 245).sum()), (got[rim].min(1) < 245).mean() < .01 if rim.any() else True)
 halo = (A > .02) & ~near(A > .5, 3); say("haze left in the matte, pixels", int(halo.sum()), halo.sum() == 0)
-Y, X = np.where(A > .5); span = max(X.max() - X.min(), Y.max() - Y.min()) + 1
-say("product fills", "%.0f%% of %d" % (100 * span / N, N), abs(span / N - fill) < .01)
+Y, X = np.where(A > .5); span = max((X.max() - X.min() + 1) / W, (Y.max() - Y.min() + 1) / H)
+say("product fills", "%.0f%% of %dx%d" % (100 * span, W, H), abs(span - fill) < .01)
 rimlen = ((A > .5) & near(A <= .5, 1)).sum(); soft = ((A > .05) & (A < .95)).sum() / rimlen; say("edge width, px", "%.1f" % soft, soft < 3)
 say("enlarged", "x%.2f" % s, s <= 1.1)
-inside = ~near(A < 1, 6); shift = np.abs(got[inside].mean(0) - whole[inside].mean(0) * 255).max() if inside.any() else 0
-say("colour moved by sharpening and JPEG", "%.1f of 255" % shift, shift < 2); sys.exit(0 if ok else 1)
+inside = ~near(A < 1, 6); moved = np.abs(got[inside].mean(0) - real[inside].mean(0) * 255).max() if inside.any() else 0
+say("colour moved from the graded photo", "%.1f of 255" % moved, moved < 2); sys.exit(0 if ok else 1)
 ```
 
-It finds haze, a soft edge, an enlarged product and a background that is not white; it can't see a wrong outline. So look three ways: the edge
-at 200 percent on white and on black, the whole picture at phone size, and the surface beside the original (denoised wood looks fine alone). Say what no check can see: real
+It finds haze, a soft edge, loose pieces, a see-through patch, an enlarged product and a background that is not white; it can't see a wrong
+outline, so paint a fault into the matte, never into the JPEG. Look three ways: the edge at 200 percent on white and on black, the whole picture at phone size, and the surface beside the original (denoised wood looks fine alone). Say what no check can see: real
 colour needs the real board next to a calibrated screen.
 
 ## People, buildings and print
 
-The order: profile, lens, keystone, crop, overall light, each face, distractions, resize, sharpen. Anything that moves pixels comes before
-anything painted on them.
+The order: profile (`wb_patch.py` above, with a patch or without), lens, keystone, crop, overall light, each face, distractions, resize,
+sharpen. Anything that moves pixels comes before anything painted on them. Both programs here are saved and run as above.
 
 - **A building leaning back is perspective, not tilt.** Read the ends of two upright edges and pull them 60 to 80 percent of the way to
-  parallel (`keystone.py`); all the way looks top-heavy. A plain four-point warp makes people wider; the script gives the height back at the
-  row the faces are on, crops to a full rectangle, and fails when a face changes shape by over 3 percent. The faces win over the uprights.
+  parallel (`keystone.py`); all the way looks top-heavy. A plain four-point warp makes people wider and slants those at the
+  sides; the script gives the height back where the faces are, crops to a full rectangle, and fails when a face stretches or slants by over
+  3 percent. The faces win over the uprights: lower the percent until it passes.
 - **A group is wider than tall**: nine people want 10x8, not 8x10; offer both when the brief says 8x10. No joint cut at the edge, no head
   within 5 percent of it.
 - **Noon eyes**: the middle tones up a little (`magick in.png -gamma 1.12 up.png`; it leaves black and white where they are), then each face
@@ -246,48 +267,50 @@ anything painted on them.
   and a 4x6 test print first. Sharpen last at print size, a little past what looks right on screen.
 
 ```python
-# keystone.py in.png out.png  TLx,TLy BLx,BLy  TRx,TRy BRx,BRy  FACEROW [70]    ends of a left and a right upright, the row the faces are on, percent to correct
+# keystone.py in.png out.png  TLx,TLy BLx,BLy  TRx,TRy BRx,BRy  X0,X1,Y [70]    ends of a left and a right upright, where the faces run (no people: the middle), percent to correct
 import sys, numpy as np
 from PIL import Image
-im = Image.open(sys.argv[1]).convert("RGB"); W, H = im.size
-TL, BL, TR, BR = [np.array(list(map(float, v.split(",")))) for v in sys.argv[3:7]]; row, share = float(sys.argv[7]), float((sys.argv[8:] + [70])[0]) / 100
+im = Image.open(sys.argv[1])
+if im.info.get("icc_profile") or im.getexif().get(274, 1) != 1: sys.exit("run wb_patch.py first (no patch is fine): this needs an upright sRGB file")
+im = im.convert("RGB"); W, H = im.size
+TL, BL, TR, BR = [np.array(list(map(float, v.split(",")))) for v in sys.argv[3:7]]; f0, f1, row = map(float, sys.argv[7].split(",")); share = float((sys.argv[8:] + [70])[0]) / 100
 def solve(src, dst):                                                         # the 3x3 that carries four points to four points
     A = [r for (x, y), (u, v) in zip(src, dst) for r in ([x, y, 1, 0, 0, 0, -u*x, -u*y], [0, 0, 0, x, y, 1, -v*x, -v*y])]
     return np.append(np.linalg.solve(np.array(A, float), np.array(dst, float).ravel()), 1).reshape(3, 3)
 def go(M, p): q = M @ np.array([p[0], p[1], 1.]); return q[:2] / q[2]
 top = lambda t, b: np.array([t[0] + share * (b[0] - t[0]), t[1]])
 M = solve([TL, TR, BR, BL], [top(TL, BL), top(TR, BR), BR, BL])
-def aspect(M, x, y): a, b, c = go(M, (x, y)), go(M, (x + 1, y)), go(M, (x, y + 1)); return abs(b[0] - a[0]) / abs(c[1] - a[1])
-M = np.diag([1, aspect(M, W / 2, row), 1]) @ M                               # give the height back, or every face comes out wider
+def local(M, x, y): a = go(M, (x, y)); return np.column_stack([go(M, (x + 1, y)) - a, go(M, (x, y + 1)) - a])            # what one pixel there turns into
+J = local(M, (f0 + f1) / 2, row); M = np.diag([1, abs(J[0, 0] / J[1, 1]), 1]) @ M                                       # give the height back, or every face comes out wider
 Q = np.array([go(M, p) for p in ((0, 0), (W, 0), (W, H), (0, H))])          # crop to a full rectangle: no empty corners
 x0, x1, y0, y1 = max(Q[0, 0], Q[3, 0]), min(Q[1, 0], Q[2, 0]), max(Q[0, 1], Q[1, 1]), min(Q[2, 1], Q[3, 1])
 I = np.linalg.inv(np.array([[1, 0, -x0], [0, 1, -y0], [0, 0, 1]]) @ M); I /= I[2, 2]
 out = im.transform((int(x1 - x0), int(y1 - y0)), Image.PERSPECTIVE, I.ravel()[:8], Image.BICUBIC); out.save(sys.argv[2])
 lean = lambda t, b: np.degrees(np.arctan2(b[0] - t[0], b[1] - t[1]))
-worst = max(abs(aspect(M, x, y) - 1) for x in (W * .1, W / 2, W * .9) for y in (row - H * .06, row, row + H * .06)); ok = worst < .03 and x1 - x0 > .75 * W
 for n, t, b in (("left", TL, BL), ("right", TR, BR)): print(n, "upright leaned %+.1f, now %+.1f degrees" % (lean(t, b), lean(go(M, t), go(M, b))))
+sv = [np.linalg.svd(local(M, x, row), compute_uv=False) for x in np.linspace(f0, f1, 5)]; worst = max(v[0] / v[1] - 1 for v in sv); ok = worst < .03 and x1 - x0 > .75 * W   # stretch and slant both
 print("OK " if ok else "FIX", "faces change shape by %.1f%% at worst, %d x %d left of %d x %d" % (100 * worst, *out.size, W, H)); sys.exit(int(not ok))
 ```
 
 ```python
 # faces.py in.png out.png  SOCKET CHEEK [SOCKET CHEEK ...]   each X,Y,W,H in pixels; lifts each socket toward its own cheek, exit 1 on a FIX
-import io, sys, numpy as np
-from PIL import Image, ImageCms, ImageFilter, ImageOps
-im = Image.open(sys.argv[1]); icc = im.info.get("icc_profile"); im = ImageOps.exif_transpose(im)
-if icc: im = ImageCms.profileToProfile(im, ImageCms.ImageCmsProfile(io.BytesIO(icc)), ImageCms.createProfile("sRGB"), outputMode="RGB")
-a = np.asarray(im.convert("RGB"), float) / 255; box = [tuple(map(int, v.split(","))) for v in sys.argv[3:]]
+import sys, numpy as np
+from PIL import Image
+im = Image.open(sys.argv[1]); box = [tuple(map(int, v.split(","))) for v in sys.argv[3:]]
+if im.info.get("icc_profile") or im.getexif().get(274, 1) != 1: sys.exit("run wb_patch.py first (no patch is fine): this needs an upright sRGB file")
 if not box or len(box) % 2: sys.exit("give SOCKET CHEEK pairs")
-lin = np.where(a <= .04045, a / 12.92, ((a + .055) / 1.055) ** 2.4); Y = lambda im: im @ [.2126, .7152, .0722]
-over = lambda im, s, c: Y(im)[s[1]:s[1]+s[3], s[0]:s[0]+s[2]].mean() / Y(im)[c[1]:c[1]+c[3], c[0]:c[0]+c[2]].mean()
-pairs = list(zip(box[::2], box[1::2])); was = [over(lin, *p) for p in pairs]; g = np.ones(lin.shape[:2]); ok = True
-for (s, c), w in zip(pairs, was):
-    if w >= .6: continue
-    yy, xx = np.mgrid[:g.shape[0], :g.shape[1]]; d = np.hypot((xx - s[0] - s[2]/2) / s[2], (yy - s[1] - s[3]/2) / s[3])
-    g = np.maximum(g, 1 + (min(.68 / w, 2) - 1) * np.clip((1.1 - d) / .4, 0, 1))                # an oval, feathered outside the box; one stop at most, never twice
-new = np.clip(lin * g[..., None], 0, 1)
-for (s, c), w in zip(pairs, was):
-    now = over(new, s, c); good = w >= .6 or .6 <= now <= .75; ok &= good
-    print("OK " if good else "FIX", s, "socket over cheek %.2f to %.2f" % (w, now), "" if good else "(one stop was not enough, or the boxes are off)")
+for n, (x, y, w, h) in enumerate(box, 1):
+    if min(w, h) < 4 or min(x, y) < 0 or x + w > im.width or y + h > im.height: sys.exit(f"box {n} is under 4 px or off the picture: {x},{y},{w},{h}")
+a = np.asarray(im.convert("RGB"), float) / 255; lin = np.where(a <= .04045, a / 12.92, ((a + .055) / 1.055) ** 2.4); new = lin.copy(); ok = True
+Y = lambda v: v @ [.2126, .7152, .0722]
+for (x, y, w, h), (cx, cy, cw, ch) in zip(box[::2], box[1::2]):
+    part = np.s_[max(0, y - h):y + 2*h, max(0, x - w):x + 2*w]; yy, xx = np.mgrid[part[0], part[1]][:, :new[part].shape[0], :new[part].shape[1]]
+    d = np.hypot((xx + .5 - x - w/2) / (w/2), (yy + .5 - y - h/2) / (h/2)); oval = np.clip((1.15 - d) / .4, 0, 1); core = d <= .75   # the box's edge is d = 1
+    cheek = Y(lin[cy:cy+ch, cx:cx+cw]).mean(); t = Y(new[part]) / cheek; was = t[core].mean(); g = float(np.clip(.68 / was, 1, 2)) if was < .6 else 1.   # one stop at most
+    knee = .8 / g; lift = np.where(t < knee, g * t, np.where(t < 1, .8 + (t - knee) * .2 / (1 - knee), t))                          # nothing as light as the cheek moves
+    gain = 1 + oval * (lift / np.maximum(t, 1e-6) - 1); old = new[part]; new[part] = np.clip(old * gain[..., None], 0, 1); now = (Y(new[part]) / cheek)[core].mean()
+    blown = int(((new[part] >= 1) & (old < 1)).sum()); good = (was >= .6 or .6 <= now <= .75) and not blown; ok &= good
+    print("OK " if good else "FIX", f"{x},{y} socket over cheek {was:.2f} to {now:.2f}, newly blown {blown}", "" if good else "(one stop was not enough, or the boxes are off)")
 out = np.where(new <= .0031308, new * 12.92, 1.055 * new ** (1 / 2.4) - .055)
 Image.fromarray((out * 255 + .5).astype("uint8")).save(sys.argv[2]); sys.exit(int(not ok))
 ```
@@ -328,6 +351,6 @@ Only animate photos of people who agreed to it. Never make someone appear to do 
 
 ## Deliver
 
-Run `measure.py` and the review on the export (`--final`, or `"final": true` in the spec, for the delivery bar), look at it at 100% and at
+Run `measure.py` and the review on the export (a cutout on white: `on_white.py`'s own read-back instead; `--final`, or `"final": true` in the spec, for the delivery bar), look at it at 100% and at
 phone size, and tell your user what you changed. If you couldn't fix something (motion blur, focus missed, a tilt the lines could not
 show), say so.
