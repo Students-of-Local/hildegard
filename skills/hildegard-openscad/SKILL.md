@@ -12,7 +12,7 @@ signed-distance route or Blender; build parts here.
 
 This skill works alone. With Hildegard linked, it renders your `.scad`, measures it and draws it each round
 (`loop_submit`). Without Hildegard, you render with the `openscad` program yourself and measure the STL with
-`scripts/review_mesh.py` (Python with numpy and Pillow: `python3 -m pip install pillow numpy av`); section 6 has the commands. Without them,
+`scripts/review_mesh.py` (Python with numpy and Pillow: `python3 -m pip install pillow numpy av`); section 7 has the commands. Without them,
 read the size from OpenSCAD's own render and look at it. If you have them, the
 **hildegard-3d** skill covers the brief, the sheet and the checks, and **hildegard-print** (for a part that has to
 work) the evidence for every dimension and fits from the printer's clearance.
@@ -136,7 +136,87 @@ Model the parts **assembled**, where they sit together; say how each pair mates 
 (`{"a": "lid", "b": "box", "kind": "slide"}`) and how each prints in `print_pose`. Size every mating feature from the
 printer's clearance, never a guessed number: a 20 mm boss in a slide fit gets a hole of `20 + 2 * fit`.
 
-## 6. The loop
+## 6. Enclosures, ports and snap fits
+
+What decides whether a case around a board works, and what each round checks:
+
+- **The board's own drawing**, named with its revision. Boards of one outline move their ports between versions: the Pi 4 and Pi 5 swap
+  Ethernet and USB. Positions from memory are marked `assumed` and checked with a paper print at 1:1 before any plastic.
+- **A cutout passes the plug's body, not the socket.** Typical overmoulds: USB-C 13 x 7.5 mm, micro HDMI 11 x 8, HDMI 22 x 12, barrel jack
+  10 round, RJ45 and USB-A stacks open to the top. Measure the cable that will be used. The socket's face sits within 1 mm of the wall's
+  outside, or the plug can't seat: thin the wall there.
+- **A snap is a spring.** Strain at the root is `1.5 * thickness * hook / length^2`: 2 percent for PLA, 4 for PETG, 6 for ABS, half
+  that when it opens often. Print the arm lying along its length; layers across the root snap off. One list places the hooks and their
+  windows, so the halves can't disagree.
+- **Air**: an inlet low and an outlet high, slots at most 3 mm wide (a fingertip and a screw stay out), the outlet over the hottest chip.
+- **A clash render with a control.** Intersect the case with a ghost of the board and its plugs: it must be empty. Then break it on purpose
+  (`probe = true`, or delete the ports): it must not be. A check that can't fail has not checked anything.
+
+```openscad
+part  = "all";      // all, base, lid, clash, mate
+probe = false;      // true: shift the ghost 1 mm, so clash must report a solid (the negative control)
+fit = 0.2; wall = 2.4; floor_t = 2; lid_t = 2; clr = 0.5; eps = 0.01; $fn = $preview ? 32 : 64;
+
+/* [Board] from its maker's drawing, not memory */
+board = [85, 56, 1.4]; holes = [[3.5, 3.5], [61.5, 3.5], [3.5, 52.5], [61.5, 52.5]];
+post_h = 5; post_d = 5.5; tall = 17;                       // tall: highest part above the board, plus air
+/* [Ports] side, centre along it, receptacle w x h, plug body w x h, bottom above the board */
+ports = [["front", 11.2, [9, 3.2], [13, 7.5], 0], ["front", 25.8, [6.5, 2.9], [11, 8], 0]];
+/* [Snaps] side, centre: both halves read this one list */
+snaps = [["front", 60], ["back", 20], ["back", 60]];
+arm_l = 12; arm_t = 1.6; arm_w = 6; hook = 0.7; strain_max = 0.02;   // PLA 2 %, PETG 4 %, ABS 6 %; halve it if opened often
+
+in_l = board[0] + 2 * clr; in_w = board[1] + 2 * clr; top = floor_t + post_h + board[2]; h = top + tall;
+strain = 1.5 * arm_t * (hook + fit) / pow(arm_l, 2);       // straight rectangular cantilever
+echo(outer = [in_l + 2 * wall, in_w + 2 * wall, h + lid_t], strain = strain);
+assert(strain <= strain_max, "snap too stiff: longer or thinner arm, or a smaller hook");
+assert(post_h >= 3, "no room for solder joints under the board");
+assert(h - arm_l > top, "a snap arm reaches the board");
+
+module at(side, x) {                                       // +y points out of the wall, y = 0 on its inner face
+    if (side == "front") translate([x, -clr, 0]) rotate(180) children();
+    else translate([x, board[1] + clr, 0]) children();
+}
+module shell(z) translate([-clr - wall, -clr - wall, 0]) cube([in_l + 2 * wall, in_w + 2 * wall, z]);
+module base() difference() {
+    union() {
+        difference() { shell(h); translate([-clr, -clr, floor_t]) cube([in_l, in_w, h]); }
+        for (p = holes) translate([p[0], p[1], floor_t - eps]) difference() {
+            cylinder(d = post_d, h = post_h + eps); translate([0, 0, 1]) cylinder(d = 2.1, h = post_h); }
+    }
+    for (p = ports) at(p[0], p[1]) translate([-p[3][0] / 2 - fit, -eps, top + p[4] + p[2][1] / 2 - p[3][1] / 2 - fit])
+        cube([p[3][0] + 2 * fit, wall + 2 * eps, p[3][1] + 2 * fit]);          // the plug's body must pass, not only its tip
+    for (s = snaps) at(s[0], s[1]) translate([-arm_w / 2 - 0.3, -eps, h - arm_l - 0.3]) cube([arm_w + 0.6, wall + 2 * eps, 2.6]);
+}
+module lid() {
+    translate([0, 0, h]) shell(lid_t);
+    for (s = snaps) at(s[0], s[1]) {
+        translate([-arm_w / 2, -fit - arm_t, h - arm_l]) cube([arm_w, arm_t, arm_l + eps]);
+        translate([-arm_w / 2, 0, h - arm_l]) rotate([90, 0, 90]) linear_extrude(arm_w)
+            polygon([[-fit, 0], [hook, 1], [hook, 1.4], [-fit, 2]]);
+    }
+}
+module board_ghost() translate([probe ? -1 : 0, 0, floor_t + post_h]) difference() {
+    cube(board); for (p = holes) translate([p[0], p[1], -eps]) cylinder(d = 2.7, h = 9); }
+module plugs() for (p = ports) at(p[0], p[1]) translate([-p[3][0] / 2, 0.3, top + p[4] + p[2][1] / 2 - p[3][1] / 2]) cube([p[3][0], 20, p[3][1]]);
+
+if (part == "all" || part == "base") base();
+if (part == "all" || part == "lid") lid();
+if (part == "mate") intersection() { base(); translate([0, 0, 0.02]) lid(); }
+if (part == "clash") intersection() { union() { base(); lid(); } union() { translate([0, 0, 0.02]) board_ghost(); plugs(); } }
+```
+
+```sh
+openscad --hardwarnings -o base.stl -D 'part="base"' case.scad       # a variable used before it is set is a warning, so make it fatal
+openscad -o c.stl -D 'part="clash"' case.scad                        # want: "Current top level object is empty"
+openscad -o c.stl -D 'part="clash"' -D probe=true case.scad          # want: a solid, or the check is dead
+openscad -o c.stl -D 'part="mate"' case.scad                         # lid against base: want empty
+```
+
+Print one corner with one snap and one port first (20 minutes), then the case. The comments in a `.scad` you hand over name the part, its
+numbers and where they came from, never the tool that made it.
+
+## 7. The loop
 
 Without Hildegard, each round is: edit `main.scad`, render it, measure it, look at the sheet, change one thing.
 
@@ -195,7 +275,7 @@ What fails at render, with OpenSCAD's own message (no round is used):
 And **warnings come back as a check** (`openscad` warns). `Ignoring unknown variable` or `unknown module` means a part
 is missing from the model while the render looks fine: fix every one before you answer the rubric.
 
-## 7. Things that go wrong
+## 8. Things that go wrong
 
 - **Faces exactly coincident.** A lid resting on a box at the same z, a cutter flush with a face: Z-fighting in the
   preview, skins and non-manifold edges in the mesh (`manifold` and `debris` catch them). Overlap by `eps`, or keep a
@@ -211,7 +291,7 @@ is missing from the model while the render looks fine: fix every one before you 
 - **Detail before the masses are right.** Get the outline, the fits and the size passing first; text, knurling and
   fillets come last.
 
-## 8. Deliver
+## 9. Deliver
 
 The finished round's file and its `main.scad` (with the parameters your user can change and where each came from),
 the sheet, and for a print the print sheet (`loop_finish` writes it; without Hildegard, write it yourself, as the
