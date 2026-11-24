@@ -58,6 +58,7 @@ const likeness = (dir: string) => new Likeness(dir);
 const NEEDED: [string, (dir: string) => unknown][] = [
   ['state.json', store],
   ['people/people.json', people],
+  ['likeness/consent.json', likeness],
 ];
 const REST: [string, (dir: string) => unknown][] = [
   ['people/sessions.json', people],
@@ -65,7 +66,6 @@ const REST: [string, (dir: string) => unknown][] = [
   ['choir/sharing.json', choir],
   ['choir/devices.json', choir],
   ['choir/settings.json', choir],
-  ['likeness/consent.json', likeness],
 ];
 const TRUNCATED = '{"version":1,"projects":[{"id":"old0","ti';
 
@@ -82,31 +82,27 @@ describe('a file that isn’t there', () => {
 });
 
 describe('a file cut short', () => {
-  it.each(NEEDED)('%s: stops the start, names both files, and keeps every byte', (path, start) => {
+  it.each(NEEDED)('%s: stops every start, and stays where it is, until repaired', (path, start) => {
     const dir = fresh();
     const file = put(dir, path, TRUNCATED);
-    const message = thrown(() => start(dir));
-    const [kept] = bad(file);
-    expect(kept).toBeDefined();
-    expect(message).toContain(file);
-    expect(message).toContain(kept);
-    expect(readFileSync(kept!, 'utf8')).toBe(TRUNCATED);
-  });
-
-  it.each(NEEDED)('%s: still stops the start when a service tries again, until repaired', (path, start) => {
-    const dir = fresh();
-    const file = put(dir, path, TRUNCATED);
-    thrown(() => start(dir));
-    const [kept] = bad(file);
-    for (let i = 0; i < 3; i++) expect(thrown(() => start(dir))).toContain(kept);
-    expect(existsSync(file)).toBe(false);
-    expect(bad(file)).toEqual([kept]);
-    // Either way out: the bad file moved away, or a good one put back beside it.
-    renameSync(kept!, join(fresh(), 'old'));
+    for (let i = 0; i < 3; i++) expect(thrown(() => start(dir))).toContain(file);
+    expect(readFileSync(file, 'utf8')).toBe(TRUNCATED);
+    expect(bad(file)).toEqual([]);
+    // Either way out: the bad file moved away, or a good one put in its place.
+    renameSync(file, join(fresh(), 'old'));
     expect(start(dir)).toBeTruthy();
-    put(dir, path, '{"version":1,"projects":[],"people":[],"invites":[]}');
+    put(dir, path, '{"version":1,"projects":[],"people":[],"invites":[],"pending":[],"given":[]}');
     put(dir, `${path}.bad-earlier`, TRUNCATED);
     expect(start(dir)).toBeTruthy();
+  });
+
+  it.each(
+    NEEDED.flatMap(([path, start]) => ['null', '[]', '7', ''].map((text) => [path, text, start] as const)),
+  )('%s holding %j: the same', (path, text, start) => {
+    const dir = fresh();
+    const file = put(dir, path, text);
+    expect(thrown(() => start(dir))).toContain(file);
+    expect(readFileSync(file, 'utf8')).toBe(text);
   });
 
   it.each(REST)('%s: is kept, logged with both names, and started without', (path, start) => {
@@ -183,9 +179,7 @@ describe('the server', () => {
       });
       expect(r.status).toBe(1);
       expect(r.stderr).toContain(file);
-      expect(r.stderr).toContain(bad(file)[0]);
     }
-    expect(readFileSync(bad(file)[0]!, 'utf8')).toBe(TRUNCATED);
-    expect(existsSync(file)).toBe(false);
+    expect(readFileSync(file, 'utf8')).toBe(TRUNCATED);
   });
 });

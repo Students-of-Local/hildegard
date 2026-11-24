@@ -214,6 +214,12 @@ async function serveStudio(
   const mediaDir = join(config.dataDir, 'media');
   mkdirSync(mediaDir, { recursive: true });
 
+  // Read before anything starts: a file here that isn’t whole stops Hildegard.
+  const store = new Store(config.dataDir);
+  // People who sign in from other devices.
+  const people = new People({ dataDir: config.dataDir, now: opts.now });
+  const likeness = new Likeness(config.dataDir);
+
   let fake: FakeProxy | null = null;
   let comfyUrl = config.comfyUrl;
   if (config.fake) {
@@ -223,10 +229,6 @@ async function serveStudio(
     comfyUrl = fake.url;
   }
 
-  // Read before anything starts: a file here that isn’t whole stops Hildegard.
-  const store = new Store(config.dataDir);
-  // People who sign in from other devices.
-  const people = new People({ dataDir: config.dataDir, now: opts.now });
   const comfy: EngineState['comfy'] = config.fake
     ? 'fake'
     : config.comfyExternal
@@ -686,7 +688,7 @@ async function serveStudio(
     voice: { studio: voice, models: voiceModels, publicKey: consentSigner.publicKey },
     records,
     talk: { ...talk, onDevice, primary: () => choir.primary },
-    likeness: new Likeness(config.dataDir),
+    likeness,
     exporter,
     config,
     store,

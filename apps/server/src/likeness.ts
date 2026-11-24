@@ -144,7 +144,7 @@ export class Likeness {
     const pub = createPublicKey(this.key);
     this.publicPem = pub.export({ type: 'spki', format: 'pem' }).toString();
     this.keyId = sha256(pub.export({ type: 'spki', format: 'der' }));
-    this.state = readState<FileShape>(this.file) ?? { version: 1, pending: [], given: [] };
+    this.state = readState<FileShape>(this.file, { needed: true }) ?? { version: 1, pending: [], given: [] };
   }
 
   private save() {
