@@ -1,6 +1,6 @@
 ---
 name: hildegard-openscad
-description: Use when the user says OpenSCAD or .scad, or wants an exact parametric part (bracket, enclosure, box, knob, clip, mount, gear, thread) - code Hildegard renders, measures and draws.
+description: Use when the user says OpenSCAD or .scad, or wants an exact parametric part (bracket, enclosure, case for a board, snap fit, clip, thread, knob, gear) - code Hildegard renders, measures and draws.
 ---
 
 # Parts in OpenSCAD
@@ -156,7 +156,8 @@ What decides whether a case around a board works, and what each round checks:
   (PLA 1 percent, PETG 2), and a longer arm.
 - **Air**: an inlet low and an outlet high, slots at most 3 mm wide (a fingertip and a screw stay out), the outlet over the hottest chip.
 - **A clash render with a control.** Intersect the case with a ghost of the board and its plugs: it must be empty. Then break it on purpose
-  (`probe = true`, or delete the ports): it must not be. A check that can't fail has not checked anything.
+  (`probe = true`, or delete the ports): it must not be. A check that can't fail has not checked anything. OpenSCAD says "empty" after a failed
+  `assert` as well, so a result counts only when no ERROR or WARNING line came with it.
 - **Checks your user runs stand alone.** They have the `.scad` and OpenSCAD, not this skill's scripts: give `openscad` commands with the
   answer each must print, or the whole script, and name no file or program they were not given. Numbers you expect come from an `echo` in the file, never from your head: a mouth cut or a
   rounded tip moves the outside size too.
@@ -173,7 +174,9 @@ up = [[7, 50, 51, 5, 8.5], [66, 1.5, 22, 17, 13.5], [71, 21, 17, 34, 16]];      
 /* [Ports] side, centre along it, receptacle w x h, plug body w x h, bottom above the board */
 ports = [["front", 11.2, [9, 3.2], [13, 7.5], 0], ["front", 25.8, [6.5, 2.9], [11, 8], 0], ["front", 39.2, [6.5, 2.9], [11, 8], 0],
          ["right", 10.2, [16, 13.5], [17, 14], 0], ["right", 38.05, [33.5, 16], [35, 17], 0],       // both USB stacks in one opening
-         ["left", 28, [12, 1.4], [14, 5], -2.8]];                                                  // microSD, under the board
+         ["left", 28, [12, 1.4], [14, 5], -2.8],                                                   // microSD, under the board
+         ["left", 18.4, [3, 2.5], [5, 4], 0]];                                                     // power button: a pen tip reaches it
+// closed on purpose: GPIO, camera and display ribbons, PCIe, the fan plug (all inside); say so to your user
 /* [Snaps] side, centre: both halves read this one list */
 snaps = [["front", 62], ["back", 64], ["left", 8], ["left", 48]];
 arm_l = 14; arm_t = 1.5; arm_w = 6; hook = 0.6; strain_max = 0.02;   // arms stand up in the print: PETG 2 %, PLA 1 %
@@ -233,11 +236,12 @@ if (part == "clash") intersection() { union() { base(); lid(); } union() { trans
 ```
 
 ```sh
+# save the program above as case.scad in your working folder first; -o wants a name ending in .stl, /dev/null is refused
 openscad --hardwarnings -o base.stl -D 'part="base"' case.scad       # a variable used before it is set is a warning, so make it fatal
-openscad -o lid.stl -D 'part="lid_print"' case.scad
-openscad -o c.stl -D 'part="clash"' case.scad                        # want: "Current top level object is empty"
-openscad -o c.stl -D 'part="clash"' -D probe=true case.scad          # want: a solid, or the check is dead
-openscad -o c.stl -D 'part="mate"' case.scad                         # lid against base: want empty
+openscad --hardwarnings -o lid.stl -D 'part="lid_print"' case.scad
+openscad --hardwarnings -o c.stl -D 'part="clash"' case.scad         # want: "Current top level object is empty", and no ERROR line
+openscad --hardwarnings -o c.stl -D 'part="clash"' -D probe=true case.scad   # want: a solid, or the check is dead
+openscad --hardwarnings -o c.stl -D 'part="mate"' case.scad          # lid against base: want empty, and no ERROR line
 ```
 
 **A clip that grips a pipe or hose** can't be checked by a clash with the part seated: that only tests the bore. Measure the bore and the
