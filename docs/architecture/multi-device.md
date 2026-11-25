@@ -2,7 +2,7 @@
 
 **Author:** Luke (builder) for Donovan Baney / Magnus  
 **Date:** 2026-11-02 (America/New_York)  
-**Repo tip:** `Students-of-Local/hildegard` public `main` @ `e31a2ef` (v0.1.13)  
+**Repo tip:** `baney75/hildegard` public `main` @ `e31a2ef` (v0.1.13)  
 **Status:** in-repo design. Approved multi-device design for residency week (sections 1-6), plus the Model types v2 section. Design only: no code changes come with this document.  
 **Audience:** Hildegard contributors. Machine names only: rectory1 (Mac), parish1, abbey1.
 
