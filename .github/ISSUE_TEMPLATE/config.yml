@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security problem
-    url: https://github.com/baney75/hildegard/security/advisories/new
+    url: https://github.com/Students-of-Local/hildegard/security/advisories/new
     about: Privately, please. See SECURITY.md.
   - name: Install help
     url: https://dbaney.com/hildegard/#faq

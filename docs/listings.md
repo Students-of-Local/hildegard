@@ -30,15 +30,15 @@ draft banner, an `[Owner: ...]` blank or `noindex` comes back. If the site moves
 | --- | --- |
 | Where | https://claude.ai/directory/manage, then the **Plugin bundle** option |
 | Account | A **paid** Claude account (the portal won't take a free one) |
-| Source | The public GitHub repository `baney75/hildegard-plugin`, which the portal validates |
+| Source | The public GitHub repository `Students-of-Local/hildegard-plugin`, which the portal validates |
 | Package | The tree from `scripts/pack-listing.mjs`, published there by CI |
 | Plugin name | `hildegard-craft` |
 
 **Before pressing submit**
 
-1. Create the public repository `baney75/hildegard-plugin` (empty, no `.gitattributes`, no LFS), and a deploy key:
+1. Create the public repository `Students-of-Local/hildegard-plugin` (empty, no `.gitattributes`, no LFS), and a deploy key:
    `ssh-keygen -t ed25519 -f hildegard-plugin-deploy -N ""`, add the public half to that repository's Settings ›
-   Deploy keys with **write access**. On `baney75/hildegard`, open Settings › Environments › listing (it exists;
+   Deploy keys with **write access**. On `Students-of-Local/hildegard`, open Settings › Environments › listing (it exists;
    create it if not) and check Deployment branches and tags: it must say **Selected branches and tags** with only
    `main`. A pull request can edit the workflow, so this rule is what keeps the key from any other branch. Add yourself
    as a required reviewer there to approve each publish. Then save the private half as `LISTING_DEPLOY_KEY` under
@@ -86,7 +86,7 @@ page or in the portal's contact link.
 > listed. I've already submitted a skills-only version, `hildegard-craft`, which fits the policy.
 >
 > Hildegard is software that a person runs on their own computers. It is licensed AGPL-3.0-only and the source is at
-> https://github.com/baney75/hildegard. The full plugin adds an MCP server that starts the Hildegard the person has
+> https://github.com/Students-of-Local/hildegard. The full plugin adds an MCP server that starts the Hildegard the person has
 > installed on their own machine. It talks to nothing of mine: I run no servers for it, collect no data, and it has no
 > telemetry. The models are open-weight models that the person downloads from their publisher and runs on their own
 > GPU, under each model's license, which Hildegard shows and asks them to accept. Nothing is made on Anthropic's
@@ -129,7 +129,7 @@ Two things are unconfirmed, because OpenAI's page can't be read from here: the U
 manifest (where Codex's own spec puts `privacyPolicyURL` and `termsOfServiceURL`), and `supportURL` is not in every
 version of that spec. If the upload form complains, move them to the top level of the manifest. A skills-only public
 submission may also be refused for lack of an app or connector; the release's `hildegard-codex.zip` stays installable
-from the repository either way (`codex plugin marketplace add baney75/hildegard`).
+from the repository either way (`codex plugin marketplace add Students-of-Local/hildegard`).
 
 ## 3. xAI Grok
 
@@ -144,6 +144,6 @@ The owner's own platform. [grok-bot.md](grok-bot.md): the custom MCP server (no 
 
 ## Not covered here
 
-Claude Code users install from this repository directly (`/plugin marketplace add baney75/hildegard`), the Claude
+Claude Code users install from this repository directly (`/plugin marketplace add Students-of-Local/hildegard`), the Claude
 app and Cowork take `hildegard.plugin`, and claude.ai takes `skill-*.zip` uploads or a custom connector
 ([chatbots.md](chatbots.md)). Those need no store.

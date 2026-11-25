@@ -51,13 +51,13 @@ paired devices, host mode and linked apps, changes nothing, and gives each probl
 1. Install, if `hildegard` isn't there yet. macOS and Linux:
 
    ```sh
-   curl -fsSL https://github.com/baney75/hildegard/releases/latest/download/install.sh | sh -s -- --json
+   curl -fsSL https://github.com/Students-of-Local/hildegard/releases/latest/download/install.sh | sh -s -- --json
    ```
 
    Windows, in PowerShell:
 
    ```powershell
-   $env:HILDEGARD_INSTALL_ARGS = '--json'; irm https://github.com/baney75/hildegard/releases/latest/download/install.ps1 | iex
+   $env:HILDEGARD_INSTALL_ARGS = '--json'; irm https://github.com/Students-of-Local/hildegard/releases/latest/download/install.ps1 | iex
    ```
 
    It needs no sudo or admin rights, checks every download's SHA-256, installs ComfyUI and PyTorch for the GPU it

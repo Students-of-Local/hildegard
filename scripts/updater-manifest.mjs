@@ -27,7 +27,7 @@ for (const [kind, re] of Object.entries(kinds)) {
   }
   platforms[kind] = {
     signature: readFileSync(join(dir, `${name}.sig`), 'utf8').trim(),
-    url: `https://github.com/baney75/hildegard/releases/download/${tag}/${encodeURIComponent(name)}`,
+    url: `https://github.com/Students-of-Local/hildegard/releases/download/${tag}/${encodeURIComponent(name)}`,
   };
 }
 const manifest = { version: tag.slice(1), pub_date: new Date().toISOString(), platforms };

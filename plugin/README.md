@@ -31,15 +31,15 @@ voice, music, 3D, print and web work on your own GPUs, with nothing sent anywher
 
 The skills work on their own. With Hildegard linked, its tools run the work on your machines:
 
-- **Claude Code**: `/plugin marketplace add baney75/hildegard`, then `/plugin install hildegard@hildegard`. The plugin
+- **Claude Code**: `/plugin marketplace add Students-of-Local/hildegard`, then `/plugin install hildegard@hildegard`. The plugin
   starts the Hildegard installed on this computer as its MCP server, and says how to install it when it isn't.
-- **Codex**: `codex plugin marketplace add baney75/hildegard`, then `codex plugin add hildegard@hildegard` for the
+- **Codex**: `codex plugin marketplace add Students-of-Local/hildegard`, then `codex plugin add hildegard@hildegard` for the
   skills, and `hildegard connect codex --no-skills` for the tools.
 - **The Claude app**: run `hildegard connect claude-desktop` on the computer Hildegard runs on.
 - **claude.ai, Cowork and the phone apps**: add a custom connector (Settings › Connectors › Add custom connector) with
   the `mcpUrl` that `hildegard host --funnel --json` prints. That puts Hildegard's sign-in page on the public
   internet, so it is your call; you sign in on it with your own name and passphrase.
 
-Every app's steps: [docs/chatbots.md](https://github.com/baney75/hildegard/blob/main/docs/chatbots.md).
+Every app's steps: [docs/chatbots.md](https://github.com/Students-of-Local/hildegard/blob/main/docs/chatbots.md).
 
-AGPL-3.0-only. Source: https://github.com/baney75/hildegard
+AGPL-3.0-only. Source: https://github.com/Students-of-Local/hildegard

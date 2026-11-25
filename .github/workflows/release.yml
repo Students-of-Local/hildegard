@@ -130,7 +130,7 @@ jobs:
               rm "$f.sig"
               node scripts/verify-minisig.mjs "$f"
             done
-          elif [ "${{ github.repository }}" = "baney75/hildegard" ]; then
+          elif [ "${{ github.repository }}" = "Students-of-Local/hildegard" ]; then
             echo "::error::No signing key, so hildegard.plugin, hildegard-codex.zip, the skill zips and SHA256SUMS would ship unsigned."
             exit 1
           else

@@ -329,7 +329,7 @@ export function oauthRoutes(app: Hono<HgEnv>, deps: OAuthDeps) {
       scopes_supported: [SCOPE],
       bearer_methods_supported: ['header'],
       resource_name: 'Hildegard',
-      resource_documentation: 'https://github.com/baney75/hildegard/blob/main/docs/agents.md',
+      resource_documentation: 'https://github.com/Students-of-Local/hildegard/blob/main/docs/agents.md',
     });
   };
   app.get('/.well-known/oauth-protected-resource', resourceMeta);

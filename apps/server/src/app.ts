@@ -136,7 +136,7 @@ export const VERSION = '0.1.17';
  * its own repository. The commit comes from the build (HILDEGARD_COMMIT) or, in a checkout, from git.
  */
 export const SOURCE = {
-  url: process.env.HILDEGARD_SOURCE_URL ?? 'https://github.com/baney75/hildegard',
+  url: process.env.HILDEGARD_SOURCE_URL ?? 'https://github.com/Students-of-Local/hildegard',
   commit: process.env.HILDEGARD_COMMIT ?? gitCommit(),
 };
 

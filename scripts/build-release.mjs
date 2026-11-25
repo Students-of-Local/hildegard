@@ -63,7 +63,7 @@ await build({
   minifySyntax: true,
   banner: {
     js: [
-      `// Hildegard ${version}. AGPL-3.0-only. Source: https://github.com/baney75/hildegard${commit ? `/tree/${commit}` : ''}`,
+      `// Hildegard ${version}. AGPL-3.0-only. Source: https://github.com/Students-of-Local/hildegard${commit ? `/tree/${commit}` : ''}`,
       "import { createRequire as __hgRequire } from 'node:module';",
       "import { fileURLToPath as __hgPath } from 'node:url';",
       "import { dirname as __hgDir, join as __hgJoin } from 'node:path';",
@@ -207,7 +207,7 @@ cpSync(join(root, 'site'), join(out, 'site'), { recursive: true, filter: (s) => 
 // plugin directory) and one zip per skill (claude.ai, ChatGPT).
 const packed = packSkills(out, version).map((f) => basename(f));
 
-// The Omarchy plugin, carrying this release's install.sh, for baney75/omarchy-hildegard to follow.
+// The Omarchy plugin, carrying this release's install.sh, for Students-of-Local/omarchy-hildegard to follow.
 const omarchy = basename(buildOmarchy(join(out, 'install.sh'), out).archive);
 
 const lines = Object.entries(sums).map(([t, s]) => `${s}  hildegard-${version}-${t}.tar.gz`);

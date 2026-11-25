@@ -21,10 +21,13 @@ function standIn(opts: { signedIn?: boolean; labels?: boolean } = {}) {
     if (args[1] === 'create') {
       if (opts.labels === false && args.includes('--label'))
         return { ok: false, out: "could not add label: 'bug' not found" };
-      return { ok: true, out: `https://github.com/baney75/hildegard/issues/${++n}` };
+      return { ok: true, out: `https://github.com/Students-of-Local/hildegard/issues/${++n}` };
     }
     if (args[1] === 'comment')
-      return { ok: true, out: `https://github.com/baney75/hildegard/issues/${args[2]}#issuecomment-1` };
+      return {
+        ok: true,
+        out: `https://github.com/Students-of-Local/hildegard/issues/${args[2]}#issuecomment-1`,
+      };
     return { ok: false, out: 'unknown' };
   };
   const searched: string[] = [];
@@ -44,17 +47,17 @@ describe('reports', () => {
     const r = new Reports({ dir: mkdtempSync(join(tmpdir(), 'hg-rep-')), gh: s.gh, fetchFn: s.fetchFn });
     const d = await r.draft(input, diag, {});
     expect(d.id).toMatch(/^r[0-9a-f]{12}$/);
-    expect(s.searched[0]).toContain('repo:baney75/hildegard is:issue takes fail small gpu');
+    expect(s.searched[0]).toContain('repo:Students-of-Local/hildegard is:issue takes fail small gpu');
     expect(r.get()!.id).toBe(d.id);
     expect(await r.filer()).toBe('baney75');
     const filed = await r.file(d.id);
-    expect(filed.filed!.url).toBe('https://github.com/baney75/hildegard/issues/101');
+    expect(filed.filed!.url).toBe('https://github.com/Students-of-Local/hildegard/issues/101');
     const create = s.ran.find((x) => x.args[1] === 'create')!;
     expect(create.args).toEqual([
       'issue',
       'create',
       '--repo',
-      'baney75/hildegard',
+      'Students-of-Local/hildegard',
       '--title',
       d.title,
       '--body-file',

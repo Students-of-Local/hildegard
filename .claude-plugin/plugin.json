@@ -7,11 +7,11 @@
     "url": "https://github.com/baney75"
   },
   "homepage": "https://dbaney.com/hildegard/",
-  "repository": "https://github.com/baney75/hildegard",
+  "repository": "https://github.com/Students-of-Local/hildegard",
   "license": "AGPL-3.0-only",
   "icon": "./.claude-plugin/icon.png",
-  "documentationUrl": "https://github.com/baney75/hildegard/blob/main/docs/chatbots.md",
-  "supportUrl": "https://github.com/baney75/hildegard/issues",
+  "documentationUrl": "https://github.com/Students-of-Local/hildegard/blob/main/docs/chatbots.md",
+  "supportUrl": "https://github.com/Students-of-Local/hildegard/issues",
   "keywords": [
     "mcp",
     "self-hosted",

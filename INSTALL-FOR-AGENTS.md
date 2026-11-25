@@ -12,13 +12,13 @@ Hildegard at a link for other people, joining devices into a fleet, and checking
 macOS and Linux:
 
 ```sh
-curl -fsSL https://github.com/baney75/hildegard/releases/latest/download/install.sh | sh -s -- --json
+curl -fsSL https://github.com/Students-of-Local/hildegard/releases/latest/download/install.sh | sh -s -- --json
 ```
 
 Windows, in PowerShell:
 
 ```powershell
-$env:HILDEGARD_INSTALL_ARGS = '--json'; irm https://github.com/baney75/hildegard/releases/latest/download/install.ps1 | iex
+$env:HILDEGARD_INSTALL_ARGS = '--json'; irm https://github.com/Students-of-Local/hildegard/releases/latest/download/install.ps1 | iex
 ```
 
 No sudo or admin rights. It installs into the user's home folder only, checks every download's SHA-256, sets up
@@ -35,7 +35,7 @@ Add the bar widget too, and install through it: the plugin carries the same inst
 SHA-256, and its setup asks nothing with `--yes --json` (stdout is only `hildegard setup`'s JSON, so you can skip step 2):
 
 ```sh
-omarchy plugin add https://github.com/baney75/omarchy-hildegard --enable --yes
+omarchy plugin add https://github.com/Students-of-Local/omarchy-hildegard --enable --yes
 ~/.config/omarchy/plugins/io.github.baney75.hildegard/bin/hildegard-omarchy-setup --yes --json
 ```
 

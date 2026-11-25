@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Runs the Omarchy plugin marketplace's own Automated Security Baseline on the plugin as baney75/omarchy-hildegard
+// Runs the Omarchy plugin marketplace's own Automated Security Baseline on the plugin as Students-of-Local/omarchy-hildegard
 // will carry it, and fails unless the only thing it reports is the installer (Set up), which a maintainer reviews
 // once. A finding (such as running a download) would cost the listing its "Snapshot verified" and its one-command
 // install, so CI catches it here first.
@@ -51,7 +51,7 @@ const files = [];
   }
 })(dir);
 
-const repo = 'baney75/omarchy-hildegard';
+const repo = 'Students-of-Local/omarchy-hildegard';
 const result = buildSecurityBaseline({
   repository: repo,
   repoUrl: `https://github.com/${repo}`,

@@ -21,7 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 os.environ.setdefault('EVAL_DIR', os.path.expanduser('~/.cache/hildegard-photo-dev/eval'))
 DEV_PHOTOS = os.environ.get('DEV_PHOTOS', os.path.expanduser('~/.cache/hildegard-photo-dev/photos'))
-UA = {'User-Agent': 'hildegard-creative-eval/1.0 (https://github.com/baney75/hildegard)'}
+UA = {'User-Agent': 'hildegard-creative-eval/1.0 (https://github.com/Students-of-Local/hildegard)'}
 sys.path.insert(0, HERE)
 import imglib, make_media, score_media  # noqa: E402
 

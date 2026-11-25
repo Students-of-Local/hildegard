@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ISSUES_REPO } from '../../../mcp/src/report.ts';
 
 const repo = join(import.meta.dirname, '..', '..', '..');
 // A Windows checkout has CRLF line endings; the rules below are about lines, so read the file with LF.
@@ -25,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: node scripts/pack-listing.mjs "$RUNNER_TEMP/plugin"
-      - name: Publish the Claude plugin to baney75/hildegard-plugin
+      - name: Publish the Claude plugin to Students-of-Local/hildegard-plugin
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LISTING_DEPLOY_KEY != ''
         run: printf '%s\\n' "$LISTING_DEPLOY_KEY" > ~/.ssh/listing_deploy_key
 `;
@@ -88,5 +89,22 @@ describe('the listing workflow', () => {
     expect(problems(swap(/^ {4}if: .*main'\n/m, '')).join('\n')).toContain('pull request');
     expect(problems(swap(/^ {4}environment: listing\n/m, '')).join('\n')).toContain('listing environment');
     expect(problems(swap(/(setup-node)@[0-9a-f]{40}/, '$1@v4')).join('\n')).toContain('isn’t pinned');
+  });
+});
+
+describe('the release workflow', () => {
+  it('refuses an unsigned release from the official repo, and only warns on a fork', () => {
+    const release = readFileSync(join(repo, '.github', 'workflows', 'release.yml'), 'utf8').replace(
+      /\r\n/g,
+      '\n',
+    );
+    const guards = [
+      ...release.matchAll(
+        /elif \[ "\$\{\{ github\.repository \}\}" = "([^"]+)" \]; then\n([\s\S]*?)\n\s+else\n(.*)/g,
+      ),
+    ];
+    expect(guards.map((g) => g[1])).toEqual([ISSUES_REPO]);
+    expect(guards[0]?.[2]).toMatch(/::error::No signing key[\s\S]*\bexit 1$/);
+    expect(guards[0]?.[3]).toContain('::warning::No signing key');
   });
 });
