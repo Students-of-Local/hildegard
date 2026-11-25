@@ -21,7 +21,7 @@ and ElevenLabs that runs locally on Windows, macOS and Linux, with music on the 
 </div>
 
 > [!IMPORTANT]
-> **Hildegard is now a plugin in [Local Studio](https://github.com/Students-of-Local/local-studio).** The Hildegard app keeps
+> **Hildegard is now a plugin in [Local Studio](https://github.com/baney75/local-studio).** The Hildegard app keeps
 > working and gets fixes, but new features go into the plugin, which runs on the same engine with your projects,
 > voices and models. [How to switch](docs/local-studio.md#moving-from-the-hildegard-app).
 
