@@ -66,7 +66,7 @@ test('the OS tabs switch the commands, by click and by keyboard, everywhere at o
   );
   await expect(page.locator('#panel-windows [data-desktop]')).toHaveAttribute(
     'href',
-    'https://github.com/Students-of-Local/hildegard/releases/latest/download/Hildegard_x64-setup.exe',
+    'https://github.com/baney75/hildegard/releases/latest/download/Hildegard_x64-setup.exe',
   );
 
   await tabs.getByRole('tab', { name: 'macOS' }).click();
@@ -99,7 +99,7 @@ test('the OS tabs switch the commands, by click and by keyboard, everywhere at o
   await page.keyboard.press('End');
   await expect(tabs.getByRole('tab', { name: 'Omarchy' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#panel-omarchy')).toContainText(
-    'omarchy plugin add https://github.com/Students-of-Local/omarchy-hildegard --enable',
+    'omarchy plugin add https://github.com/baney75/omarchy-hildegard --enable',
   );
   // Omarchy uses the Linux checks.
   await expect(page.locator('#vpanel-linux')).toBeVisible();
