@@ -65,12 +65,12 @@
     <p>Hildegard is free, open-source software (AGPL-3.0-only). You install it, it runs a small server on your computer that only you can reach (the loopback address, with Host and Origin checks on every request), and it does its work on your own graphics cards. Your films, stills, voices, 3D files, projects and settings live in a data folder on your computer. Passwords you set for people you invite are stored as salted scrypt hashes; keys and tokens (Hugging Face, Runpod, Figma, tunnel credentials, the keys other devices use) go to your system’s keychain, not to files or logs.</p>
 
     <h2>Every place the app can connect to</h2>
-    <p>This list comes from reading the code. If a version of Hildegard connects somewhere not listed here, that is a bug: <a href="https://github.com/baney75/hildegard/issues">tell us</a>.</p>
+    <p>This list comes from reading the code. If a version of Hildegard connects somewhere not listed here, that is a bug: <a href="https://github.com/Students-of-Local/hildegard/issues">tell us</a>.</p>
     <div class="table">
     <table>
       <thead><tr><th>When</th><th>Where</th><th>What is sent, and why</th></tr></thead>
       <tbody>
-        <tr><td>Default, every six hours while the app runs</td><td>github.com (<code>baney75/hildegard</code> releases)</td><td>An ordinary web request for <code>latest.json</code>, to see whether a newer version exists. GitHub sees your IP address, as any website does. Automatic installing of an update waits until nothing is rendering and can be turned off in Settings; every update file is checked against Hildegard’s signing key first. The desktop app’s updater asks the same address.</td></tr>
+        <tr><td>Default, every six hours while the app runs</td><td>github.com (<code>Students-of-Local/hildegard</code> releases)</td><td>An ordinary web request for <code>latest.json</code>, to see whether a newer version exists. GitHub sees your IP address, as any website does. Automatic installing of an update waits until nothing is rendering and can be turned off in Settings; every update file is checked against Hildegard’s signing key first. The desktop app’s updater asks the same address.</td></tr>
         <tr><td>Default, when you install or update</td><td>github.com (the installer, <code>uv</code>, ComfyUI), pypi.org and files.pythonhosted.org (Python packages, through <code>uv</code>), PyTorch’s package index (the GPU build of PyTorch), and the site that gives <code>uv</code> a Python if you have none</td><td>Download requests only. Hildegard pins each file by version and SHA-256 and refuses one that doesn’t match.</td></tr>
         <tr><td>When you install a model</td><td>huggingface.co</td><td>A download of the model files you chose, after you accept the model’s license. If you signed in to Hugging Face, your token goes with the request so gated models download. Signing in uses Hugging Face’s own page; Hugging Face reads a small public file from this site (<code>dbaney.com/hildegard/oauth/hf-client.json</code>) to show the app’s name, so this site’s server may log that request.</td></tr>
         <tr><td>Only if you turn on a link for your devices</td><td>Tailscale (<code>tailscale serve</code>, run by the Tailscale program on your computer); your other devices on your tailnet</td><td>Hildegard asks Tailscale to give your studio a private address. Traffic then travels over your Tailscale network, under Tailscale’s privacy policy. Sharing a GPU between your own devices (“choir”) uses the same network; each device holds a key you can revoke.</td></tr>
@@ -108,7 +108,7 @@
     </ul>
 
     <h2>Changes and contact</h2>
-    <p>Changes to this page are made in the open, in the project’s repository, and the date at the top changes with them. Questions or concerns: <a href="https://github.com/baney75/hildegard/issues">github.com/baney75/hildegard/issues</a>, or <a href="mailto:support@dbaney.com">support@dbaney.com</a>.</p>
+    <p>Changes to this page are made in the open, in the project’s repository, and the date at the top changes with them. Questions or concerns: <a href="https://github.com/Students-of-Local/hildegard/issues">github.com/Students-of-Local/hildegard/issues</a>, or <a href="mailto:support@dbaney.com">support@dbaney.com</a>.</p>
   </div>
 </main>
 
@@ -117,8 +117,8 @@
     <nav class="foot__links" aria-label="Project">
       <a href="../">Hildegard</a>
       <a href="../terms/">Terms of service</a>
-      <a href="https://github.com/baney75/hildegard">Source on GitHub</a>
-      <a href="https://github.com/baney75/hildegard/issues/new/choose">Report a problem</a>
+      <a href="https://github.com/Students-of-Local/hildegard">Source on GitHub</a>
+      <a href="https://github.com/Students-of-Local/hildegard/issues/new/choose">Report a problem</a>
     </nav>
   </div>
 </footer>

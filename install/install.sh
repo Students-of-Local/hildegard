@@ -3,7 +3,7 @@
 #
 # Installs Hildegard @VERSION@ for you alone: no sudo, nothing outside your home folder.
 #
-#   curl -fsSL https://github.com/baney75/hildegard/releases/download/v@VERSION@/install.sh | sh
+#   curl -fsSL https://github.com/Students-of-Local/hildegard/releases/download/v@VERSION@/install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --json         for agents: the last step prints JSON
 #   curl -fsSL .../install.sh | sh -s -- --server       a computer that serves your other devices: speech and
 #                                                       transcription too, and a service that starts Hildegard when
@@ -22,7 +22,7 @@ set -eu
 
 VERSION=@VERSION@
 NODE=@NODE@
-RELEASE=${HILDEGARD_RELEASE_URL:-https://github.com/baney75/hildegard/releases/download/v$VERSION}
+RELEASE=${HILDEGARD_RELEASE_URL:-https://github.com/Students-of-Local/hildegard/releases/download/v$VERSION}
 # Where Node.js comes from. Each file is still checked against the SHA-256 written below, wherever it comes from.
 NODE_DIST=${HILDEGARD_NODE_URL:-https://nodejs.org/dist}
 

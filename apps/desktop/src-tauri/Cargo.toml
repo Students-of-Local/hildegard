@@ -4,7 +4,7 @@ name = "hildegard-desktop"
 version = "0.1.17"
 description = "The Hildegard app: a native window around the Studio"
 license = "AGPL-3.0-only"
-repository = "https://github.com/baney75/hildegard"
+repository = "https://github.com/Students-of-Local/hildegard"
 edition = "2021"
 rust-version = "1.85"
 

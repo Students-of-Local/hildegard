@@ -13,7 +13,7 @@
 <meta name="application-name" content="Hildegard">
 <meta name="apple-mobile-web-app-title" content="Hildegard">
 <link rel="canonical" href="https://dbaney.com/hildegard/">
-<link rel="alternate" type="application/atom+xml" title="Hildegard releases" href="https://github.com/baney75/hildegard/releases.atom">
+<link rel="alternate" type="application/atom+xml" title="Hildegard releases" href="https://github.com/Students-of-Local/hildegard/releases.atom">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hildegard">
 <meta property="og:locale" content="en_US">
@@ -39,7 +39,7 @@
 <link rel="preload" href="img/work/illuminator-quill.webp" as="image" type="image/webp" fetchpriority="high">
 <link rel="stylesheet" href="styles.css">
 <script src="main.js" defer></script>
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","@id":"https://dbaney.com/hildegard/#app","name":"Hildegard","alternateName":"Hildegard Cinema Studio","description":"A free, open source AI studio that runs on your own GPU: direct films with real camera language, make voices, characters and 3D, and let your AI apps use it over MCP.","url":"https://dbaney.com/hildegard/","image":"https://dbaney.com/hildegard/img/og.jpg","screenshot":["https://dbaney.com/hildegard/img/studio-board.webp","https://dbaney.com/hildegard/img/studio-inspector.webp"],"applicationCategory":"MultimediaApplication","applicationSubCategory":"AI video generator","operatingSystem":"Windows 10, Windows 11, macOS, Linux","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/baney75/hildegard/releases/latest","installUrl":"https://dbaney.com/hildegard/#install","license":"https://www.gnu.org/licenses/agpl-3.0.html","softwareHelp":"https://github.com/baney75/hildegard#readme","featureList":["AI video generation with camera, lens, aperture, move and film-look presets","Films made of shots and takes, exported to MP4","Consistent characters across shots","Text to speech, voice design, consented voice cloning, dubbing and transcription","3D models and parts to print, checked and sliced","Clusters of your own computers over Tailscale","An MCP server for Claude, ChatGPT, Codex, Cursor and other AI apps","Runs offline on NVIDIA and AMD GPUs"],"author":{"@type":"Person","name":"Donovan Baney","url":"https://dbaney.com/"},"sameAs":["https://github.com/baney75/hildegard"]},{"@type":"SoftwareSourceCode","name":"Hildegard source","codeRepository":"https://github.com/baney75/hildegard","programmingLanguage":["TypeScript","Python","Rust"],"license":"https://www.gnu.org/licenses/agpl-3.0.html","targetProduct":{"@id":"https://dbaney.com/hildegard/#app"}},{"@type":"VideoObject","name":"Made with Hildegard: six shots from five films","description":"Six real takes rendered by Hildegard with Wan 2.2 5B on one 12 GB laptop GPU, 2.5 seconds of each.","thumbnailUrl":"https://dbaney.com/hildegard/img/work/illuminator-quill.webp","contentUrl":"https://dbaney.com/hildegard/video/reel.mp4","uploadDate":"2026-10-26","duration":"PT15S","width":1248,"height":704},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Hildegard a free alternative to Higgsfield?","acceptedAnswer":{"@type":"Answer","text":"Yes. Hildegard is a free, open source AI film studio: you direct shots with cameras, lenses, moves and looks, keep takes and export films, as you would in Higgsfield. The difference is where it runs. Every shot renders on your own GPU with open models (LTX-2.5 and Wan 2.2), so there are no credits, no queue behind other people, and nothing leaves your computer."}},{"@type":"Question","name":"Can I run something like ElevenLabs on my own computer?","acceptedAnswer":{"@type":"Answer","text":"Yes. Hildegard’s voice room speaks in 25 built-in voices, designs new voices from a description, dubs, transcribes and clones voices, all on your GPU, and Kokoro even runs on the CPU. It clones a voice only when its owner reads a fresh consent line aloud, and every clip carries an inaudible watermark."}},{"@type":"Question","name":"Is there a local, open source alternative to Suno?","acceptedAnswer":{"@type":"Answer","text":"Music is the next room in Hildegard, built on open music models and running on your own GPUs. It isn’t out yet. Today Hildegard makes film, voice, characters and 3D."}},{"@type":"Question","name":"What GPU do I need to make AI video locally?","acceptedAnswer":{"@type":"Answer","text":"An NVIDIA card with 12 GB of memory runs Wan 2.2 at 720p, and 24 GB or more runs LTX-2.5 with sound at up to 1088p. AMD cards work on Linux. Every film on this page came from one 12 GB laptop GPU. With less, or none, Hildegard renders on another of your computers or on a GPU you rent."}},{"@type":"Question","name":"Does Hildegard work on a Mac?","acceptedAnswer":{"@type":"Answer","text":"The Studio and the app run on macOS. The video models don’t render well on Apple’s GPU yet, so a Mac sends its shots to one of your computers with an NVIDIA or AMD card, over Tailscale. Voice runs on the Mac itself."}},{"@type":"Question","name":"Does anything I make leave my computer?","acceptedAnswer":{"@type":"Answer","text":"No. Prompts, takes, voices and films stay on your devices. Hildegard reaches the internet only to download the app and the models you choose, and every shot renders offline after that. If you share your studio at a link, it goes over your own Tailscale network."}},{"@type":"Question","name":"Can ChatGPT, Claude or another AI app use it?","acceptedAnswer":{"@type":"Answer","text":"Yes. Hildegard is an MCP server, so Claude Code, Claude Desktop, Codex, Cursor, VS Code, LM Studio and others can direct shots, speak lines and run the make-check-improve loop on your GPU. claude.ai and ChatGPT connect through your Hildegard link. One command, hildegard connect --all, links every app on a computer."}},{"@type":"Question","name":"Can I use what I make commercially?","acceptedAnswer":{"@type":"Answer","text":"What you make is yours. Hildegard itself is AGPL-3.0 and its presets are Apache-2.0. Each model has its own license, shown before it downloads: Wan 2.2, FLUX.2 [klein] 4B and the voice models allow commercial use, and LTX-2 and LTX-2.5 are free for people and companies under $10M in yearly revenue."}},{"@type":"Question","name":"How is Hildegard different from ComfyUI?","acceptedAnswer":{"@type":"Answer","text":"Hildegard runs on ComfyUI and sets it up for you. On top it adds camera language, films made of shots and takes, a queue, characters, voice, sharing across your computers, a studio at a link for your other devices, and tools for your AI apps. You never have to wire a node graph."}}]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Donovan Baney","item":"https://dbaney.com/"},{"@type":"ListItem","position":2,"name":"Hildegard","item":"https://dbaney.com/hildegard/"}]}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","@id":"https://dbaney.com/hildegard/#app","name":"Hildegard","alternateName":"Hildegard Cinema Studio","description":"A free, open source AI studio that runs on your own GPU: direct films with real camera language, make voices, characters and 3D, and let your AI apps use it over MCP.","url":"https://dbaney.com/hildegard/","image":"https://dbaney.com/hildegard/img/og.jpg","screenshot":["https://dbaney.com/hildegard/img/studio-board.webp","https://dbaney.com/hildegard/img/studio-inspector.webp"],"applicationCategory":"MultimediaApplication","applicationSubCategory":"AI video generator","operatingSystem":"Windows 10, Windows 11, macOS, Linux","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/Students-of-Local/hildegard/releases/latest","installUrl":"https://dbaney.com/hildegard/#install","license":"https://www.gnu.org/licenses/agpl-3.0.html","softwareHelp":"https://github.com/Students-of-Local/hildegard#readme","featureList":["AI video generation with camera, lens, aperture, move and film-look presets","Films made of shots and takes, exported to MP4","Consistent characters across shots","Text to speech, voice design, consented voice cloning, dubbing and transcription","3D models and parts to print, checked and sliced","Clusters of your own computers over Tailscale","An MCP server for Claude, ChatGPT, Codex, Cursor and other AI apps","Runs offline on NVIDIA and AMD GPUs"],"author":{"@type":"Person","name":"Donovan Baney","url":"https://dbaney.com/"},"sameAs":["https://github.com/Students-of-Local/hildegard"]},{"@type":"SoftwareSourceCode","name":"Hildegard source","codeRepository":"https://github.com/Students-of-Local/hildegard","programmingLanguage":["TypeScript","Python","Rust"],"license":"https://www.gnu.org/licenses/agpl-3.0.html","targetProduct":{"@id":"https://dbaney.com/hildegard/#app"}},{"@type":"VideoObject","name":"Made with Hildegard: six shots from five films","description":"Six real takes rendered by Hildegard with Wan 2.2 5B on one 12 GB laptop GPU, 2.5 seconds of each.","thumbnailUrl":"https://dbaney.com/hildegard/img/work/illuminator-quill.webp","contentUrl":"https://dbaney.com/hildegard/video/reel.mp4","uploadDate":"2026-10-26","duration":"PT15S","width":1248,"height":704},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is Hildegard a free alternative to Higgsfield?","acceptedAnswer":{"@type":"Answer","text":"Yes. Hildegard is a free, open source AI film studio: you direct shots with cameras, lenses, moves and looks, keep takes and export films, as you would in Higgsfield. The difference is where it runs. Every shot renders on your own GPU with open models (LTX-2.5 and Wan 2.2), so there are no credits, no queue behind other people, and nothing leaves your computer."}},{"@type":"Question","name":"Can I run something like ElevenLabs on my own computer?","acceptedAnswer":{"@type":"Answer","text":"Yes. Hildegard’s voice room speaks in 25 built-in voices, designs new voices from a description, dubs, transcribes and clones voices, all on your GPU, and Kokoro even runs on the CPU. It clones a voice only when its owner reads a fresh consent line aloud, and every clip carries an inaudible watermark."}},{"@type":"Question","name":"Is there a local, open source alternative to Suno?","acceptedAnswer":{"@type":"Answer","text":"Music is the next room in Hildegard, built on open music models and running on your own GPUs. It isn’t out yet. Today Hildegard makes film, voice, characters and 3D."}},{"@type":"Question","name":"What GPU do I need to make AI video locally?","acceptedAnswer":{"@type":"Answer","text":"An NVIDIA card with 12 GB of memory runs Wan 2.2 at 720p, and 24 GB or more runs LTX-2.5 with sound at up to 1088p. AMD cards work on Linux. Every film on this page came from one 12 GB laptop GPU. With less, or none, Hildegard renders on another of your computers or on a GPU you rent."}},{"@type":"Question","name":"Does Hildegard work on a Mac?","acceptedAnswer":{"@type":"Answer","text":"The Studio and the app run on macOS. The video models don’t render well on Apple’s GPU yet, so a Mac sends its shots to one of your computers with an NVIDIA or AMD card, over Tailscale. Voice runs on the Mac itself."}},{"@type":"Question","name":"Does anything I make leave my computer?","acceptedAnswer":{"@type":"Answer","text":"No. Prompts, takes, voices and films stay on your devices. Hildegard reaches the internet only to download the app and the models you choose, and every shot renders offline after that. If you share your studio at a link, it goes over your own Tailscale network."}},{"@type":"Question","name":"Can ChatGPT, Claude or another AI app use it?","acceptedAnswer":{"@type":"Answer","text":"Yes. Hildegard is an MCP server, so Claude Code, Claude Desktop, Codex, Cursor, VS Code, LM Studio and others can direct shots, speak lines and run the make-check-improve loop on your GPU. claude.ai and ChatGPT connect through your Hildegard link. One command, hildegard connect --all, links every app on a computer."}},{"@type":"Question","name":"Can I use what I make commercially?","acceptedAnswer":{"@type":"Answer","text":"What you make is yours. Hildegard itself is AGPL-3.0 and its presets are Apache-2.0. Each model has its own license, shown before it downloads: Wan 2.2, FLUX.2 [klein] 4B and the voice models allow commercial use, and LTX-2 and LTX-2.5 are free for people and companies under $10M in yearly revenue."}},{"@type":"Question","name":"How is Hildegard different from ComfyUI?","acceptedAnswer":{"@type":"Answer","text":"Hildegard runs on ComfyUI and sets it up for you. On top it adds camera language, films made of shots and takes, a queue, characters, voice, sharing across your computers, a studio at a link for your other devices, and tools for your AI apps. You never have to wire a node graph."}}]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Donovan Baney","item":"https://dbaney.com/"},{"@type":"ListItem","position":2,"name":"Hildegard","item":"https://dbaney.com/hildegard/"}]}]}</script>
 </head>
 <body>
 <svg class="sprite" aria-hidden="true" focusable="false">
@@ -98,7 +98,7 @@
       <a href="#agents">Agents</a>
       <a href="#faq">Questions</a>
     </nav>
-    <a class="btn btn--ghost btn--sm top__src" href="https://github.com/baney75/hildegard">
+    <a class="btn btn--ghost btn--sm top__src" href="https://github.com/Students-of-Local/hildegard">
       <svg class="ic" aria-hidden="true"><use href="#i-code"/></svg>
       <span>Source</span>
     </a>
@@ -114,7 +114,7 @@
       <h1 id="hero-title" class="display">Your own AI studio, <em>on your own GPU.</em></h1>
       <p class="lead">Direct films with real camera language, give your characters a face and a voice, and make 3D you can print. Everything renders on computers you own, and nothing costs money per shot.</p>
       <div class="hero__cta">
-        <a class="btn btn--primary btn--lg" data-desktop href="https://github.com/baney75/hildegard/releases/latest">
+        <a class="btn btn--primary btn--lg" data-desktop href="https://github.com/Students-of-Local/hildegard/releases/latest">
           <svg class="ic" aria-hidden="true"><use href="#i-download"/></svg>
           <span data-desktop-label>Download Hildegard</span>
         </a>
@@ -304,7 +304,7 @@
             <div class="way way--app">
               <h3 class="way__title"><svg class="ic" aria-hidden="true"><use href="#i-desktop"/></svg>The desktop app</h3>
               <p>Download it, open it, and follow the steps. No admin rights needed.</p>
-              <a class="btn btn--primary btn--lg btn--block" data-desktop="windows" href="https://github.com/baney75/hildegard/releases/latest">
+              <a class="btn btn--primary btn--lg btn--block" data-desktop="windows" href="https://github.com/Students-of-Local/hildegard/releases/latest">
                 <svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download for Windows</span>
               </a>
               <p class="file"><span class="mono" data-file="windows">Hildegard_x64-setup.exe</span> <span class="dot" aria-hidden="true"></span> 64-bit</p>
@@ -329,7 +329,7 @@
             <div class="way way--app">
               <h3 class="way__title"><svg class="ic" aria-hidden="true"><use href="#i-laptop"/></svg>The desktop app</h3>
               <p>Download it, open it, and follow the steps.</p>
-              <a class="btn btn--primary btn--lg btn--block" data-desktop="mac" href="https://github.com/baney75/hildegard/releases/latest">
+              <a class="btn btn--primary btn--lg btn--block" data-desktop="mac" href="https://github.com/Students-of-Local/hildegard/releases/latest">
                 <svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download for Mac</span>
               </a>
               <p class="file"><span class="mono" data-file="mac">Hildegard_aarch64.dmg</span> <span class="dot" aria-hidden="true"></span> Apple silicon</p>
@@ -354,7 +354,7 @@
             <div class="way way--app">
               <h3 class="way__title"><svg class="ic" aria-hidden="true"><use href="#i-desktop"/></svg>The desktop app</h3>
               <p>Download it, make it executable, and open it.</p>
-              <a class="btn btn--primary btn--lg btn--block" data-desktop="linux" href="https://github.com/baney75/hildegard/releases/latest">
+              <a class="btn btn--primary btn--lg btn--block" data-desktop="linux" href="https://github.com/Students-of-Local/hildegard/releases/latest">
                 <svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Download for Linux</span>
               </a>
               <p class="file"><span class="mono" data-file="linux">Hildegard_amd64.AppImage</span> <span class="dot" aria-hidden="true"></span> x86-64</p>
@@ -379,7 +379,7 @@
               <h3 class="way__title"><svg class="ic" aria-hidden="true"><use href="#i-choir"/></svg>The bar widget</h3>
               <p>A ring in your bar that fills while a shot renders. Add it, click the ring, and choose <b>Set up Hildegard</b>. No password, no logout.</p>
               <div class="cmd">
-                <pre><code>omarchy plugin add https://github.com/<wbr>baney75/omarchy-hildegard --enable</code></pre>
+                <pre><code>omarchy plugin add https://github.com/<wbr>Students-of-Local/omarchy-hildegard --enable</code></pre>
                 <button class="copy" type="button" aria-label="Copy the Omarchy plugin line"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg><span class="copy__label">Copy</span></button>
               </div>
             </div>
@@ -538,10 +538,10 @@
           <h3 class="h3">Set it up with an agent</h3>
           <p class="small small--tight">Claude Code, Codex, Cursor and other AI apps can do it. Paste this into one.</p>
           <div class="prompt">
-            <p class="prompt__text" id="agent-prompt">Install Hildegard on this computer for me. Follow https://github.com/baney75/hildegard/blob/main/INSTALL-FOR-AGENTS.md step by step. Ask me before you accept any model license, and never ask me for a token or passphrase.</p>
+            <p class="prompt__text" id="agent-prompt">Install Hildegard on this computer for me. Follow https://github.com/Students-of-Local/hildegard/blob/main/INSTALL-FOR-AGENTS.md step by step. Ask me before you accept any model license, and never ask me for a token or passphrase.</p>
             <button class="btn btn--primary copy copy--prompt" type="button" data-copy-target="agent-prompt" aria-label="Copy prompt for your agent"><svg class="ic" aria-hidden="true"><use href="#i-copy"/></svg><span class="copy__label">Copy prompt</span></button>
           </div>
-          <p class="small">It shows you each model’s license word for word and asks first. For hosting and devices too, point it at <a href="https://github.com/baney75/hildegard/blob/main/docs/agents.md">the full guide for agents</a>.</p>
+          <p class="small">It shows you each model’s license word for word and asks first. For hosting and devices too, point it at <a href="https://github.com/Students-of-Local/hildegard/blob/main/docs/agents.md">the full guide for agents</a>.</p>
         </div>
         <div class="reveal">
           <h3 class="h3">Then direct shots from them</h3>
@@ -672,7 +672,7 @@ hildegard connect --print   <span class="c c--side"># the config, for any other 
             </div>
             <div class="panel" role="tabpanel" id="vpanel-windows" aria-labelledby="vtab-windows">
               <div class="cmd cmd--block">
-                <pre><code>$u = '<span data-release-base>https://github.com/baney75/hildegard/releases/latest/download</span>'
+                <pre><code>$u = '<span data-release-base>https://github.com/Students-of-Local/hildegard/releases/latest/download</span>'
 iwr "$u/install.ps1" -OutFile install.ps1
 iwr "$u/SHA256SUMS" -OutFile SHA256SUMS
 (Get-FileHash install.ps1).Hash.ToLower()
@@ -684,7 +684,7 @@ Get-Content install.ps1 -Raw | iex</code></pre>
             </div>
             <div class="panel" role="tabpanel" id="vpanel-mac" aria-labelledby="vtab-mac" hidden>
               <div class="cmd cmd--block">
-                <pre><code>u=<span data-release-base>https://github.com/baney75/hildegard/releases/latest/download</span>
+                <pre><code>u=<span data-release-base>https://github.com/Students-of-Local/hildegard/releases/latest/download</span>
 curl -fsSLO "$u/install.sh"
 curl -fsSLO "$u/SHA256SUMS"
 grep ' install.sh$' SHA256SUMS | shasum -a 256 -c
@@ -695,7 +695,7 @@ sh install.sh</code></pre>
             </div>
             <div class="panel" role="tabpanel" id="vpanel-linux" aria-labelledby="vtab-linux" hidden>
               <div class="cmd cmd--block">
-                <pre><code>u=<span data-release-base>https://github.com/baney75/hildegard/releases/latest/download</span>
+                <pre><code>u=<span data-release-base>https://github.com/Students-of-Local/hildegard/releases/latest/download</span>
 curl -fsSLO "$u/install.sh"
 curl -fsSLO "$u/SHA256SUMS"
 sha256sum --check --ignore-missing SHA256SUMS
@@ -759,8 +759,8 @@ rm -rf ~/.local/share/hildegard ~/.local/bin/hildegard</code></pre>
       <div id="licenses" class="licenses reveal">
         <p class="licenses__lead">Open, and yours to keep. Model weights are never bundled: Hildegard fetches each one from its publisher, shows you its license and asks before the first download.</p>
         <dl class="lics">
-          <div><dt><a href="https://github.com/baney75/hildegard/blob/main/LICENSE">The app</a></dt><dd class="mono">AGPL-3.0</dd><dd>Free to use, change and share. If you run a changed Hildegard for other people, offer them its source.</dd></div>
-          <div><dt><a href="https://github.com/baney75/hildegard/blob/main/LICENSING.md">The presets</a></dt><dd class="mono">Apache-2.0</dd><dd>Every camera, lens, move and look, plus the film-look node. Reuse them in your own tools.</dd></div>
+          <div><dt><a href="https://github.com/Students-of-Local/hildegard/blob/main/LICENSE">The app</a></dt><dd class="mono">AGPL-3.0</dd><dd>Free to use, change and share. If you run a changed Hildegard for other people, offer them its source.</dd></div>
+          <div><dt><a href="https://github.com/Students-of-Local/hildegard/blob/main/LICENSING.md">The presets</a></dt><dd class="mono">Apache-2.0</dd><dd>Every camera, lens, move and look, plus the film-look node. Reuse them in your own tools.</dd></div>
           <div><dt><a href="https://github.com/Wan-Video/Wan2.2/blob/main/LICENSE.txt">Wan 2.2</a></dt><dd class="mono">Apache-2.0</dd><dd>Free for anyone, for any use.</dd></div>
           <div><dt><a href="https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2_x">LTX-2 and LTX-2.5</a></dt><dd class="mono">LTX Community</dd><dd>Their own license: free for people and companies under $10M in yearly revenue.</dd></div>
         </dl>
@@ -777,7 +777,7 @@ rm -rf ~/.local/share/hildegard ~/.local/bin/hildegard</code></pre>
       <h2 id="coda-title" class="display display--sm">Every work begins <em>as a vision.</em></h2>
       <div class="hero__cta">
         <a class="btn btn--primary btn--lg" href="#install"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span>Install Hildegard</span></a>
-        <a class="btn btn--lg btn--quiet" href="https://github.com/baney75/hildegard"><svg class="ic" aria-hidden="true"><use href="#i-code"/></svg><span>Read the source</span></a>
+        <a class="btn btn--lg btn--quiet" href="https://github.com/Students-of-Local/hildegard"><svg class="ic" aria-hidden="true"><use href="#i-code"/></svg><span>Read the source</span></a>
       </div>
     </div>
   </section>
@@ -793,14 +793,14 @@ rm -rf ~/.local/share/hildegard ~/.local/bin/hildegard</code></pre>
       <p>Named for Hildegard of Bingen: abbess, composer, visionary.</p>
     </div>
     <nav class="foot__links" aria-label="Project">
-      <a href="https://github.com/baney75/hildegard">Source on GitHub</a>
-      <a href="https://github.com/baney75/hildegard/releases">Releases</a>
-      <a href="https://github.com/baney75/hildegard/blob/main/LICENSING.md">Licensing</a>
+      <a href="https://github.com/Students-of-Local/hildegard">Source on GitHub</a>
+      <a href="https://github.com/Students-of-Local/hildegard/releases">Releases</a>
+      <a href="https://github.com/Students-of-Local/hildegard/blob/main/LICENSING.md">Licensing</a>
       <a href="privacy/">Privacy</a>
       <a href="terms/">Terms</a>
-      <a href="https://github.com/baney75/hildegard/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a>
-      <a href="https://github.com/baney75/hildegard/issues/new/choose">Report a problem</a>
-      <a href="https://github.com/baney75/hildegard/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/Students-of-Local/hildegard/blob/main/THIRD_PARTY_NOTICES.md">Third-party notices</a>
+      <a href="https://github.com/Students-of-Local/hildegard/issues/new/choose">Report a problem</a>
+      <a href="https://github.com/Students-of-Local/hildegard/blob/main/SECURITY.md">Security</a>
     </nav>
   </div>
 </footer>

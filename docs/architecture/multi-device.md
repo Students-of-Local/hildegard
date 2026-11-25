@@ -2,7 +2,7 @@
 
 **Author:** Luke (builder) for Donovan Baney / Magnus  
 **Date:** 2026-11-02 (America/New_York)  
-**Repo tip:** `baney75/hildegard` public `main` @ `e31a2ef` (v0.1.13)  
+**Repo tip:** `Students-of-Local/hildegard` public `main` @ `e31a2ef` (v0.1.13)  
 **Status:** in-repo design. Approved multi-device design for residency week (sections 1-6), plus the Model types v2 section. Design only: no code changes come with this document.  
 **Audience:** Hildegard contributors. Machine names only: rectory1 (Mac), parish1, abbey1.
 
@@ -13,7 +13,7 @@ Hildegard is a pnpm monorepo: `apps/server` (Hono daemon on port 7341 by default
 **Apps.** The product people run today is the CLI + local server + Studio in a browser, installed with:
 
 ```sh
-curl -fsSL https://github.com/baney75/hildegard/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/Students-of-Local/hildegard/releases/latest/download/install.sh | sh
 ```
 
 (`install/install.sh`: user-local under `~/.local/share/hildegard` or macOS `~/Library/Application Support/Hildegard`, Node + app SHA-256 checked, no sudo.) The Tauri desktop app wraps the same Studio and can bootstrap the same install (`apps/desktop/src-tauri/src/lib.rs`), but README says there are **no GitHub Releases of the app yet**; `desktop.yml` keeps artifacts for two weeks. BaneyFleet's mac-updater already expects `Hildegard.app.tar.gz` on the **stable** channel (`tools/mac-updater/channels/hildegard.json`, inventory 2026-11-01: v0.1.12).

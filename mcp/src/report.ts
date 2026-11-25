@@ -88,7 +88,7 @@ export const HOW = [
   'Built from source',
 ] as const;
 
-export const ISSUES_REPO = 'baney75/hildegard';
+export const ISSUES_REPO = 'Students-of-Local/hildegard';
 /** GitHub refuses longer links; the filled-in form drops the log first, then shortens the rest. */
 const MAX_URL = 7500;
 

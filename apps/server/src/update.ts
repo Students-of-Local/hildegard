@@ -15,7 +15,7 @@ import type { UpdateState } from '@hildegard/presets';
 export const UPDATE_KEY =
   'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM3MUY1NjVEODE4QjRFNkUKUldSdVRvdUJYVllmeCs0RytuWEdkeTFGSlo4N0o1YXZqdy9sSERBRVM2WW5tdW1Ya3BLN3kwRlYK';
 
-export const RELEASES = 'https://github.com/baney75/hildegard/releases';
+export const RELEASES = 'https://github.com/Students-of-Local/hildegard/releases';
 
 /** Whether version `a` comes after `b`, comparing their numbers (0.1.10 after 0.1.9). */
 export function newer(a: string, b: string): boolean {

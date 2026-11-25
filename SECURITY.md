@@ -5,7 +5,7 @@ machines and their work. Please report one privately.
 
 ## Reporting
 
-Use [Report a vulnerability](https://github.com/baney75/hildegard/security/advisories/new) on this repository's
+Use [Report a vulnerability](https://github.com/Students-of-Local/hildegard/security/advisories/new) on this repository's
 Security tab, or email donovan@dbaney.com. Say what an attacker can do, and how. You’ll get an answer as soon as possible,
 and a fix ships in a signed release, which every install picks up on its own.
 

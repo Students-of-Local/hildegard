@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: node scripts/pack-listing.mjs "$RUNNER_TEMP/plugin"
-      - name: Publish the Claude plugin to baney75/hildegard-plugin
+      - name: Publish the Claude plugin to Students-of-Local/hildegard-plugin
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LISTING_DEPLOY_KEY != ''
         run: printf '%s\\n' "$LISTING_DEPLOY_KEY" > ~/.ssh/listing_deploy_key
 `;

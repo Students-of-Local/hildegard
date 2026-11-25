@@ -4,7 +4,7 @@ import { Icon } from './ui.tsx';
 
 /** Where the move is explained: what changes, what stays, and how to switch. */
 export const MOVED_URL =
-  'https://github.com/baney75/hildegard/blob/main/docs/local-studio.md#moving-from-the-hildegard-app';
+  'https://github.com/Students-of-Local/hildegard/blob/main/docs/local-studio.md#moving-from-the-hildegard-app';
 export const MOVED_KEY = 'hildegard.movedToLocalStudio';
 
 /**

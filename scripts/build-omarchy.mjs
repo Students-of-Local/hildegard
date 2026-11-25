@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Builds the Omarchy plugin as baney75/omarchy-hildegard carries it: the omarchy/ folder, plus the release's own
+// Builds the Omarchy plugin as Students-of-Local/omarchy-hildegard carries it: the omarchy/ folder, plus the release's own
 // install.sh as share/install.sh, its version and SHA-256 written into release.env and manifest.json. Set up runs
 // that installer from inside the plugin, so no script is downloaded and run, and the marketplace reviews the very code
 // that installs Hildegard. Writes <out>/omarchy-hildegard/ and <out>/hildegard-omarchy-<version>.tar.gz, which the

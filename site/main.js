@@ -3,7 +3,7 @@
 // commands.
 
 // Where the release files live. The short dbaney.com/hildegard/install.sh and install.ps1 links redirect here.
-const RELEASE = 'https://github.com/baney75/hildegard/releases/latest/download/';
+const RELEASE = 'https://github.com/Students-of-Local/hildegard/releases/latest/download/';
 
 // The desktop app's file for each computer. Fix the names here once the desktop build settles them.
 const DESKTOP = {

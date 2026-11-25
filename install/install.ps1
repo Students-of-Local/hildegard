@@ -2,7 +2,7 @@
 #
 # Installs Hildegard @VERSION@ for this Windows user: no admin rights, nothing outside %LOCALAPPDATA%\Hildegard.
 #
-#   irm https://github.com/baney75/hildegard/releases/download/v@VERSION@/install.ps1 | iex
+#   irm https://github.com/Students-of-Local/hildegard/releases/download/v@VERSION@/install.ps1 | iex
 #
 # What it does, in order:
 #   1. Downloads Node.js @NODE@ from nodejs.org and Hildegard @VERSION@ from GitHub, and checks each against the
@@ -23,7 +23,7 @@ foreach ($v in 'HILDEGARD_ENTRY', 'HILDEGARD_RESOURCES', 'HILDEGARD_PRESETS_DIR'
 
 $Version = '@VERSION@'
 $Node = '@NODE@'
-$Release = if ($env:HILDEGARD_RELEASE_URL) { $env:HILDEGARD_RELEASE_URL } else { "https://github.com/baney75/hildegard/releases/download/v$Version" }
+$Release = if ($env:HILDEGARD_RELEASE_URL) { $env:HILDEGARD_RELEASE_URL } else { "https://github.com/Students-of-Local/hildegard/releases/download/v$Version" }
 # Where Node.js comes from. Each file is still checked against the SHA-256 written below, wherever it comes from.
 $NodeDist = if ($env:HILDEGARD_NODE_URL) { $env:HILDEGARD_NODE_URL } else { 'https://nodejs.org/dist' }
 $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }

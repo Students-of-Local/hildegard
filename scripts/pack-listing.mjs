@@ -32,11 +32,11 @@ export const URLS = {
   website: SITE,
   privacy: `${SITE}privacy/`,
   terms: `${SITE}terms/`,
-  support: 'https://github.com/baney75/hildegard/issues',
-  docs: 'https://github.com/baney75/hildegard/blob/main/docs/chatbots.md',
-  source: 'https://github.com/baney75/hildegard',
+  support: 'https://github.com/Students-of-Local/hildegard/issues',
+  docs: 'https://github.com/Students-of-Local/hildegard/blob/main/docs/chatbots.md',
+  source: 'https://github.com/Students-of-Local/hildegard',
   /** The public repository the Claude directory reads; the owner creates it, CI fills it. */
-  listingRepo: 'https://github.com/baney75/hildegard-plugin',
+  listingRepo: 'https://github.com/Students-of-Local/hildegard-plugin',
 };
 
 /** What claude.ai/directory/manage checks (the owner's research of 2026-11-07), as numbers the validator uses. */
@@ -160,7 +160,7 @@ ${list}
 Install the plugin from Claude's directory, or in Claude Code:
 
 \`\`\`text
-/plugin marketplace add baney75/hildegard-plugin
+/plugin marketplace add Students-of-Local/hildegard-plugin
 /plugin install hildegard-craft@hildegard-craft
 \`\`\`
 
@@ -196,7 +196,7 @@ export function claudeNotices() {
   return `# Third-party notices
 
 This plugin contains instructions, small Python helper scripts and HTML/CSS/SVG templates, all written for Hildegard
-(https://github.com/baney75/hildegard). It bundles no third-party code, fonts, models or binaries.
+(https://github.com/Students-of-Local/hildegard). It bundles no third-party code, fonts, models or binaries.
 
 - Instructions and helper scripts: AGPL-3.0-only (LICENSE).
 - The site templates under skills/hildegard-web/templates: Apache-2.0 (LICENSE-APACHE), as each file's SPDX line says.
@@ -206,7 +206,7 @@ The skills tell Claude how to use programs that are not included and are not par
 Blender (GPL-3.0-or-later) and, for one script, rembg (MIT). You install them yourself and they stay under their own licenses.
 
 The app these skills come from lists its own dependencies in
-https://github.com/baney75/hildegard/blob/main/THIRD_PARTY_NOTICES.md.
+https://github.com/Students-of-Local/hildegard/blob/main/THIRD_PARTY_NOTICES.md.
 `;
 }
 
@@ -402,7 +402,7 @@ were approved on November 7, 2026: ${URLS.privacy} and ${URLS.terms}.
 
 | Field | Value |
 | --- | --- |
-| Source | https://github.com/baney75/hildegard-plugin (public; CI fills it from this repository) |
+| Source | https://github.com/Students-of-Local/hildegard-plugin (public; CI fills it from this repository) |
 | Plugin name | ${code(CLAUDE.name)} |
 | Version | ${version} |
 | Homepage | ${URLS.website} |

@@ -9,7 +9,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy", "soundfile"]
 
 [project.urls]
-Repository = "https://github.com/baney75/hildegard"
+Repository = "https://github.com/Students-of-Local/hildegard"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

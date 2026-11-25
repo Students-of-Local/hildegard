@@ -49,8 +49,8 @@ else
   if [[ -z $HILDEGARD_VERSION || -z $INSTALL_SH_SHA256 || ! -f $INSTALLER ]]; then
     # A copy of the omarchy folder from a Hildegard checkout: its installer is built with each release.
     say "This copy of the plugin carries no Hildegard installer. Add the plugin with"
-    say "  omarchy plugin add https://github.com/baney75/omarchy-hildegard --enable"
-    say "or install Hildegard from https://github.com/baney75/hildegard#install, then run Set up again."
+    say "  omarchy plugin add https://github.com/Students-of-Local/omarchy-hildegard --enable"
+    say "or install Hildegard from https://github.com/Students-of-Local/hildegard#install, then run Set up again."
     exit 1
   fi
   got=$(sha256sum "$INSTALLER" | cut -d' ' -f1)

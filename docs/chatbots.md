@@ -31,7 +31,7 @@ end-to-end encrypted relay that needs no Tailscale, is coming soon.
 ## Claude Code
 
 ```text
-/plugin marketplace add baney75/hildegard
+/plugin marketplace add Students-of-Local/hildegard
 /plugin install hildegard@hildegard
 ```
 
@@ -49,7 +49,7 @@ Without the plugin: `hildegard connect claude-code` and `hildegard skills instal
 instead, which Codex keeps up to date:
 
 ```sh
-codex plugin marketplace add baney75/hildegard
+codex plugin marketplace add Students-of-Local/hildegard
 codex plugin add hildegard@hildegard
 hildegard connect codex --no-skills
 ```
@@ -87,7 +87,7 @@ it isn't. Rented GPUs stay out of Local Studio. The details: [local-studio.md](l
 
 1. `hildegard connect claude-desktop`, then quit and reopen Claude.
 2. For the skills, download `hildegard.plugin` and `hildegard.plugin.minisig` from the
-   [latest release](https://github.com/baney75/hildegard/releases/latest) and check it:
+   [latest release](https://github.com/Students-of-Local/hildegard/releases/latest) and check it:
    `minisign -Vm hildegard.plugin -P RWRuTouBXVYfx+4G+nXGdy1FJZ87J5avjw/lHDAES6YnmumXkpK7y0FV`
    ([what that proves](skill-suggestions.md)). Then add it in Claude: Settings › Plugins (or Customize › Plugins) ›
    Upload. It carries the skills only, since step 1 linked the tools.
@@ -98,7 +98,7 @@ it isn't. Rented GPUs stay out of Local Studio. The details: [local-studio.md](l
 2. claude.ai › Settings › Connectors › Add custom connector, with that address. Sign in on Hildegard's page. The
    connector then works in Cowork and the phone apps too.
 3. Skills (optional, they also come over MCP): download the `skill-*.zip` files from the
-   [latest release](https://github.com/baney75/hildegard/releases/latest) and upload each in Settings › Capabilities ›
+   [latest release](https://github.com/Students-of-Local/hildegard/releases/latest) and upload each in Settings › Capabilities ›
    Skills. Start with `skill-hildegard.zip`, `skill-hildegard-3d.zip` and `skill-hildegard-loop.zip`.
 
 ## ChatGPT

@@ -378,7 +378,7 @@ test('setup refuses an installer that does not match its checksum', async () => 
 test('setup from a checkout, with no installer, says where to get the plugin', async () => {
   const r = await setup(null);
   assert.equal(r.code, 1);
-  assert.match(r.stderr, /omarchy plugin add https:\/\/github\.com\/baney75\/omarchy-hildegard --enable/);
+  assert.match(r.stderr, /omarchy plugin add https:\/\/github\.com\/Students-of-Local\/omarchy-hildegard --enable/);
   assert.equal(existsSync(join(r.home, 'ran')), false);
 });
 

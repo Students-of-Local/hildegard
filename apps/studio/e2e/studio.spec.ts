@@ -256,7 +256,7 @@ test('about: version, the source for this build, and the notices', async ({ page
   await expect(page.getByRole('heading', { name: 'About Hildegard' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Source code for this version' })).toHaveAttribute(
     'href',
-    /^https:\/\/github\.com\/baney75\/hildegard(\/tree\/[0-9a-f]{40})?$/,
+    /^https:\/\/github\.com\/Students-of-Local\/hildegard(\/tree\/[0-9a-f]{40})?$/,
   );
   const notices = await request.get('/THIRD_PARTY_NOTICES.txt');
   expect(notices.headers()['content-type']).toContain('text/plain');

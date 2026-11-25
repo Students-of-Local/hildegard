@@ -17,7 +17,7 @@ leave.
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/baney75/omarchy-hildegard --enable
+omarchy plugin add https://github.com/Students-of-Local/omarchy-hildegard --enable
 ```
 
 `--enable` asks where in the bar to put it. Then click the ring and choose **Set up Hildegard**. That's all: no
@@ -27,14 +27,14 @@ password, no logout, no reboot.
 
 1. Installs Hildegard for you alone, into `~/.local/share/hildegard` with a `hildegard` command in `~/.local/bin`. No
    root, nothing outside your home folder. It runs the installer that ships inside this plugin,
-   [`share/install.sh`](share/install.sh) (the very one each [Hildegard release](https://github.com/baney75/hildegard/releases)
+   [`share/install.sh`](share/install.sh) (the very one each [Hildegard release](https://github.com/Students-of-Local/hildegard/releases)
    publishes), and only if it matches the SHA-256 pinned in [`release.env`](release.env). The installer downloads
    Node.js from nodejs.org and Hildegard from GitHub, and refuses either unless it matches the SHA-256 written into it.
 2. Runs `hildegard install`, which sets up ComfyUI and PyTorch for your GPU (NVIDIA or AMD), about 8 GB.
 3. Runs `hildegard setup`, which picks a video model that fits your GPU and asks you before accepting its license or
    linking any AI app.
 
-If Hildegard is already installed (say, with the [one-line installer](https://github.com/baney75/hildegard#install)),
+If Hildegard is already installed (say, with the [one-line installer](https://github.com/Students-of-Local/hildegard#install)),
 Set up skips step 1 and the widget finds the `hildegard` command on your PATH or in `~/.local/bin`.
 
 ### For AI agents
@@ -42,13 +42,13 @@ Set up skips step 1 and the widget finds the `hildegard` command on your PATH or
 Everything above runs without a person at the keyboard too, with the same checked installer:
 
 ```sh
-omarchy plugin add https://github.com/baney75/omarchy-hildegard --enable --yes
+omarchy plugin add https://github.com/Students-of-Local/omarchy-hildegard --enable --yes
 ~/.config/omarchy/plugins/io.github.baney75.hildegard/bin/hildegard-omarchy-setup --yes --json
 ```
 
 The second line asks nothing: it installs Hildegard, sets up ComfyUI and PyTorch, links the AI apps it finds and
 accepts no license. Its progress goes to stderr, and stdout holds only `hildegard setup`'s JSON, which
-[INSTALL-FOR-AGENTS.md](https://github.com/baney75/hildegard/blob/main/INSTALL-FOR-AGENTS.md) explains, including the
+[INSTALL-FOR-AGENTS.md](https://github.com/Students-of-Local/hildegard/blob/main/INSTALL-FOR-AGENTS.md) explains, including the
 steps that belong to the owner (accepting a model's license).
 
 ## A key for the panel
@@ -92,7 +92,7 @@ That removes the widget only. To remove Hildegard too, run `hildegard stop`, the
 
 ## Develop
 
-This plugin is built from the [`omarchy/` folder of Hildegard](https://github.com/baney75/hildegard/tree/main/omarchy)
+This plugin is built from the [`omarchy/` folder of Hildegard](https://github.com/Students-of-Local/hildegard/tree/main/omarchy)
 with each release, which adds that release's installer; send changes there.
 
 - `Widget.qml` draws the ring and the panel; `Model.js` decides what they show, as plain functions.

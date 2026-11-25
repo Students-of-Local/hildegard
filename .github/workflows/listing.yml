@@ -5,7 +5,7 @@ name: Listing
 #
 # - build runs on pull requests and pushes with contents: read and no secret.
 # - publish runs only on main (a push, or a manual run from main), in the "listing" environment, from that commit. It
-#   builds the Claude directory's plugin tree again and pushes only that tree to baney75/hildegard-plugin, using the
+#   builds the Claude directory's plugin tree again and pushes only that tree to Students-of-Local/hildegard-plugin, using the
 #   environment secret LISTING_DEPLOY_KEY (a write-enabled deploy key the owner creates, docs/listings.md) through
 #   ssh-agent, and does nothing without it. The environment's deployment branches are main only: a pull request can
 #   edit this file, but GitHub gives the environment's secret to no other branch. apps/cli/test/listing-workflow.test.ts holds this file to those rules.
@@ -92,7 +92,7 @@ jobs:
         run: |
           node scripts/pack-listing.mjs "$RUNNER_TEMP/plugin" --extras "$RUNNER_TEMP/extras"
           node scripts/check-listing.mjs "$RUNNER_TEMP/plugin" "$RUNNER_TEMP/extras/hildegard-openai.zip"
-      - name: Publish the Claude plugin to baney75/hildegard-plugin
+      - name: Publish the Claude plugin to Students-of-Local/hildegard-plugin
         env:
           LISTING_DEPLOY_KEY: ${{ secrets.LISTING_DEPLOY_KEY }}
         run: |
@@ -109,7 +109,7 @@ jobs:
           install -m 700 -d ~/.ssh
           echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -o IdentitiesOnly=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
-          git clone --quiet git@github.com:baney75/hildegard-plugin.git "$RUNNER_TEMP/target"
+          git clone --quiet git@github.com:Students-of-Local/hildegard-plugin.git "$RUNNER_TEMP/target"
           cd "$RUNNER_TEMP/target"
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp -a "$RUNNER_TEMP/plugin/." .
@@ -122,6 +122,6 @@ jobs:
             exit 0
           fi
           git -c user.name="hildegard listing" -c user.email="listing@users.noreply.github.com" \
-            commit --quiet -m "Hildegard Craft from baney75/hildegard@${GITHUB_SHA::7}"
+            commit --quiet -m "Hildegard Craft from Students-of-Local/hildegard@${GITHUB_SHA::7}"
           git push --quiet origin HEAD:main
-          echo "Published to baney75/hildegard-plugin."
+          echo "Published to Students-of-Local/hildegard-plugin."

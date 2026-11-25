@@ -7,21 +7,21 @@
 Films, images, voices, characters and 3D, made on computers you own. A free, open source alternative to Higgsfield
 and ElevenLabs that runs locally on Windows, macOS and Linux, with music on the way.
 
-[![Latest release](https://img.shields.io/github/v/release/baney75/hildegard?include_prereleases&label=release&color=2c7350)](https://github.com/baney75/hildegard/releases/latest)
-[![CI](https://github.com/baney75/hildegard/actions/workflows/ci.yml/badge.svg)](https://github.com/baney75/hildegard/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Students-of-Local/hildegard?include_prereleases&label=release&color=2c7350)](https://github.com/Students-of-Local/hildegard/releases/latest)
+[![CI](https://github.com/Students-of-Local/hildegard/actions/workflows/ci.yml/badge.svg)](https://github.com/Students-of-Local/hildegard/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-3451b2)](LICENSE)
 [![Windows, macOS, Linux](https://img.shields.io/badge/runs_on-Windows_·_macOS_·_Linux-d9b45c)](#install)
 [![MCP server](https://img.shields.io/badge/MCP-server-15265a)](#use-it-from-your-ai-apps)
 
 [**Website**](https://dbaney.com/hildegard/) · [**Install**](#install) · [**For AI agents**](INSTALL-FOR-AGENTS.md) ·
-[**Releases**](https://github.com/baney75/hildegard/releases) · [**Contributing**](CONTRIBUTING.md)
+[**Releases**](https://github.com/Students-of-Local/hildegard/releases) · [**Contributing**](CONTRIBUTING.md)
 
 <a href="https://dbaney.com/hildegard/"><img src="brand/social-preview.jpg" alt="Golden Hour, shot II: a sea stack at sunset rendered by Hildegard, beside the words Your own AI studio, on your own GPU." width="880"></a>
 
 </div>
 
 > [!IMPORTANT]
-> **Hildegard is now a plugin in [Local Studio](https://github.com/baney75/local-studio).** The Hildegard app keeps
+> **Hildegard is now a plugin in [Local Studio](https://github.com/Students-of-Local/local-studio).** The Hildegard app keeps
 > working and gets fixes, but new features go into the plugin, which runs on the same engine with your projects,
 > voices and models. [How to switch](docs/local-studio.md#moving-from-the-hildegard-app).
 
@@ -50,13 +50,13 @@ and nothing costs money per shot.
 **macOS and Linux**
 
 ```sh
-curl -fsSL https://github.com/baney75/hildegard/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/Students-of-Local/hildegard/releases/latest/download/install.sh | sh
 ```
 
 **Windows** (PowerShell, no admin rights)
 
 ```powershell
-irm https://github.com/baney75/hildegard/releases/latest/download/install.ps1 | iex
+irm https://github.com/Students-of-Local/hildegard/releases/latest/download/install.ps1 | iex
 ```
 
 The installer checks every download against a SHA-256 written into it, puts everything in one folder in your home
@@ -79,7 +79,7 @@ hildegard open      # opens the Studio
 On a Linux box (or a Mac) that serves your other devices, with no Studio open on it:
 
 ```sh
-curl -fsSL https://github.com/baney75/hildegard/releases/latest/download/install.sh | sh -s -- --server
+curl -fsSL https://github.com/Students-of-Local/hildegard/releases/latest/download/install.sh | sh -s -- --server
 ```
 
 It installs as above, adds speech and transcription (`hildegard voice install --env speech`), and writes a service
@@ -120,7 +120,7 @@ On [Omarchy](https://omarchy.org), add the [Hildegard bar widget](omarchy/README
 installs Hildegard with the checked installer it carries, then shows renders in your bar.
 
 ```sh
-omarchy plugin add https://github.com/baney75/omarchy-hildegard --enable
+omarchy plugin add https://github.com/Students-of-Local/omarchy-hildegard --enable
 ```
 
 ## The Hildegard app
@@ -200,7 +200,7 @@ moment they take it back. The stills come from FLUX.2 [klein] 4B (Apache-2.0, ab
 Hildegard is how your AI apps reach your own computers. In Claude Code, it's a plugin:
 
 ```text
-/plugin marketplace add baney75/hildegard
+/plugin marketplace add Students-of-Local/hildegard
 /plugin install hildegard@hildegard
 ```
 

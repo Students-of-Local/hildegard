@@ -135,8 +135,8 @@ describe('finding issues like it', () => {
         ],
       });
     }) as unknown as typeof fetch;
-    const s = await similarIssues('The draft takes don’t start on my GPU', 'baney75/hildegard', fetchFn);
-    expect(asked).toContain('repo:baney75/hildegard is:issue draft takes start gpu');
+    const s = await similarIssues('The draft takes don’t start on my GPU', 'Students-of-Local/hildegard', fetchFn);
+    expect(asked).toContain('repo:Students-of-Local/hildegard is:issue draft takes start gpu');
     expect(s!.map((x) => x.number)).toEqual([7, 3]);
     expect(
       await similarIssues(
@@ -171,17 +171,17 @@ describe('the report tools', () => {
       id: 'r0123456789ab',
       kind: 'bug',
       at: '2026-10-26T00:00:00Z',
-      repo: 'baney75/hildegard',
+      repo: 'Students-of-Local/hildegard',
       title: 'It broke',
       body: '### What happened\n\nIt broke',
       labels: ['bug'],
-      url: 'https://github.com/baney75/hildegard/issues/new?template=bug.yml',
+      url: 'https://github.com/Students-of-Local/hildegard/issues/new?template=bug.yml',
       removed: { path: 2 },
       similar: [
         {
           number: 4,
           title: 'It broke too',
-          url: 'https://github.com/baney75/hildegard/issues/4',
+          url: 'https://github.com/Students-of-Local/hildegard/issues/4',
           state: 'open',
           comments: 1,
         },
@@ -195,7 +195,7 @@ describe('the report tools', () => {
       }
       if (u.endsWith('/api/report/file'))
         return Response.json({
-          draft: { ...draft, filed: { url: 'https://github.com/baney75/hildegard/issues/5', at: 'now' } },
+          draft: { ...draft, filed: { url: 'https://github.com/Students-of-Local/hildegard/issues/5', at: 'now' } },
         });
       return Response.json({ error: 'no' }, { status: 404 });
     }) as unknown as typeof fetch);
@@ -235,7 +235,7 @@ describe('the report tools', () => {
     })) as CallToolResult;
     const out = JSON.stringify(r.content);
     expect(out).toContain('isn’t running');
-    expect(out).toContain('https://github.com/baney75/hildegard/issues/new?');
+    expect(out).toContain('https://github.com/Students-of-Local/hildegard/issues/new?');
     await client.close();
   });
 });

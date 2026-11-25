@@ -82,7 +82,7 @@ same head binding, so don't also run `gh pr merge`. The status is the only way a
    brief, not today's `origin/main`). A fix after a SHIP is a new head: review it first.
 
    ```sh
-   gh api repos/baney75/hildegard/statuses/$H -f state=success -f context=baney-review \
+   gh api repos/Students-of-Local/hildegard/statuses/$H -f state=success -f context=baney-review \
      -f description="tier <n> <SHIP|settled r<round>|check <name> pass> base <reviewed base, 7 chars>"
    ```
 
@@ -94,7 +94,7 @@ same head binding, so don't also run `gh pr merge`. The status is the only way a
    current head, `gh pr view <n> --json headRefOid -q .headRefOid`; the latest status in `baney-review` wins:
 
    ```sh
-   gh api repos/baney75/hildegard/statuses/<head> -f state=failure -f context=baney-review -f description="revoked: <reason>"
+   gh api repos/Students-of-Local/hildegard/statuses/<head> -f state=failure -f context=baney-review -f description="revoked: <reason>"
    ```
 
    `gh pr merge <n> --disable-auto` may follow, never replace it: `auto-merge.yml` turns auto-merge back on.

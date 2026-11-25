@@ -9,7 +9,7 @@ On a server with its own release install, one command does sections 2 and 3, and
 systemd unit (a LaunchAgent on macOS):
 
 ```sh
-curl -fsSL https://github.com/baney75/hildegard/releases/latest/download/install.sh | sh -s -- --server
+curl -fsSL https://github.com/Students-of-Local/hildegard/releases/latest/download/install.sh | sh -s -- --server
 hildegard doctor            # service, voice, llm and sharing are done, or each says its fix
 ```
 

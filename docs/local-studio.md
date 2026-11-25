@@ -1,6 +1,6 @@
 # Hildegard in Local Studio
 
-Hildegard is now a plugin in [Local Studio](https://github.com/baney75/local-studio). The Hildegard app (its window,
+Hildegard is now a plugin in [Local Studio](https://github.com/Students-of-Local/local-studio). The Hildegard app (its window,
 tray and Studio) keeps working and gets fixes, but new features go into the plugin. Nothing you made moves: the plugin
 runs on the same Hildegard engine, with the same projects, voices and models.
 
@@ -12,7 +12,7 @@ runs on the same Hildegard engine, with the same projects, voices and models.
    macOS and Linux it sets Hildegard up as a user service (a LaunchAgent on macOS, a user systemd unit on Linux) that
    starts at login. It keeps the ComfyUI and models you have, and sets up speech for Talk if it isn't there yet.
    Windows has no Hildegard service yet, so on Windows keep the app, which starts the engine.
-3. Install [Local Studio](https://github.com/baney75/local-studio#install), then the Hildegard plugin from its catalog:
+3. Install [Local Studio](https://github.com/Students-of-Local/local-studio#install), then the Hildegard plugin from its catalog:
    **Settings › Plugins › Hildegard › Install**, or `local-studio plugin install hildegard`. Allow its tools on the
    consent sheet. A Local Studio from before the catalog listed Hildegard (November 23, 2026) won't find it there; run
    `hildegard connect local-studio` instead, which installs the plugin this Hildegard carries (see [Install](#install)).

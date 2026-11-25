@@ -48,7 +48,7 @@ installed=""
 if command -v hildegard > /dev/null; then installed="$(hildegard --version 2> /dev/null || true)"; fi
 if [ "$installed" != "$HILDEGARD_VERSION" ]; then
   log "Installing Hildegard $HILDEGARD_VERSION (first start takes a while: ComfyUI and PyTorch)"
-  curl -fsSL --retry 3 "https://github.com/baney75/hildegard/releases/download/v${HILDEGARD_VERSION}/install.sh" \
+  curl -fsSL --retry 3 "https://github.com/Students-of-Local/hildegard/releases/download/v${HILDEGARD_VERSION}/install.sh" \
     | sh -s -- --json >> "$LOG" 2>&1
 fi
 hildegard start --json >> "$LOG" 2>&1 || true
