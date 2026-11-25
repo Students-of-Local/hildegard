@@ -24,7 +24,10 @@ function standIn(opts: { signedIn?: boolean; labels?: boolean } = {}) {
       return { ok: true, out: `https://github.com/Students-of-Local/hildegard/issues/${++n}` };
     }
     if (args[1] === 'comment')
-      return { ok: true, out: `https://github.com/Students-of-Local/hildegard/issues/${args[2]}#issuecomment-1` };
+      return {
+        ok: true,
+        out: `https://github.com/Students-of-Local/hildegard/issues/${args[2]}#issuecomment-1`,
+      };
     return { ok: false, out: 'unknown' };
   };
   const searched: string[] = [];

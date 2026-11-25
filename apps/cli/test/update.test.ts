@@ -40,7 +40,9 @@ describe('signedInstaller', () => {
   it('returns the release’s installer when its signature checks out', async () => {
     const sh = github({ 'install.sh': 'install.sh', 'install.sh.sig': 'install.sh.sig' });
     expect(await signedInstaller('9.9.9', false, sh.f, KEY)).toEqual(read('install.sh'));
-    expect(sh.asked[0]).toBe('https://github.com/Students-of-Local/hildegard/releases/download/v9.9.9/install.sh');
+    expect(sh.asked[0]).toBe(
+      'https://github.com/Students-of-Local/hildegard/releases/download/v9.9.9/install.sh',
+    );
     const ps = github({ 'install.ps1': 'install.ps1', 'install.ps1.sig': 'install.ps1.sig' });
     expect(await signedInstaller('9.9.9', true, ps.f, KEY)).toEqual(read('install.ps1'));
   });

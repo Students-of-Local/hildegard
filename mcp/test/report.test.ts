@@ -135,7 +135,11 @@ describe('finding issues like it', () => {
         ],
       });
     }) as unknown as typeof fetch;
-    const s = await similarIssues('The draft takes don’t start on my GPU', 'Students-of-Local/hildegard', fetchFn);
+    const s = await similarIssues(
+      'The draft takes don’t start on my GPU',
+      'Students-of-Local/hildegard',
+      fetchFn,
+    );
     expect(asked).toContain('repo:Students-of-Local/hildegard is:issue draft takes start gpu');
     expect(s!.map((x) => x.number)).toEqual([7, 3]);
     expect(
@@ -195,7 +199,10 @@ describe('the report tools', () => {
       }
       if (u.endsWith('/api/report/file'))
         return Response.json({
-          draft: { ...draft, filed: { url: 'https://github.com/Students-of-Local/hildegard/issues/5', at: 'now' } },
+          draft: {
+            ...draft,
+            filed: { url: 'https://github.com/Students-of-Local/hildegard/issues/5', at: 'now' },
+          },
         });
       return Response.json({ error: 'no' }, { status: 404 });
     }) as unknown as typeof fetch);

@@ -212,7 +212,7 @@ describe('the privacy and terms pages', () => {
       expect(html).not.toMatch(/class="draft"|DRAFT|\(draft\)/);
       expect(html).not.toContain('[Owner');
       expect(html).not.toContain('noindex');
-      expect(html).toContain('https://github.com/Students-of-Local/hildegard/issues');
+      expect(html).toContain('https://github.com/baney75/hildegard/issues');
       expect(html).toContain('mailto:support@dbaney.com');
       expect(html).toContain('Last updated: November 7, 2026');
       expect(html).not.toMatch(/[–—]/);
