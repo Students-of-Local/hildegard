@@ -8,8 +8,8 @@ path is relative, so it works from any folder, such as `https://dbaney.com/hilde
 - Copy this folder as it is. `node scripts/build-release.mjs` also puts a copy in the release output's `site/`.
 - The page's one-liners use short links, so the host must redirect them to the latest release (302, so a new release
   needs no change):
-  - `/hildegard/install.sh` to `https://github.com/Students-of-Local/hildegard/releases/latest/download/install.sh`
-  - `/hildegard/install.ps1` to `https://github.com/Students-of-Local/hildegard/releases/latest/download/install.ps1`
+  - `/hildegard/install.sh` to `https://github.com/baney75/hildegard/releases/latest/download/install.sh`
+  - `/hildegard/install.ps1` to `https://github.com/baney75/hildegard/releases/latest/download/install.ps1`
 - `og:url`, `og:image` and the canonical link in `index.html` name `https://dbaney.com/hildegard/`. Change them if
   the page moves.
 - `.github/workflows/pages.yml` can publish it to GitHub Pages, but only when started by hand, with the owner's OK.
