@@ -25,12 +25,24 @@ export const freePort = () =>
     });
   });
 
+const { HILDEGARD_HOME: _hildegardHome, ...parentEnv } = process.env;
+
 export const cliEnv = (home: string) => ({
-  ...process.env,
+  ...parentEnv,
   HOME: home,
   USERPROFILE: home,
   APPDATA: join(home, 'AppData'),
+  LOCALAPPDATA: join(home, 'AppData', 'Local'),
   XDG_CONFIG_HOME: join(home, '.config'),
+  XDG_DATA_HOME: join(home, '.local', 'share'),
+  XDG_CACHE_HOME: join(home, '.cache'),
+  // An agent session exports its own config folders: the CLI must never write skills or settings into those.
+  CLAUDE_CONFIG_DIR: join(home, '.claude'),
+  CODEX_HOME: join(home, '.codex'),
+  PI_CODING_AGENT_DIR: join(home, '.pi', 'agent'),
+  LOCAL_STUDIO_DATA_DIR: join(home, '.local-studio'),
+  HF_HOME: join(home, '.cache', 'huggingface'),
+  HF_TOKEN_PATH: join(home, '.cache', 'huggingface', 'token'),
   PATH: '',
   HF_TOKEN: '',
   // Never a real keychain from tests.
