@@ -17,7 +17,7 @@ import { findBlender, runBlender } from '../src/blender.ts';
 import { fileStore, parseArgs, startServer } from '../src/index.ts';
 import { freePort } from './harness.ts';
 
-const blender = findBlender();
+const blender = await findBlender();
 if (!blender)
   console.warn(
     'blender-kit.test.ts: no Blender here (set HILDEGARD_BLENDER or put blender on PATH), so the kit tests skip.',
