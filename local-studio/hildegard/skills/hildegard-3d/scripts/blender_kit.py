@@ -9,7 +9,7 @@
     bk.clear_scene()
     bk.units_mm()
     body = bk.cylinder("body", radius=20, depth=45, location=(0, 0, 22.5))
-    head = bk.sphere("head", radius=15, location=(0, 0, 60))
+    head = bk.sphere("head", radius=15, location=(0, 0, 45 + 0.7 * 15))   # sunk into the body, so they join
     figure = bk.join([body, head], "figure")
     bk.remesh(figure, voxel=1.0)
     bk.subdivide(figure, levels=1)
@@ -24,7 +24,11 @@ Run it as Hildegard does, every path absolute (Blender reads relative paths agai
 
 One Blender unit is one millimetre here (`units_mm`), and the exports keep those numbers, so a print's sizes read in
 millimetres. Blender is Z up and glTF is Y up: `export_glb` turns the model so it stands up in any glTF viewer and in
-Hildegard's views; `export_stl` keeps Z up.
+Hildegard's views; `export_stl` keeps Z up. glTF counts in metres, so a GLB for viewing, AR, the web or a game is
+exported with `export_glb(out, ["figure"], scale=0.001)`; the default keeps millimetres, as a print loop wants.
+
+`turntable` is for delivery: its defaults (96 Cycles frames at 512 px) can outrun a loop round's 180 s build limit, so
+run it with Blender directly on the finished model, not inside a loop round.
 """
 
 import json
@@ -186,18 +190,37 @@ def material(obj, name, color=(0.8, 0.8, 0.8), roughness=0.6, metallic=0.0):
 
 
 def _only(names):
-    objs = [bpy.data.objects[n] for n in names] if names else [o for o in bpy.data.objects if o.type == "MESH"]
+    if names is None:
+        objs = [o for o in bpy.data.objects if o.type == "MESH"]
+    else:
+        objs = [bpy.data.objects[n] for n in names]
+    if not objs:
+        raise ValueError("no mesh to export")
     _select(*objs)
     return objs
 
 
-def export_glb(out, names=None, filename="model.glb"):
-    """The named objects (every mesh when None) as one GLB in `out`, Y up, modifiers applied."""
-    _only(names)
+def export_glb(out, names=None, filename="model.glb", scale=1.0):
+    """The named objects (every mesh when None) as one GLB in `out`, Y up, modifiers applied.
+
+    `scale` multiplies every size: 1.0 keeps millimetres (print loops), 0.001 gives metres, what glTF viewers, AR, the
+    web and game engines read.
+    """
+    from mathutils import Matrix
+
+    objs = _only(names)
+    roots = [o for o in objs if o.parent is None]
+    kept = [o.matrix_world.copy() for o in roots]
+    for o in roots:
+        o.matrix_world = Matrix.Scale(scale, 4) @ o.matrix_world
     path = os.path.join(out, filename)
-    bpy.ops.export_scene.gltf(
-        filepath=path, export_format="GLB", use_selection=True, export_yup=True, export_apply=True
-    )
+    try:
+        bpy.ops.export_scene.gltf(
+            filepath=path, export_format="GLB", use_selection=True, export_yup=True, export_apply=True
+        )
+    finally:
+        for o, m in zip(roots, kept):
+            o.matrix_world = m
     return path
 
 
@@ -214,6 +237,8 @@ def export_stl(out, names=None, filename="model.stl"):
 
 def turntable(out, frames=96, size=512, samples=16, names=None):
     """Renders `frames` stills circling the model with Cycles on the CPU into `out` as turn_0001.png and on.
+
+    For delivery: the defaults can take longer than a loop round's 180 s build limit, so run it with Blender directly.
 
     An empty at the model's centre turns a step each frame, with the camera parented to it, so the camera circles at
     one height and distance, framed on the model's bounds. Returns the paths of the frames.
