@@ -256,6 +256,13 @@ describe('reading a Blender build script', () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32')('passes over a snap’s launcher', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hg-blender-snap-'));
+    writeFileSync(join(dir, 'snap'), '#!/bin/sh\necho "Blender 5.2.2 LTS"\n', { mode: 0o755 });
+    symlinkSync(join(dir, 'snap'), join(dir, 'blender'));
+    expect(await findBlender({ HILDEGARD_BLENDER: join(dir, 'blender'), PATH: process.env.PATH })).toBeNull();
+  });
+
   it('looks only where HILDEGARD_BLENDER says when it is set', async () => {
     // Even with a Blender on PATH, as there is when one was found.
     const path = blender ? dirname(blender.path) : process.env.PATH;
@@ -264,6 +271,26 @@ describe('reading a Blender build script', () => {
 });
 
 describe.skipIf(process.platform === 'win32')('a Blender that never answers', { timeout: 60_000 }, () => {
+  it('gives up on a wrapper whose Blender holds its output open, and keeps that answer', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hg-blender-wrap-'));
+    const p = join(dir, 'blender');
+    writeFileSync(
+      p,
+      '#!/bin/sh\necho x >> "$(dirname "$0")/count"\nsleep 120 &\necho $! > "$(dirname "$0")/held"\nwait\n',
+      {
+        mode: 0o755,
+      },
+    );
+    const env = { HILDEGARD_BLENDER: p, PATH: process.env.PATH };
+    const asked = Date.now();
+    expect(await findBlender(env)).toBeNull();
+    expect(Date.now() - asked).toBeLessThan(32_000);
+    const held = Number(readFileSync(join(dir, 'held'), 'utf8'));
+    expect(() => process.kill(held, 0)).toThrow();
+    expect(await findBlender(env)).toBeNull();
+    expect(readFileSync(join(dir, 'count'), 'utf8').split('\n').filter(Boolean)).toHaveLength(1);
+  });
+
   it('holds up no other request while it is asked its version', async () => {
     const p = join(mkdtempSync(join(tmpdir(), 'hg-blender-mute-')), 'blender');
     writeFileSync(p, '#!/bin/sh\nexec sleep 4\n', { mode: 0o755 });
@@ -639,6 +666,23 @@ describe.skipIf(!blender)('a model loop built in Blender', { timeout: 600_000 },
     );
     expect(r).toMatchObject({ status: 422, json: { code: 'blender_failed' } });
     expect(r.json.error).toContain('wrote no model.glb');
+  });
+
+  it('refuses an out folder the build put a link in place of', async () => {
+    const id = await s.start();
+    const r = await s.submit(
+      id,
+      script(
+        'import shutil',
+        'bpy.ops.mesh.primitive_cube_add(size=10)',
+        'os.mkdir(out + "-elsewhere")',
+        'bpy.ops.export_scene.gltf(filepath=os.path.join(out + "-elsewhere", "model.glb"), export_yup=True)',
+        'shutil.rmtree(out)',
+        'os.symlink(out + "-elsewhere", out)',
+      ),
+    );
+    expect(r).toMatchObject({ status: 422, json: { code: 'blender_failed' } });
+    expect(r.json.error).toContain('--out folder');
   });
 
   it('runs a build while Cycles is being checked, without waiting for it', async () => {
