@@ -85,7 +85,9 @@ function version(real: string, argv0: string): Promise<Blender | null> {
     const end = () => {
       clearTimeout(timer);
       const m = /^Blender (\d+\.\d+(?:\.\d+)?(?: LTS)?)/m.exec(out);
-      done(m ? { path: real, version: m[1]!, ...(basename(argv0) === basename(real) ? {} : { argv0 }) } : null);
+      done(
+        m ? { path: real, version: m[1]!, ...(basename(argv0) === basename(real) ? {} : { argv0 }) } : null,
+      );
     };
     child.once('error', end);
     child.once('close', end);
