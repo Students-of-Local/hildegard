@@ -70,12 +70,12 @@ export async function blenderStep(dataDir: string): Promise<Step> {
         ? 'build scripts would run in a sandbox'
         : sandboxed
           ? 'build scripts from this computer run in a sandbox'
-          : 'Blender can’t be sandboxed here (Linux without bubblewrap, Windows, or a snap, Flatpak or AppImage Blender), so no build script runs';
+          : 'Blender can’t be sandboxed here (Linux without bubblewrap, Windows, or a Flatpak or AppImage Blender), so no build script runs';
   return {
     id: 'blender',
     title: 'Blender',
     status: blender && scripts === 'on' && sandboxed ? 'done' : 'skipped',
-    detail: `${blender ? `Blender ${blender.version}` : 'Not installed; model loops take exported GLB and STL instead'}. blenderScripts is ${scripts} (in ${dataDir}/blender.json): ${why}.`,
+    detail: `${blender ? `Blender ${blender.version}` : 'Not installed (a snap Blender is passed over, as it can’t be sandboxed); model loops take exported GLB and STL instead'}. blenderScripts is ${scripts} (in ${dataDir}/blender.json): ${why}.`,
     ...(blender ? {} : { command: 'https://www.blender.org/download/lts/' }),
   };
 }

@@ -17,12 +17,14 @@ import {
   constants,
   existsSync,
   fstatSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
   readSync,
+  realpathSync,
   rmSync,
   writeFileSync,
   writeSync,
@@ -34,8 +36,6 @@ import { findSandbox, MAX_MESH_BYTES, scrubPaths } from './openscad.ts';
 
 export interface Blender {
   path: string;
-  /** The name it was found by, run as its argv[0], for a launcher that reads it (a snap). */
-  argv0?: string;
   /** "5.2.2 LTS". */
   version: string;
 }
@@ -66,33 +66,59 @@ export function blenderCandidates(env: NodeJS.ProcessEnv = process.env, os = pla
 }
 
 // Each candidate's probe, kept while its real file and mtime stay the same, so an upgrade is probed again. A probe
-// that failed is kept 30 s, so a `blender` that never answers isn't started on every request.
+// that failed is kept 30 s after it ended, so a `blender` that never answers isn't started on every request.
 const probed = new Map<string, { real: string; mtime: number; at: number; found: Promise<Blender | null> }>();
 
-function version(real: string, argv0: string): Promise<Blender | null> {
+const stopGroup = (pid: number) => {
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {}
+};
+
+function version(real: string): Promise<Blender | null> {
   return new Promise((done) => {
     let out = '';
+    const own = platform() !== 'win32';
     const child = spawn(real, ['--factory-startup', '--version'], {
-      argv0,
       env: { PATH: process.env.PATH },
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
+      detached: own,
     });
-    const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+    const stop = () => {
+      if (own && child.pid) stopGroup(child.pid);
+      else child.kill('SIGKILL');
+    };
+    const timer = setTimeout(() => {
+      stop();
+      end();
+    }, 30_000);
+    let grace: NodeJS.Timeout | undefined;
     child.stdout.on('data', (d: Buffer) => {
       out = (out + d.toString()).slice(-20_000);
     });
+    let ended = false;
     const end = () => {
+      if (ended) return;
+      ended = true;
       clearTimeout(timer);
+      clearTimeout(grace);
+      child.stdout.destroy();
       const m = /^Blender (\d+\.\d+(?:\.\d+)?(?: LTS)?)/m.exec(out);
-      done(
-        m ? { path: real, version: m[1]!, ...(basename(argv0) === basename(real) ? {} : { argv0 }) } : null,
-      );
+      done(m ? { path: real, version: m[1]! } : null);
     };
     child.once('error', end);
+    child.once('exit', () => {
+      if (own && child.pid) stopGroup(child.pid);
+      grace = setTimeout(end, 1000);
+    });
     child.once('close', end);
   });
 }
+
+/** Whether a candidate is a snap's launcher, which runs Blender outside any sandbox Hildegard could put it in. */
+const snapLauncher = (path: string, real: string) =>
+  basename(real) === 'snap' || [path, real].some((p) => p.startsWith('/snap/'));
 
 /**
  * Blender at `path` and its version, or null when it isn't one that runs. The path is the real file a link points
@@ -104,7 +130,7 @@ export async function probeBlender(path: string): Promise<Blender | null> {
   try {
     real = await realpath(path);
     const st = await stat(real);
-    if (!st.isFile()) return null;
+    if (!st.isFile() || snapLauncher(path, real)) return null;
     mtime = st.mtimeMs;
   } catch {
     probed.delete(path);
@@ -115,8 +141,12 @@ export async function probeBlender(path: string): Promise<Blender | null> {
     const b = await hit.found;
     if (b || Date.now() - hit.at < 30_000) return b;
   }
-  const found = version(real, path);
-  probed.set(path, { real, mtime, at: Date.now(), found });
+  const found = version(real);
+  const entry = { real, mtime, at: Date.now(), found };
+  probed.set(path, entry);
+  found.then(() => {
+    entry.at = Date.now();
+  });
   return found;
 }
 
@@ -188,14 +218,22 @@ let pending = 0;
 // The process groups of builds running now, stopped when Hildegard exits so none outlives it.
 const live = new Set<number>();
 let exitHook = false;
-const stopGroup = (pid: number) => {
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch {}
-};
 
 /** Whether a build is waiting or running, so an update waits for it. */
 export const blenderBusy = () => pending > 0;
+
+/** Refuses an out folder the build moved, or put a link or anything else in place of. */
+function ownOutDir(work: string, outDir: string) {
+  let ok = false;
+  try {
+    const st = lstatSync(outDir);
+    ok = st.isDirectory() && !st.isSymbolicLink() && realpathSync(outDir) === join(realpathSync(work), 'out');
+  } catch {}
+  if (!ok)
+    throw new BlenderError(
+      'The build script moved or replaced the --out folder it was given. Export the model into that folder as it is.',
+    );
+}
 
 /**
  * model.glb as the build left it, read through one descriptor that never follows a link, so what is checked is what
@@ -223,15 +261,20 @@ function copyGlb(glb: string, out: string) {
     mkdirSync(dirname(out), { recursive: true });
     rmSync(out, { force: true });
     const to = openSync(out, 'wx');
+    let copied = 0;
     try {
       const buf = Buffer.alloc(1024 * 1024);
-      for (let at = 0, n = 0; at < st.size; at += n) {
-        n = readSync(fd, buf, 0, Math.min(buf.length, st.size - at), at);
+      for (let n = 0; copied < st.size; copied += n) {
+        n = readSync(fd, buf, 0, Math.min(buf.length, st.size - copied), copied);
         if (n <= 0) break;
         writeSync(to, buf, 0, n);
       }
     } finally {
       closeSync(to);
+    }
+    if (copied !== st.size) {
+      rmSync(out, { force: true });
+      throw new BlenderError('model.glb changed while it was copied.');
     }
   } finally {
     closeSync(fd);
@@ -280,8 +323,8 @@ export function runBlender(
         outDir,
         ...(opts.params ? ['--params', join(src, opts.params)] : []),
       ];
-      const limits = `ulimit -f ${Math.ceil((MAX_MESH_BYTES + 64 * 1024 * 1024) / 512)} 2>/dev/null; a0=$1; shift; if (exec -a "$a0" true) 2>/dev/null; then exec -a "$a0" "$0" "$@"; fi; exec "$0" "$@"`;
-      const cmd = sandbox.wrap('/bin/sh', ['-c', limits, b.path, b.argv0 ?? b.path, ...args]);
+      const limits = `ulimit -f ${Math.ceil((MAX_MESH_BYTES + 64 * 1024 * 1024) / 512)} 2>/dev/null; exec "$0" "$@"`;
+      const cmd = sandbox.wrap('/bin/sh', ['-c', limits, b.path, ...args]);
       const started = Date.now();
       const child = spawn(cmd.cmd, cmd.args, {
         cwd: work,
@@ -357,6 +400,7 @@ export function runBlender(
             return reject(new BlenderError(`Blender stopped: ${line ?? `exit ${code}: ${tail}`}`));
           }
           try {
+            ownOutDir(work, outDir);
             copyGlb(join(outDir, 'model.glb'), out);
           } catch (e) {
             return reject(e);
