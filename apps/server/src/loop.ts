@@ -8,8 +8,9 @@
  * The loop is what keeps an agent honest: it can't send round two before it has answered the rubric about round one,
  * and every answer must point at a view or a check. Hildegard keeps every round, so the owner can see how the work got
  * where it is and pick another. It only ever reads bytes it was sent (never a path an agent names), and only reads
- * them as data: models as geometry, never as scripts. A web page is the one kind that runs: Hildegard opens it in a
- * browser shut off from the network and from every file but the round's own (web-review.ts).
+ * them as data: models as geometry, never as scripts. A web page runs, in a browser shut off from the network and from
+ * every file but the round's own (web-review.ts); a Blender build script runs in a sandbox, and only when this computer
+ * itself sent it (blender.ts).
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -32,6 +33,7 @@ import {
   rubric,
 } from '@hildegard/craft';
 import { z } from 'zod';
+import { BlenderError, type BlenderRun, looksLikeBlender } from './blender.ts';
 import { writeHandoff } from './handoff.ts';
 import {
   declaredParts,
@@ -47,14 +49,14 @@ import {
 } from './openscad.ts';
 import type { Printer, SliceResult } from './printer.ts';
 import type { WebSpec } from './web-review.ts';
-import { unzipTo, ZipError } from './zip.ts';
+import { readZip, unzipTo, ZipError } from './zip.ts';
 
 export type LoopKind = 'model' | 'image' | 'video' | 'audio' | 'web';
 export const LOOP_KINDS: LoopKind[] = ['model', 'image', 'video', 'audio', 'web'];
 
 /** The file formats each kind takes, by extension. */
 export const FORMATS: Record<LoopKind, string[]> = {
-  model: ['glb', 'gltf', 'stl', 'obj', 'ply', 'scad', 'zip'],
+  model: ['glb', 'gltf', 'stl', 'obj', 'ply', 'scad', 'py', 'zip'],
   image: ['png', 'jpg', 'webp'],
   video: ['mp4'],
   audio: ['wav', 'flac', 'mp3', 'ogg'],
@@ -62,7 +64,11 @@ export const FORMATS: Record<LoopKind, string[]> = {
 };
 
 const SAY: Record<string, string> = { gltf: 'glTF', jpg: 'JPEG', webp: 'WebP', zip: 'a ZIP of the site' };
-const SAY_MODEL: Record<string, string> = { scad: 'OpenSCAD source', zip: 'a ZIP of OpenSCAD files' };
+const SAY_MODEL: Record<string, string> = {
+  scad: 'OpenSCAD source',
+  py: 'a Blender build script',
+  zip: 'a ZIP of OpenSCAD files or of a Blender build',
+};
 /** "GLB, glTF, STL, OBJ or PLY". */
 const formatList = (k: LoopKind) => {
   const n = FORMATS[k].map((f) => (k === 'model' ? SAY_MODEL[f] : undefined) ?? SAY[f] ?? f.toUpperCase());
@@ -70,7 +76,7 @@ const formatList = (k: LoopKind) => {
 };
 
 export class LoopError extends Error {
-  readonly status: 400 | 404 | 409 | 413 | 415 | 422 | 501;
+  readonly status: 400 | 403 | 404 | 409 | 413 | 415 | 422 | 501;
   readonly code: string;
   constructor(status: LoopError['status'], code: string, message: string) {
     super(message);
@@ -295,7 +301,9 @@ export function sniff(b: Uint8Array): string | null {
     const n = new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(80, true);
     if (84 + n * 50 === b.length) return 'stl';
   }
-  const head = new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(0, 4096)).trimStart();
+  const raw = new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(0, 4096));
+  if (looksLikeBlender(raw)) return 'py';
+  const head = raw.trimStart();
   if (/^(\ufeff)?\s*(<!--[\s\S]*?-->\s*)*<(!doctype html|html|head|body)[\s>]/i.test(head)) return 'html';
   if (/^solid[^\n]*\r?\n\s*facet\s+normal/i.test(head)) return 'stl';
   if (/^\{[\s\S]*"asset"/.test(head)) return 'gltf';
@@ -312,6 +320,18 @@ const noOpenScad = () =>
     'no_openscad',
     'OpenSCAD isn’t on this computer, so Hildegard can’t render .scad source. Install it from openscad.org (a development snapshot renders with Manifold, many times faster), or set HILDEGARD_OPENSCAD to its path. Or export the model yourself and send the STL.',
   );
+
+const noBlender = () =>
+  new LoopError(
+    501,
+    'no_blender',
+    'Blender isn’t on this computer, so Hildegard can’t run a build script. Install it from blender.org (an LTS release), or set HILDEGARD_BLENDER to its path. Or export the model yourself and send the GLB.',
+  );
+
+/** Who sent a round: only this computer may send one that runs as a program (a Blender build script). */
+export interface Caller {
+  local: boolean;
+}
 
 export interface LoopDeps {
   /** Where loops keep their rounds: one folder each. */
@@ -332,6 +352,13 @@ export interface LoopDeps {
     out: string,
     opts: { part?: string; budget: ScadBudget; requireSandbox: boolean },
   ) => Promise<ScadRender | null>;
+  /**
+   * Runs a Blender build script (`script`, inside `dir/src`) with `dir` its only writable folder, moving its model.glb
+   * to `out`; null (or absent) when this computer has no Blender.
+   */
+  renderBlender?: (dir: string, script: string, out: string, params?: string) => Promise<BlenderRun | null>;
+  /** The owner's `blenderScripts` setting: false turns build scripts off for everyone. */
+  blenderScripts?: () => boolean;
   /** Whether OpenSCAD runs sandboxed here, so a round may include libraries and import data files. */
   scadSandboxed?: () => boolean;
   /** Renders and checks a web page; absent when this computer has no Chromium-family browser. */
@@ -441,7 +468,12 @@ export class Loops {
   }
 
   /** A new round: the bytes are checked, rendered and kept. */
-  async submit(id: string, bytes: Uint8Array, note: string): Promise<Round> {
+  async submit(
+    id: string,
+    bytes: Uint8Array,
+    note: string,
+    caller: Caller = { local: false },
+  ): Promise<Round> {
     const l = this.get(id);
     if (l.status !== 'open') throw new LoopError(409, 'closed', 'This loop is finished. Start a new one.');
     const last = l.rounds.at(-1);
@@ -467,25 +499,42 @@ export class Loops {
         'format',
         `Send ${l.kind === 'model' ? 'a 3D model' : l.kind === 'video' ? 'a video' : l.kind === 'web' ? 'a web page' : `an ${l.kind} file`} as ${formatList(l.kind)}.`,
       );
-    const scad = l.kind === 'model' && (format === 'scad' || format === 'zip');
+    const blender = l.kind === 'model' && (format === 'py' || (format === 'zip' && zipIsBlender(bytes)));
+    const scad = l.kind === 'model' && !blender && (format === 'scad' || format === 'zip');
     if (scad && !this.deps.renderScad) throw noOpenScad();
+    if (blender && this.deps.blenderScripts?.() === false)
+      throw new LoopError(
+        403,
+        'blender_off',
+        'Build scripts are turned off on this Hildegard (blenderScripts is off). Export the model as a GLB yourself and send that.',
+      );
+    if (blender && !caller.local)
+      throw new LoopError(
+        403,
+        'blender_remote',
+        'Hildegard runs a Blender build script only when it comes from this computer itself, since it runs as a program here. Export the model as a GLB yourself and send that.',
+      );
+    if (blender && !this.deps.renderBlender) throw noBlender();
     if (this.busy.has(l.id))
       throw new LoopError(409, 'busy', 'A round of this loop is being checked. Wait for it.');
     this.busy.add(l.id);
     const n = l.rounds.length + 1;
     let file = `round-${n}.${format}`;
-    const source = scad ? `round-${n}.${format}` : null;
+    const source = scad || blender ? `round-${n}.${format}` : null;
     const sheet = `round-${n}.sheet.jpg`;
     const dir = join(this.deps.dir, l.id);
     try {
       let rendered: ScadRender | null = null;
+      let built: BlenderRun | null = null;
       if (source) {
         writeFileSync(join(dir, source), bytes);
         try {
-          ({ rendered, file } = await this.openscad(l, n, format, bytes));
+          if (blender) ({ built, file } = await this.blender(l, n, format, bytes));
+          else ({ rendered, file } = await this.openscad(l, n, format, bytes));
         } catch (e) {
           rmSync(join(dir, source), { force: true });
-          for (const f of [`round-${n}.stl`, `round-${n}.obj`]) rmSync(join(dir, f), { force: true });
+          for (const f of [`round-${n}.stl`, `round-${n}.obj`, `round-${n}.glb`])
+            rmSync(join(dir, f), { force: true });
           throw e;
         } finally {
           rmSync(join(dir, `round-${n}.src`), { recursive: true, force: true });
@@ -535,6 +584,7 @@ export class Loops {
         if (e instanceof LoopError) throw e;
         throw new LoopError(422, 'unreadable', `Hildegard couldn’t read that file: ${(e as Error).message}`);
       }
+      if (built) review.info.blender = `${built.version}, ${built.seconds} s`;
       if (rendered) {
         review.info.openscad = `${rendered.version}, ${rendered.engine}, ${rendered.seconds} s`;
         if (rendered.echo.length) review.info.echo = rendered.echo;
@@ -552,7 +602,7 @@ export class Loops {
         n,
         at: this.now().toISOString(),
         file,
-        format: scad ? file.split('.').pop()! : format,
+        format: source ? file.split('.').pop()! : format,
         ...(source ? { source, sourceBytes: bytes.length } : {}),
         bytes: statSync(join(dir, file)).size,
         note: note.trim().slice(0, 1000),
@@ -731,6 +781,43 @@ export class Loops {
     }
   }
 
+  /** Blender: lays the round out in its own folder (a build.py, or a ZIP unpacked) and runs build.py there. */
+  private async blender(
+    l: Loop,
+    n: number,
+    format: string,
+    bytes: Uint8Array,
+  ): Promise<{ built: BlenderRun; file: string }> {
+    const dir = join(this.deps.dir, l.id);
+    const work = join(dir, `round-${n}.src`);
+    const src = join(work, 'src');
+    rmSync(work, { recursive: true, force: true });
+    mkdirSync(src, { recursive: true });
+    let names = ['build.py'];
+    if (format === 'zip') {
+      try {
+        names = unzipTo(bytes, src);
+      } catch (e) {
+        if (e instanceof ZipError) throw new LoopError(422, 'zip', e.message);
+        throw e;
+      }
+    } else writeFileSync(join(src, 'build.py'), bytes);
+    const file = `round-${n}.glb`;
+    try {
+      const r = await this.deps.renderBlender!(
+        work,
+        'build.py',
+        join(dir, file),
+        names.includes('params.json') ? 'params.json' : undefined,
+      );
+      if (!r) throw noBlender();
+      return { built: r, file };
+    } catch (e) {
+      if (e instanceof BlenderError) throw new LoopError(422, 'blender_failed', e.message);
+      throw e;
+    }
+  }
+
   /**
    * Web: the design to hold every round to, as a PNG or JPEG drawn `width` pixels wide (a Figma frame, a pen.dev
    * board, a screenshot of the site before), compared with the page (`page`, or the first) at that width.
@@ -878,5 +965,15 @@ export class Loops {
   /** The questions to answer about a round, with the round's numbers to answer them by. */
   static questions(kind: LoopKind): string {
     return describeRubric(JUDGED[kind]);
+  }
+}
+
+/** A ZIP whose build.py, at its top, is a Blender build script. */
+function zipIsBlender(bytes: Uint8Array): boolean {
+  try {
+    const build = readZip(bytes).find((e) => e.name === 'build.py');
+    return !!build && looksLikeBlender(new TextDecoder().decode(build.data.subarray(0, 200)));
+  } catch {
+    return false;
   }
 }

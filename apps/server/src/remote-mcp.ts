@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { createMcpServer, HildegardClient } from '@hildegard/mcp';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Hono } from 'hono';
-import { type Ctx, clientKey, fromThisComputer, type HgEnv, originOf, type Who } from './access.ts';
+import { type Ctx, clientKey, fromThisComputer, type HgEnv, originOf, sentFrom, type Who } from './access.ts';
 import type { Grants } from './grants.ts';
 import { Limiter } from './people.ts';
 
@@ -128,7 +128,10 @@ export function remoteMcpRoutes(app: Hono<HgEnv>, deps: RemoteMcpDeps) {
     const local = as.kind === 'local';
     const client = new HildegardClient(origin, ((input: string | URL | Request, init?: RequestInit) => {
       const u = new URL(String(input instanceof Request ? input.url : input));
-      return deps.fetch(new Request(`http://127.0.0.1${u.pathname}${u.search}`, init), { as });
+      return deps.fetch(new Request(`http://127.0.0.1${u.pathname}${u.search}`, init), {
+        as,
+        asFrom: sentFrom(c),
+      });
     }) as typeof fetch);
     const server = createMcpServer(client, {
       agentName,
