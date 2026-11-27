@@ -621,9 +621,11 @@ export function registerLoopTools(
             ? `Build scripts are off on this Hildegard: ${b.scriptsProblem}. Export a GLB yourself and send that, or ask your user to fix the file.`
             : b.scripts === 'off'
               ? 'Build scripts are turned off on this Hildegard (blenderScripts off): export a GLB yourself and send that.'
-              : b.sandboxed
-                ? 'Build scripts run here in a sandbox, only when they come from this computer: no network, and they write only their own folder. Make the first line `# hildegard: blender`, export model.glb into the --out folder the script is given, and send it with loop_submit file_path.'
-                : 'Blender can’t be sandboxed here (Linux without bubblewrap, or Windows), so Hildegard won’t run build scripts: export a GLB yourself and send that.',
+              : remote
+                ? 'Build scripts run only when they come from the computer Hildegard runs on, so Hildegard won’t run one you send from here: build the model yourself, export a GLB, and send it with loop_submit data.'
+                : b.sandboxed
+                  ? 'Build scripts run here in a sandbox, only when they come from this computer: no network, and they write only their own folder. Make the first line `# hildegard: blender`, export model.glb into the --out folder the script is given, and send it with loop_submit file_path.'
+                  : 'Blender can’t be sandboxed here (Linux without bubblewrap, or Windows), so Hildegard won’t run build scripts: export a GLB yourself and send that.',
         ].join('\n'),
       );
     }),

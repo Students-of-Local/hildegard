@@ -11,26 +11,31 @@
  * are never read. Where there is no sandbox it doesn't run at all. It runs one at a time, with a time limit, and its
  * whole process group is stopped at the deadline. What it says comes back with this computer's paths taken out.
  */
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
-  copyFileSync,
+  closeSync,
+  constants,
   existsSync,
-  lstatSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
-  realpathSync,
+  readSync,
   rmSync,
-  statSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
+import { realpath, stat } from 'node:fs/promises';
 import { homedir, platform, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { findSandbox, MAX_MESH_BYTES, scrubPaths } from './openscad.ts';
 
 export interface Blender {
   path: string;
+  /** The name it was found by, run as its argv[0], for a launcher that reads it (a snap). */
+  argv0?: string;
   /** "5.2.2 LTS". */
   version: string;
 }
@@ -60,38 +65,65 @@ export function blenderCandidates(env: NodeJS.ProcessEnv = process.env, os = pla
   return out;
 }
 
-// Only a Blender that was found is kept, so one installed while Hildegard runs is used without a restart.
-const probed = new Map<string, Blender>();
+// Each candidate's probe, kept while its real file and mtime stay the same, so an upgrade is probed again. A probe
+// that failed is kept 30 s, so a `blender` that never answers isn't started on every request.
+const probed = new Map<string, { real: string; mtime: number; at: number; found: Promise<Blender | null> }>();
+
+function version(real: string, argv0: string): Promise<Blender | null> {
+  return new Promise((done) => {
+    let out = '';
+    const child = spawn(real, ['--factory-startup', '--version'], {
+      argv0,
+      env: { PATH: process.env.PATH },
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+    child.stdout.on('data', (d: Buffer) => {
+      out = (out + d.toString()).slice(-20_000);
+    });
+    const end = () => {
+      clearTimeout(timer);
+      const m = /^Blender (\d+\.\d+(?:\.\d+)?(?: LTS)?)/m.exec(out);
+      done(m ? { path: real, version: m[1]!, ...(argv0 === real ? {} : { argv0 }) } : null);
+    };
+    child.once('error', end);
+    child.once('close', end);
+  });
+}
 
 /**
  * Blender at `path` and its version, or null when it isn't one that runs. The path is the real file a link points
  * to, such as the .app behind Homebrew's `blender`, so the sandbox reads Blender's own folder and runs that file.
  */
-export function probeBlender(path: string): Blender | null {
-  if (probed.has(path)) return probed.get(path)!;
+export async function probeBlender(path: string): Promise<Blender | null> {
   let real: string;
+  let mtime: number;
   try {
-    real = realpathSync(path);
-    if (!statSync(real).isFile()) return null;
+    real = await realpath(path);
+    const st = await stat(real);
+    if (!st.isFile()) return null;
+    mtime = st.mtimeMs;
   } catch {
+    probed.delete(path);
     return null;
   }
-  const r = spawnSync(real, ['--factory-startup', '--version'], {
-    encoding: 'utf8',
-    timeout: 30_000,
-    env: { PATH: process.env.PATH },
-    windowsHide: true,
-  });
-  const m = /^Blender (\d+\.\d+(?:\.\d+)?(?: LTS)?)/m.exec(r.stdout ?? '');
-  if (!m) return null;
-  const found = { path: real, version: m[1]! };
-  probed.set(path, found);
+  const hit = probed.get(path);
+  if (hit?.real === real && hit.mtime === mtime) {
+    const b = await hit.found;
+    if (b || Date.now() - hit.at < 30_000) return b;
+  }
+  const found = version(real, path);
+  probed.set(path, { real, mtime, at: Date.now(), found });
   return found;
 }
 
-export function findBlender(env: NodeJS.ProcessEnv = process.env, os = platform()): Blender | null {
+export async function findBlender(
+  env: NodeJS.ProcessEnv = process.env,
+  os = platform(),
+): Promise<Blender | null> {
   for (const p of blenderCandidates(env, os)) {
-    const b = probeBlender(p);
+    const b = await probeBlender(p);
     if (b) return b;
   }
   return null;
@@ -128,13 +160,20 @@ export function blenderSandbox(b: Blender, work: string, hide: string[]) {
   return own ? findSandbox({ round: work, read: own, hide }) : null;
 }
 
-/** "build.py line 12: ValueError: boom", from a Python traceback, or null. */
+/**
+ * "build.py line 12: ValueError: boom", from a Python traceback with the round's folder taken out of its paths, or
+ * null. The line is the last one in the round's own files, not in Blender's (bpy/ops.py), unless none is.
+ */
 export function tracebackLine(text: string): string | null {
   const lines = text.split('\n');
   const start = lines.findLastIndex((l) => l.startsWith('Traceback (most recent call last)'));
   if (start < 0) return null;
-  const frames = lines.slice(start).filter((l) => /^\s*File "/.test(l));
-  const frame = frames.at(-1) && /File "([^"]+)", line (\d+)/.exec(frames.at(-1)!);
+  const frames = lines
+    .slice(start)
+    .map((l) => /^\s*File "([^"]+)", line (\d+)/.exec(l))
+    .filter((m) => !!m);
+  const own = (f: string) => !/^([\\/<~]|[A-Za-z]:)/.test(f);
+  const frame = frames.findLast((m) => own(m[1]!)) ?? frames.at(-1);
   const error = lines
     .slice(start + 1)
     .find((l) => /^[A-Za-z_][\w.]*(Error|Exception|Exit|Interrupt)\b/.test(l));
@@ -157,16 +196,57 @@ const stopGroup = (pid: number) => {
 export const blenderBusy = () => pending > 0;
 
 /**
+ * model.glb as the build left it, read through one descriptor that never follows a link, so what is checked is what
+ * is copied, even if something the build left running swaps the file. A BlenderError says what is wrong with it.
+ */
+function copyGlb(glb: string, out: string) {
+  let fd: number;
+  try {
+    fd = openSync(glb, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    fd = -1;
+  }
+  const none = new BlenderError(
+    'The build script ran but wrote no model.glb. Export the model to the --out folder it was given.',
+  );
+  if (fd < 0) throw none;
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.nlink !== 1 || st.size < 20) throw none;
+    if (st.size > MAX_MESH_BYTES)
+      throw new BlenderError(`model.glb came out over ${MAX_MESH_BYTES / 1024 / 1024} MB.`);
+    const head = Buffer.alloc(4);
+    if (readSync(fd, head, 0, 4, 0) !== 4 || head.toString('latin1') !== 'glTF')
+      throw new BlenderError('model.glb isn’t a binary glTF.');
+    mkdirSync(dirname(out), { recursive: true });
+    rmSync(out, { force: true });
+    const to = openSync(out, 'wx');
+    try {
+      const buf = Buffer.alloc(1024 * 1024);
+      for (let at = 0, n = 0; at < st.size; at += n) {
+        n = readSync(fd, buf, 0, Math.min(buf.length, st.size - at), at);
+        if (n <= 0) break;
+        writeSync(to, buf, 0, n);
+      }
+    } finally {
+      closeSync(to);
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
  * Runs `script` (a path inside `work/src`) in Blender with `work` as the one folder it may write, and moves the
  * `model.glb` it writes into `work/out` to `out`. Throws BlenderError when it fails, writes no model, runs too long,
- * or `signal` stops it (the server closing).
+ * or `signal` stops it (the server closing). `queued: false` runs it beside the builds instead of in line with them.
  */
 export function runBlender(
   b: Blender,
   work: string,
   script: string,
   out: string,
-  opts: { hide?: string[]; timeoutMs?: number; params?: string; signal?: AbortSignal } = {},
+  opts: { hide?: string[]; timeoutMs?: number; params?: string; signal?: AbortSignal; queued?: boolean } = {},
 ): Promise<BlenderRun> {
   const hide = opts.hide ?? [homedir()];
   const ms = opts.timeoutMs ?? blenderTimeoutMs();
@@ -198,8 +278,8 @@ export function runBlender(
         outDir,
         ...(opts.params ? ['--params', join(src, opts.params)] : []),
       ];
-      const limits = `ulimit -f ${Math.ceil((MAX_MESH_BYTES + 64 * 1024 * 1024) / 512)} 2>/dev/null; exec "$0" "$@"`;
-      const cmd = sandbox.wrap('/bin/sh', ['-c', limits, b.path, ...args]);
+      const limits = `ulimit -f ${Math.ceil((MAX_MESH_BYTES + 64 * 1024 * 1024) / 512)} 2>/dev/null; a0=$1; shift; if (exec -a "$a0" true) 2>/dev/null; then exec -a "$a0" "$0" "$@"; fi; exec "$0" "$@"`;
+      const cmd = sandbox.wrap('/bin/sh', ['-c', limits, b.path, b.argv0 ?? b.path, ...args]);
       const started = Date.now();
       const child = spawn(cmd.cmd, cmd.args, {
         cwd: work,
@@ -241,7 +321,11 @@ export function runBlender(
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (pid) live.delete(pid);
+        // Whatever the build left running goes with it, even when it ended well.
+        if (pid) {
+          stopGroup(pid);
+          live.delete(pid);
+        }
         opts.signal?.removeEventListener('abort', onAbort);
         f();
       };
@@ -270,26 +354,20 @@ export function runBlender(
             const tail = log.trim().split('\n').slice(-3).join(' | ').slice(0, 600);
             return reject(new BlenderError(`Blender stopped: ${line ?? `exit ${code}: ${tail}`}`));
           }
-          const glb = join(outDir, 'model.glb');
-          const st = existsSync(glb) ? lstatSync(glb) : null;
-          if (!st?.isFile() || st.nlink !== 1 || st.size < 20)
-            return reject(
-              new BlenderError(
-                'The build script ran but wrote no model.glb. Export the model to the --out folder it was given.',
-              ),
-            );
-          if (st.size > MAX_MESH_BYTES)
-            return reject(new BlenderError(`model.glb came out over ${MAX_MESH_BYTES / 1024 / 1024} MB.`));
-          if (readFileSync(glb).subarray(0, 4).toString('latin1') !== 'glTF')
-            return reject(new BlenderError('model.glb isn’t a binary glTF.'));
-          mkdirSync(dirname(out), { recursive: true });
-          rmSync(out, { force: true });
-          copyFileSync(glb, out);
+          try {
+            copyGlb(join(outDir, 'model.glb'), out);
+          } catch (e) {
+            return reject(e);
+          }
           resolvePromise({ out, seconds: Math.round((Date.now() - started) / 100) / 10, version: b.version });
         }),
       );
     });
   pending++;
+  if (opts.queued === false)
+    return run().finally(() => {
+      pending--;
+    });
   const next = queue.then(run, run).finally(() => {
     pending--;
   });
@@ -318,9 +396,9 @@ s.render.filepath = os.path.join(out, "probe.png")
 bpy.ops.render.render(write_still=True)
 bpy.ops.export_scene.gltf(filepath=os.path.join(out, "model.glb"))
 `;
-// Only a render that worked is kept: one that failed (a timeout under load) is tried again when next asked.
+// A render that worked is kept. One that failed (a timeout under load) is tried again when asked 5 minutes later.
 const cycles = new Set<string>();
-const failed = new Set<string>();
+const failed = new Map<string, number>();
 const probing = new Map<string, Promise<boolean>>();
 
 /** Whether Blender renders with Cycles on the CPU here, by rendering a 16 pixel cube in the sandbox. */
@@ -331,7 +409,12 @@ export async function cyclesRenders(b: Blender, hide?: string[], signal?: AbortS
   try {
     mkdirSync(join(work, 'src'));
     writeFileSync(join(work, 'src', 'build.py'), CYCLES_PROBE);
-    await runBlender(b, work, 'build.py', join(work, 'probe.glb'), { hide, timeoutMs: 120_000, signal });
+    await runBlender(b, work, 'build.py', join(work, 'probe.glb'), {
+      hide,
+      timeoutMs: 120_000,
+      signal,
+      queued: false,
+    });
     ok = existsSync(join(work, 'out', 'probe.png'));
   } catch {
   } finally {
@@ -343,17 +426,18 @@ export async function cyclesRenders(b: Blender, hide?: string[], signal?: AbortS
 
 /**
  * What is known now of whether Cycles renders here, without waiting: null while the first render runs in the
- * background, false after one failed (and another is started), true once one worked.
+ * background, false after one failed (another is started when asked 5 minutes after), true once one worked.
  */
 export function cyclesKnown(b: Blender, hide?: string[], signal?: AbortSignal): boolean | null {
   if (cycles.has(b.path)) return true;
-  if (!probing.has(b.path) && !signal?.aborted)
+  const at = failed.get(b.path);
+  if (!probing.has(b.path) && !signal?.aborted && (at === undefined || Date.now() - at >= 5 * 60_000))
     probing.set(
       b.path,
       cyclesRenders(b, hide, signal).then((ok) => {
         probing.delete(b.path);
         if (ok) failed.delete(b.path);
-        else failed.add(b.path);
+        else failed.set(b.path, Date.now());
         return ok;
       }),
     );

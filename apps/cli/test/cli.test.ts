@@ -1286,12 +1286,12 @@ describe.skipIf(process.platform === 'win32')('doctor’s Blender step', () => {
     const was = process.env.HILDEGARD_BLENDER;
     process.env.HILDEGARD_BLENDER = fake;
     try {
-      const step = blenderStep(data);
+      const step = await blenderStep(data);
       expect(step).toMatchObject({ id: 'blender', status: 'skipped' });
       expect(step.detail).toContain('Blender 5.2.2 LTS');
       expect(step.detail).toContain('can’t be sandboxed');
       writeFileSync(join(data, 'blender.json'), '{"blenderScripts": "Off"}');
-      const invalid = blenderStep(data);
+      const invalid = await blenderStep(data);
       expect(invalid).toMatchObject({ status: 'skipped' });
       expect(invalid.detail).toContain('blenderScripts is off');
       expect(invalid.detail).toContain('blender.json isn’t valid');
