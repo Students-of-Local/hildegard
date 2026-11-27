@@ -20,6 +20,14 @@ import {
 import { ComfyRuntime, detectGpu } from '@hildegard/runtime';
 import { serve } from '@hono/node-server';
 import { createApp, SOURCE, VERSION } from './app.ts';
+import {
+  type Blender,
+  blenderSandbox,
+  blenderScripts,
+  cyclesRenders,
+  findBlender,
+  runBlender,
+} from './blender.ts';
 import { findChrome } from './browser.ts';
 import { busyCheck, hostBusy } from './busy.ts';
 import { localCapabilities, STUB_LLM } from './capabilities.ts';
@@ -202,6 +210,8 @@ async function serveStudio(
     reports?: Reports;
     /** OpenSCAD for model loops sent as source (null for none); found on this computer by default. */
     openscad?: OpenScad | null;
+    /** Blender for model loops sent as build scripts (null for none); found on this computer by default. */
+    blender?: Blender | null;
     /** The Chromium-family browser for web loops and site imports (null for none); found by default. */
     chrome?: string | null;
     /** Figma's API, for the tests. */
@@ -673,6 +683,7 @@ async function serveStudio(
   const openscad = () => (opts.openscad === undefined ? findOpenScad() : opts.openscad);
   // Hidden from OpenSCAD: the owner's home and Hildegard's data, but for the round and the libraries.
   const scadHidden = [homedir(), config.dataDir];
+  const blender = () => (opts.blender === undefined ? findBlender() : opts.blender);
   const app = createApp({
     lookBusy: () => lookBusy(),
     tellPresence: async (away, minutes) => {
@@ -726,6 +737,11 @@ async function serveStudio(
             })
           : null;
       },
+      renderBlender: async (dir, script, out, params) => {
+        const b = blender();
+        return b ? runBlender(b, dir, script, out, { hide: scadHidden, params }) : null;
+      },
+      blenderScripts: () => blenderScripts(config.dataDir) === 'on',
       scadSandboxed: () => {
         const o = openscad();
         return !!o && canSandbox(o.path, scadHidden);
@@ -749,6 +765,15 @@ async function serveStudio(
         libraryDirs: dirs,
         libraries: listLibraries(dirs).map((l) => l.name),
         sandbox: o ? sandboxKind(o.path, scadHidden) : null,
+      };
+    },
+    blender: async () => {
+      const b = blender();
+      return {
+        found: b,
+        cycles: b ? await cyclesRenders(b, scadHidden) : false,
+        sandboxed: !!b && !!blenderSandbox(b, config.dataDir, scadHidden),
+        scripts: blenderScripts(config.dataDir),
       };
     },
     sites: {

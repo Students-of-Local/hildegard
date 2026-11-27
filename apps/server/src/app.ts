@@ -236,6 +236,13 @@ export interface AppDeps {
     libraries: string[];
     sandbox: 'sandbox-exec' | 'bwrap' | null;
   };
+  /** Blender on this computer, for model loops sent as build scripts. */
+  blender?: () => Promise<{
+    found: { path: string; version: string } | null;
+    cycles: boolean;
+    sandboxed: boolean;
+    scripts: 'on' | 'off';
+  }>;
   /** Each person's own writing voice; in the data folder unless a test says otherwise. */
   writing?: WritingStore;
   /** The owner's websites: templates, imports, files and previews. */
@@ -2788,6 +2795,24 @@ export function createApp(deps: AppDeps) {
         libraryDirs: local(c) ? o.libraryDirs : [],
         libraries: o.libraries,
         sandbox: o.sandbox,
+      });
+    });
+  }
+
+  // ── Blender ─────────────────────────────────────────────────────────────────────────────────────────────────
+  if (deps.blender) {
+    const info = deps.blender;
+    app.get('/api/blender', async (c) => {
+      const refused = ownerOnly(c);
+      if (refused) return refused;
+      const b = await info();
+      return c.json({
+        installed: !!b.found,
+        version: b.found?.version ?? null,
+        path: local(c) ? (b.found?.path ?? null) : null,
+        cycles: b.cycles,
+        sandboxed: b.sandboxed,
+        scripts: b.scripts,
       });
     });
   }

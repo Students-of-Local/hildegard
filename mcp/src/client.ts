@@ -98,6 +98,18 @@ export interface OpenScadInfo {
   sandbox: 'sandbox-exec' | 'bwrap' | null;
 }
 
+export interface BlenderInfo {
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+  /** Whether Cycles renders on the CPU here. */
+  cycles: boolean;
+  /** Whether Blender can run sandboxed here; build scripts run only where it can. */
+  sandboxed: boolean;
+  /** The owner's blenderScripts setting. */
+  scripts: 'on' | 'off';
+}
+
 export interface PrinterInfo {
   name: string;
   bedMm: [number, number, number];
@@ -515,6 +527,7 @@ export class HildegardClient {
   printer = () => this.call<PrinterInfo>('GET', '/api/printer');
   setPrinter = (body: Record<string, unknown>) => this.call<PrinterInfo>('PUT', '/api/printer', body);
   openscad = () => this.call<OpenScadInfo>('GET', '/api/openscad');
+  blender = () => this.call<BlenderInfo>('GET', '/api/blender');
   /** Any file the server serves (a take's video, a still), as bytes; null if it isn't there. */
   async bytes(path: string): Promise<Uint8Array | null> {
     const res = await this.fetchFn(`${this.url}${path}`).catch(() => null);

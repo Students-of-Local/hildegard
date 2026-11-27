@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { GrantsResponse, HostState, Snapshot, TunnelReport } from '@hildegard/presets';
 import { detectGpu, listAgents, readRuntime, readVoiceEnv, type Step } from '@hildegard/runtime';
-import { COMFY_STARTING, tailnetSelf } from '@hildegard/server';
+import { blenderScripts, COMFY_STARTING, findBlender, tailnetSelf } from '@hildegard/server';
 import { api, baseUrl, type Ctx, entry, running } from './commands.ts';
 import { hostStep } from './host.ts';
 import { type Result, result } from './output.ts';
@@ -172,6 +172,17 @@ export async function doctor(ctx: Ctx): Promise<Result> {
       ...(g.mcpUrl && !g.grants.length ? { command: 'hildegard host key "<app and device>"' } : {}),
     });
   }
+
+  // Blender for model loops sent as build scripts, and the owner's word on whether they may run.
+  const blender = findBlender();
+  const scripts = blenderScripts(c.dataDir);
+  steps.push({
+    id: 'blender',
+    title: 'Blender',
+    status: blender && scripts === 'on' ? 'done' : 'skipped',
+    detail: `${blender ? `Blender ${blender.version}` : 'Not installed; model loops take exported GLB and STL instead'}. blenderScripts is ${scripts} (in ${c.dataDir}/blender.json): ${scripts === 'on' ? 'build scripts from this computer run in a sandbox' : 'no build script runs'}.`,
+    ...(blender ? {} : { command: 'https://www.blender.org/download/lts/' }),
+  });
 
   const agents = listAgents().filter((a) => a.connected);
   steps.push({

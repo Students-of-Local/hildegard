@@ -44,6 +44,7 @@ describe('Hildegard MCP server', { timeout: 30_000 }, () => {
   it('offers the tools an agent needs, with instructions', async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'blender_status',
       'cancel_take',
       'check_watermark',
       'clean_voice',

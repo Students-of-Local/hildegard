@@ -128,7 +128,10 @@ export function remoteMcpRoutes(app: Hono<HgEnv>, deps: RemoteMcpDeps) {
     const local = as.kind === 'local';
     const client = new HildegardClient(origin, ((input: string | URL | Request, init?: RequestInit) => {
       const u = new URL(String(input instanceof Request ? input.url : input));
-      return deps.fetch(new Request(`http://127.0.0.1${u.pathname}${u.search}`, init), { as });
+      return deps.fetch(new Request(`http://127.0.0.1${u.pathname}${u.search}`, init), {
+        as,
+        asFrom: { host: c.req.header('host'), origin: c.req.header('origin') },
+      });
     }) as typeof fetch);
     const server = createMcpServer(client, {
       agentName,

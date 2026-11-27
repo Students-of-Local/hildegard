@@ -5,7 +5,7 @@
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
-import type { Ctx, HgEnv } from './access.ts';
+import { type Ctx, type HgEnv, runsHere } from './access.ts';
 import { Critique, type Loop, LoopError, Loops, type Round, StartLoop } from './loop.ts';
 
 export interface LoopRouteDeps {
@@ -31,6 +31,7 @@ const TYPES: Record<string, string> = {
   // A page an agent made is shown as its source, never run on Hildegard's own address.
   html: 'text/plain; charset=utf-8',
   scad: 'text/plain; charset=utf-8',
+  py: 'text/plain; charset=utf-8',
   zip: 'application/zip',
   gcode: 'text/plain; charset=utf-8',
 };
@@ -109,7 +110,7 @@ export function loopRoutes(d: LoopRouteDeps) {
       if (Number(c.req.header('content-length') ?? 0) > 512 * 1024 * 1024)
         throw new LoopError(413, 'size', 'Files up to 512 MB.');
       const bytes = new Uint8Array(await c.req.arrayBuffer());
-      const r = await loops.submit(l.id, bytes, c.req.query('note') ?? '');
+      const r = await loops.submit(l.id, bytes, c.req.query('note') ?? '', { local: runsHere(c) });
       return {
         loop: l.id,
         round: roundView(l, r),
