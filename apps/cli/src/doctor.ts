@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { homedir } from 'node:os';
 import type { GrantsResponse, HostState, Snapshot, TunnelReport } from '@hildegard/presets';
 import { detectGpu, listAgents, readRuntime, readVoiceEnv, type Step } from '@hildegard/runtime';
-import { blenderScripts, COMFY_STARTING, findBlender, tailnetSelf } from '@hildegard/server';
+import { blenderSandbox, blenderSetting, COMFY_STARTING, findBlender, tailnetSelf } from '@hildegard/server';
 import { api, baseUrl, type Ctx, entry, running } from './commands.ts';
 import { hostStep } from './host.ts';
 import { type Result, result } from './output.ts';
@@ -53,6 +54,32 @@ export async function frontDoorStep(url: string, get: typeof fetch = fetch): Pro
  * `hildegard doctor`: every part, whether it works, and the command that fixes it. Each step's `command` is the fix;
  * `needs-owner` steps are the owner's to do. It never changes anything.
  */
+/**
+ * Blender for model loops sent as build scripts, the owner's word on whether they may run, and whether it can run in
+ * a sandbox here, as blender_status says: without one no build script runs.
+ */
+export function blenderStep(dataDir: string): Step {
+  const blender = findBlender();
+  const { scripts, problem } = blenderSetting(dataDir);
+  const sandboxed = !!blender && !!blenderSandbox(blender, dataDir, [homedir(), dataDir]);
+  const why = problem
+    ? problem
+    : scripts === 'off'
+      ? 'no build script runs'
+      : !blender
+        ? 'build scripts would run in a sandbox'
+        : sandboxed
+          ? 'build scripts from this computer run in a sandbox'
+          : 'Blender can’t be sandboxed here (Linux without bubblewrap, Windows, or a snap, Flatpak or AppImage Blender), so no build script runs';
+  return {
+    id: 'blender',
+    title: 'Blender',
+    status: blender && scripts === 'on' && sandboxed ? 'done' : 'skipped',
+    detail: `${blender ? `Blender ${blender.version}` : 'Not installed; model loops take exported GLB and STL instead'}. blenderScripts is ${scripts} (in ${dataDir}/blender.json): ${why}.`,
+    ...(blender ? {} : { command: 'https://www.blender.org/download/lts/' }),
+  };
+}
+
 export async function doctor(ctx: Ctx): Promise<Result> {
   const c = ctx.config;
   const steps: Step[] = [];
@@ -173,16 +200,7 @@ export async function doctor(ctx: Ctx): Promise<Result> {
     });
   }
 
-  // Blender for model loops sent as build scripts, and the owner's word on whether they may run.
-  const blender = findBlender();
-  const scripts = blenderScripts(c.dataDir);
-  steps.push({
-    id: 'blender',
-    title: 'Blender',
-    status: blender && scripts === 'on' ? 'done' : 'skipped',
-    detail: `${blender ? `Blender ${blender.version}` : 'Not installed; model loops take exported GLB and STL instead'}. blenderScripts is ${scripts} (in ${c.dataDir}/blender.json): ${scripts === 'on' ? 'build scripts from this computer run in a sandbox' : 'no build script runs'}.`,
-    ...(blender ? {} : { command: 'https://www.blender.org/download/lts/' }),
-  });
+  steps.push(blenderStep(c.dataDir));
 
   const agents = listAgents().filter((a) => a.connected);
   steps.push({

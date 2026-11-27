@@ -22,9 +22,11 @@ import { serve } from '@hono/node-server';
 import { createApp, SOURCE, VERSION } from './app.ts';
 import {
   type Blender,
+  blenderBusy,
   blenderSandbox,
   blenderScripts,
-  cyclesRenders,
+  blenderSetting,
+  cyclesKnown,
   findBlender,
   runBlender,
 } from './blender.ts';
@@ -656,7 +658,8 @@ async function serveStudio(
       models.states().some((m) => m.downloading) ||
       exporter.list().some((e) => e.status === 'running') ||
       voice.state().jobs.some((j) => j.status === 'queued' || j.status === 'running') ||
-      voiceModels.states().some((m) => m.downloading),
+      voiceModels.states().some((m) => m.downloading) ||
+      blenderBusy(),
     run:
       opts.updates?.run ??
       ((failed) => {
@@ -684,6 +687,8 @@ async function serveStudio(
   // Hidden from OpenSCAD: the owner's home and Hildegard's data, but for the round and the libraries.
   const scadHidden = [homedir(), config.dataDir];
   const blender = () => (opts.blender === undefined ? findBlender() : opts.blender);
+  // Stops a build running or waiting when the server closes.
+  const builds = new AbortController();
   const app = createApp({
     lookBusy: () => lookBusy(),
     tellPresence: async (away, minutes) => {
@@ -739,7 +744,9 @@ async function serveStudio(
       },
       renderBlender: async (dir, script, out, params) => {
         const b = blender();
-        return b ? runBlender(b, dir, script, out, { hide: scadHidden, params }) : null;
+        return b
+          ? runBlender(b, dir, script, out, { hide: scadHidden, params, signal: builds.signal })
+          : null;
       },
       blenderScripts: () => blenderScripts(config.dataDir) === 'on',
       scadSandboxed: () => {
@@ -769,11 +776,13 @@ async function serveStudio(
     },
     blender: async () => {
       const b = blender();
+      const setting = blenderSetting(config.dataDir);
       return {
         found: b,
-        cycles: b ? await cyclesRenders(b, scadHidden) : false,
+        cycles: b ? cyclesKnown(b, scadHidden, builds.signal) : false,
         sandboxed: !!b && !!blenderSandbox(b, config.dataDir, scadHidden),
-        scripts: blenderScripts(config.dataDir),
+        scripts: setting.scripts,
+        scriptsProblem: setting.problem,
       };
     },
     sites: {
@@ -1062,6 +1071,7 @@ async function serveStudio(
       if (shareRetry) clearTimeout(shareRetry);
       if (lapseTimer) clearTimeout(lapseTimer);
       scheduler.stop();
+      builds.abort();
       voice.close();
       await voiceEngine.close();
       await runtime?.stop();

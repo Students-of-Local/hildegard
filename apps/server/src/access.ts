@@ -36,8 +36,8 @@ export interface HgEnv {
      * code in this process can set it: nothing from the network reaches the bindings.
      */
     as?: Who;
-    /** With `as`: the Host and Origin the MCP call itself arrived with. */
-    asFrom?: { host?: string; origin?: string };
+    /** With `as`: what the MCP call itself arrived with (`sentFrom`). */
+    asFrom?: SentFrom;
   };
   Variables: {
     who: Who | null;
@@ -66,19 +66,41 @@ export function fromThisComputer(c: Ctx): boolean {
 }
 
 const LOOPBACK_HOST = /^(127\.\d+\.\d+\.\d+|localhost|\[::1\])(:\d+)?$/i;
-const LOOPBACK_ORIGIN = /^http:\/\/(127\.\d+\.\d+\.\d+|localhost|\[::1\])(:\d+)?$/i;
+
+/** The Host a request was sent to, and whether a browser page sent it. */
+export interface SentFrom {
+  host?: string;
+  page: boolean;
+}
 
 /**
- * Whether Hildegard may run a program this request sent (a Blender build script). Only for this computer itself (see
- * `fromThisComputer`, or an MCP call that arrived that way), asked for by a loopback name (a proxy on this computer
- * keeps the public name it was reached at) and from no other site. Anyone signed in, any key, the hosted listener and
- * every proxy are refused, and so is anything it can't tell.
+ * What a request says of where it came from. A browser marks what a page sends with an Origin or the Sec-Fetch
+ * headers, its own pages on Hildegard's address too; Node's fetch, which the MCP server and the CLI use, sends only
+ * `Sec-Fetch-Mode: cors`, so that alone is no page.
+ */
+export function sentFrom(c: Ctx): SentFrom {
+  const mode = c.req.header('sec-fetch-mode');
+  return {
+    host: c.req.header('host'),
+    page:
+      c.req.header('origin') !== undefined ||
+      ['sec-fetch-site', 'sec-fetch-dest', 'sec-fetch-user'].some((h) => c.req.header(h) !== undefined) ||
+      (mode !== undefined && mode !== 'cors'),
+  };
+}
+
+/**
+ * Whether Hildegard may run a program this request sent (a Blender build script). Only for an agent on this computer
+ * itself (see `fromThisComputer`, or an MCP call that arrived that way), asked for by a loopback name (a proxy on this
+ * computer keeps the public name it was reached at) and from no browser page at all, Hildegard's own pages included,
+ * since a published site or a preview is someone else's code on this address. Anyone signed in, any key, the hosted
+ * listener and every proxy are refused, and so is anything it can't tell.
  */
 export function runsHere(c: Ctx): boolean {
   if (c.get('who')?.kind !== 'local') return false;
-  const from = c.env?.as ? c.env.asFrom : { host: c.req.header('host'), origin: c.req.header('origin') };
+  const from = c.env?.as ? c.env.asFrom : sentFrom(c);
   if (!from?.host || !LOOPBACK_HOST.test(from.host)) return false;
-  return from.origin === undefined || LOOPBACK_ORIGIN.test(from.origin);
+  return from.page === false;
 }
 
 /**

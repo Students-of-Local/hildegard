@@ -20,6 +20,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -59,22 +60,31 @@ export function blenderCandidates(env: NodeJS.ProcessEnv = process.env, os = pla
   return out;
 }
 
-const probed = new Map<string, Blender | null>();
+// Only a Blender that was found is kept, so one installed while Hildegard runs is used without a restart.
+const probed = new Map<string, Blender>();
 
-/** Blender at `path` and its version, or null when it isn't one that runs. */
+/**
+ * Blender at `path` and its version, or null when it isn't one that runs. The path is the real file a link points
+ * to, such as the .app behind Homebrew's `blender`, so the sandbox reads Blender's own folder and runs that file.
+ */
 export function probeBlender(path: string): Blender | null {
   if (probed.has(path)) return probed.get(path)!;
-  let found: Blender | null = null;
-  if (existsSync(path) && statSync(path).isFile()) {
-    const r = spawnSync(path, ['--factory-startup', '--version'], {
-      encoding: 'utf8',
-      timeout: 30_000,
-      env: { PATH: process.env.PATH },
-      windowsHide: true,
-    });
-    const m = /^Blender (\d+\.\d+(?:\.\d+)?(?: LTS)?)/m.exec(r.stdout ?? '');
-    if (m) found = { path, version: m[1]! };
+  let real: string;
+  try {
+    real = realpathSync(path);
+    if (!statSync(real).isFile()) return null;
+  } catch {
+    return null;
   }
+  const r = spawnSync(real, ['--factory-startup', '--version'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    env: { PATH: process.env.PATH },
+    windowsHide: true,
+  });
+  const m = /^Blender (\d+\.\d+(?:\.\d+)?(?: LTS)?)/m.exec(r.stdout ?? '');
+  if (!m) return null;
+  const found = { path: real, version: m[1]! };
   probed.set(path, found);
   return found;
 }
@@ -133,17 +143,30 @@ export function tracebackLine(text: string): string | null {
 }
 
 let queue: Promise<void> = Promise.resolve();
+let pending = 0;
+// The process groups of builds running now, stopped when Hildegard exits so none outlives it.
+const live = new Set<number>();
+let exitHook = false;
+const stopGroup = (pid: number) => {
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {}
+};
+
+/** Whether a build is waiting or running, so an update waits for it. */
+export const blenderBusy = () => pending > 0;
 
 /**
  * Runs `script` (a path inside `work/src`) in Blender with `work` as the one folder it may write, and moves the
- * `model.glb` it writes into `work/out` to `out`. Throws BlenderError when it fails, writes no model, or runs too long.
+ * `model.glb` it writes into `work/out` to `out`. Throws BlenderError when it fails, writes no model, runs too long,
+ * or `signal` stops it (the server closing).
  */
 export function runBlender(
   b: Blender,
   work: string,
   script: string,
   out: string,
-  opts: { hide?: string[]; timeoutMs?: number; params?: string } = {},
+  opts: { hide?: string[]; timeoutMs?: number; params?: string; signal?: AbortSignal } = {},
 ): Promise<BlenderRun> {
   const hide = opts.hide ?? [homedir()];
   const ms = opts.timeoutMs ?? blenderTimeoutMs();
@@ -151,6 +174,7 @@ export function runBlender(
   const scrub = (t: string) => scrubPaths(t, src, [], [work, ...hide]);
   const run = () =>
     new Promise<BlenderRun>((resolvePromise, reject) => {
+      if (opts.signal?.aborted) return reject(new BlenderError('Hildegard stopped before the build ran.'));
       const sandbox = blenderSandbox(b, work, hide);
       if (!sandbox)
         return reject(
@@ -191,6 +215,21 @@ export function runBlender(
         // Its own process group, so stopping it stops everything it started.
         detached: true,
       });
+      const pid = child.pid;
+      if (pid) {
+        live.add(pid);
+        if (!exitHook) {
+          exitHook = true;
+          process.on('exit', () => {
+            for (const p of live) stopGroup(p);
+          });
+        }
+      }
+      const onAbort = () => {
+        if (pid) stopGroup(pid);
+        settle(() => reject(new BlenderError('Hildegard stopped, and the build with it.')));
+      };
+      opts.signal?.addEventListener('abort', onAbort, { once: true });
       let text = '';
       const keep = (d: Buffer) => {
         text = (text + d.toString()).slice(-200_000);
@@ -202,6 +241,8 @@ export function runBlender(
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (pid) live.delete(pid);
+        opts.signal?.removeEventListener('abort', onAbort);
         f();
       };
       const timer = setTimeout(() => {
@@ -248,7 +289,10 @@ export function runBlender(
         }),
       );
     });
-  const next = queue.then(run, run);
+  pending++;
+  const next = queue.then(run, run).finally(() => {
+    pending--;
+  });
   queue = next.then(
     () => undefined,
     () => undefined,
@@ -274,31 +318,70 @@ s.render.filepath = os.path.join(out, "probe.png")
 bpy.ops.render.render(write_still=True)
 bpy.ops.export_scene.gltf(filepath=os.path.join(out, "model.glb"))
 `;
-const cycles = new Map<string, boolean>();
+// Only a render that worked is kept: one that failed (a timeout under load) is tried again when next asked.
+const cycles = new Set<string>();
+const failed = new Set<string>();
+const probing = new Map<string, Promise<boolean>>();
 
-/** Whether Blender renders with Cycles on the CPU here, found once by rendering a 16 pixel cube in the sandbox. */
-export async function cyclesRenders(b: Blender, hide?: string[]): Promise<boolean> {
-  if (cycles.has(b.path)) return cycles.get(b.path)!;
+/** Whether Blender renders with Cycles on the CPU here, by rendering a 16 pixel cube in the sandbox. */
+export async function cyclesRenders(b: Blender, hide?: string[], signal?: AbortSignal): Promise<boolean> {
+  if (cycles.has(b.path)) return true;
   const work = mkdtempSync(join(tmpdir(), 'hg-blender-'));
+  let ok = false;
   try {
     mkdirSync(join(work, 'src'));
     writeFileSync(join(work, 'src', 'build.py'), CYCLES_PROBE);
-    await runBlender(b, work, 'build.py', join(work, 'probe.glb'), { hide, timeoutMs: 120_000 });
-    cycles.set(b.path, existsSync(join(work, 'out', 'probe.png')));
+    await runBlender(b, work, 'build.py', join(work, 'probe.glb'), { hide, timeoutMs: 120_000, signal });
+    ok = existsSync(join(work, 'out', 'probe.png'));
   } catch {
-    cycles.set(b.path, false);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  return cycles.get(b.path)!;
+  if (ok) cycles.add(b.path);
+  return ok;
 }
 
-/** Whether `<data>/blender.json` lets build scripts run: on unless it says `"blenderScripts": "off"`. */
-export function blenderScripts(dataDir: string): 'on' | 'off' {
-  try {
-    const j = JSON.parse(readFileSync(join(dataDir, 'blender.json'), 'utf8')) as { blenderScripts?: unknown };
-    return j.blenderScripts === 'off' ? 'off' : 'on';
-  } catch {
-    return 'on';
-  }
+/**
+ * What is known now of whether Cycles renders here, without waiting: null while the first render runs in the
+ * background, false after one failed (and another is started), true once one worked.
+ */
+export function cyclesKnown(b: Blender, hide?: string[], signal?: AbortSignal): boolean | null {
+  if (cycles.has(b.path)) return true;
+  if (!probing.has(b.path) && !signal?.aborted)
+    probing.set(
+      b.path,
+      cyclesRenders(b, hide, signal).then((ok) => {
+        probing.delete(b.path);
+        if (ok) failed.delete(b.path);
+        else failed.add(b.path);
+        return ok;
+      }),
+    );
+  return failed.has(b.path) ? false : null;
 }
+
+/**
+ * The owner's word in `<data>/blender.json` on whether build scripts may run. With no file they are on. A file that
+ * can't be read, isn't JSON, or holds anything but `"blenderScripts": "on"` or `"off"` turns them off, and `problem`
+ * says why, so a mistyped "off" never leaves them running.
+ */
+export function blenderSetting(dataDir: string): { scripts: 'on' | 'off'; problem: string | null } {
+  let text: string;
+  try {
+    text = readFileSync(join(dataDir, 'blender.json'), 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { scripts: 'on', problem: null };
+    return { scripts: 'off', problem: 'blender.json can’t be read, so build scripts are off' };
+  }
+  try {
+    const v = (JSON.parse(text) as { blenderScripts?: unknown } | null)?.blenderScripts;
+    if (v === 'on' || v === 'off') return { scripts: v, problem: null };
+  } catch {}
+  return {
+    scripts: 'off',
+    problem:
+      'blender.json isn’t valid (it must be {"blenderScripts": "on"} or {"blenderScripts": "off"}), so build scripts are off',
+  };
+}
+
+export const blenderScripts = (dataDir: string) => blenderSetting(dataDir).scripts;

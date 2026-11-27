@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { request } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -11,7 +19,16 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { findBlender, looksLikeBlender, tracebackLine } from '../src/blender.ts';
+import {
+  type Blender,
+  blenderBusy,
+  blenderFiles,
+  blenderSetting,
+  findBlender,
+  looksLikeBlender,
+  probeBlender,
+  tracebackLine,
+} from '../src/blender.ts';
 import { fileStore, parseArgs, startServer } from '../src/index.ts';
 import { Loops, sniff } from '../src/loop.ts';
 import { freePort } from './harness.ts';
@@ -70,7 +87,7 @@ interface Reply {
   };
 }
 
-async function serve(opts: { blender?: null; args?: string[] } = {}) {
+async function serve(opts: { blender?: Blender | null; args?: string[] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'hg-blender-'));
   const srv = await startServer(
     {
@@ -108,7 +125,7 @@ async function serve(opts: { blender?: null; args?: string[] } = {}) {
     await client.close();
     await srv.close();
   };
-  return { srv, dir, call, start, submit, close };
+  return { srv, dir, call, start, submit, close, tools: () => client.listTools() };
 }
 
 describe('reading a Blender build script', () => {
@@ -122,6 +139,56 @@ describe('reading a Blender build script', () => {
         'Traceback (most recent call last):\n  File "build.py", line 12, in <module>\n    boom()\nValueError: no head\n',
       ),
     ).toBe('build.py line 12: ValueError: no head');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'finds a Blender installed after it first looked, without a restart',
+    () => {
+      const p = join(mkdtempSync(join(tmpdir(), 'hg-blender-late-')), 'blender');
+      const env = { HILDEGARD_BLENDER: p, PATH: process.env.PATH };
+      expect(findBlender(env)).toBeNull();
+      writeFileSync(p, '#!/bin/sh\necho "Blender 5.2.2 LTS"\n', { mode: 0o755 });
+      expect(findBlender(env)).toEqual({ path: realpathSync(p), version: '5.2.2 LTS' });
+    },
+  );
+
+  it('turns build scripts off when blender.json can’t be read or isn’t exactly on or off', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hg-blender-setting-'));
+    const file = join(dir, 'blender.json');
+    expect(blenderSetting(dir)).toEqual({ scripts: 'on', problem: null });
+    for (const [text, scripts] of [
+      ['{"blenderScripts": "on"}', 'on'],
+      ['{"blenderScripts": "off"}', 'off'],
+    ] as const) {
+      writeFileSync(file, text);
+      expect(blenderSetting(dir)).toEqual({ scripts, problem: null });
+    }
+    for (const text of [
+      '{"blenderScripts": "off",}',
+      '{"blenderScripts": false}',
+      '{"blenderScripts": "Off"}',
+      'false',
+      '"Off"',
+      '{}',
+    ]) {
+      writeFileSync(file, text);
+      expect(blenderSetting(dir), text).toMatchObject({
+        scripts: 'off',
+        problem: expect.stringContaining('isn’t valid'),
+      });
+    }
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+      writeFileSync(file, '{"blenderScripts": "on"}');
+      chmodSync(file, 0o000);
+      try {
+        expect(blenderSetting(dir)).toMatchObject({
+          scripts: 'off',
+          problem: expect.stringContaining('can’t be read'),
+        });
+      } finally {
+        chmodSync(file, 0o600);
+      }
+    }
   });
 
   it('looks only where HILDEGARD_BLENDER says when it is set', () => {
@@ -190,6 +257,21 @@ describe('who may send a build script', { timeout: 60_000 }, () => {
     expect(site).toMatchObject({ status: 403, json: { code: 'blender_remote' } });
   });
 
+  it('refuses a page on Hildegard’s own address, a published site or a preview', async () => {
+    const id = await s.start();
+    const same = await s.submit(id, src, s.srv.url, { origin: s.srv.url });
+    expect(same).toMatchObject({ status: 403, json: { code: 'blender_remote' } });
+    const meta = await raw(
+      s.srv.url,
+      `/api/loops/${id}/rounds`,
+      'POST',
+      { host: new URL(s.srv.url).host, 'x-hildegard': '1', 'sec-fetch-site': 'same-origin' },
+      src,
+    );
+    expect(meta).toMatchObject({ status: 403, json: { code: 'blender_remote' } });
+    expect(readdirSync(join(s.dir, 'media', 'loops', id))).toEqual(['loop.json']);
+  });
+
   it('refuses an MCP key, and an MCP call reached by another name', async () => {
     const key = (await (
       await fetch(`${s.srv.url}/api/auth/keys`, {
@@ -218,9 +300,13 @@ describe('who may send a build script', { timeout: 60_000 }, () => {
       })) as CallToolResult;
       expect(r.isError).toBe(true);
       expect(textOf(r)).toContain('only when it comes from this computer');
+      const { tools } = await client.listTools();
+      expect(tools.find((t) => t.name === 'loop_start')!.description).not.toContain('build script');
     } finally {
       await client.close();
     }
+    const here = (await s.tools()).tools.find((t) => t.name === 'loop_start')!.description;
+    expect(here).toContain('Blender build script whose first line is `# hildegard: blender`');
     const init = JSON.stringify({
       jsonrpc: '2.0',
       id: 1,
@@ -255,6 +341,8 @@ describe('who may send a build script', { timeout: 60_000 }, () => {
     writeFileSync(join(s.dir, 'blender.json'), JSON.stringify({ blenderScripts: 'off' }));
     try {
       const id = await s.start();
+      expect(await s.submit(id, src)).toMatchObject({ status: 403, json: { code: 'blender_off' } });
+      writeFileSync(join(s.dir, 'blender.json'), '{"blenderScripts": "off",}');
       expect(await s.submit(id, src)).toMatchObject({ status: 403, json: { code: 'blender_off' } });
     } finally {
       writeFileSync(join(s.dir, 'blender.json'), JSON.stringify({ blenderScripts: 'on' }));
@@ -303,10 +391,44 @@ describe.skipIf(!blender)('a model loop built in Blender', { timeout: 600_000 },
   });
   afterAll(() => s.close());
 
-  it('says the version, the path and whether Cycles renders', async () => {
-    const t = textOf(await s.call('blender_status'));
-    expect(t).toContain(`Blender ${blender!.version} at ${blender!.path}`);
+  it('says the version and the path at once, and whether Cycles renders once it has looked', async () => {
+    const asked = Date.now();
+    const first = textOf(await s.call('blender_status'));
+    expect(Date.now() - asked).toBeLessThan(2000);
+    expect(first).toContain(`Blender ${blender!.version} at ${blender!.path}`);
+    expect(first).toContain('is being checked');
+    let t = first;
+    for (let i = 0; i < 300 && t.includes('is being checked'); i++) {
+      await new Promise((ok) => setTimeout(ok, 500));
+      t = textOf(await s.call('blender_status'));
+    }
     expect(t).toContain('Cycles renders on the CPU here');
+  });
+
+  it('says why build scripts are off when blender.json isn’t valid', async () => {
+    writeFileSync(join(s.dir, 'blender.json'), '{"blenderScripts": false}');
+    try {
+      expect(textOf(await s.call('blender_status'))).toContain('blender.json isn’t valid');
+    } finally {
+      writeFileSync(join(s.dir, 'blender.json'), '{"blenderScripts": "on"}');
+    }
+  });
+
+  it('runs a Blender reached through a link, from its own folder', async () => {
+    const link = join(mkdtempSync(join(tmpdir(), 'hg-blender-link-')), 'blender');
+    symlinkSync(blender!.path, link);
+    const b = probeBlender(link)!;
+    expect(b.path).toBe(realpathSync(blender!.path));
+    expect(blenderFiles(b.path)).toEqual(blenderFiles(realpathSync(blender!.path)));
+    expect(blenderFiles(b.path)).not.toBeNull();
+    const linked = await serve({ blender: b });
+    try {
+      const id = await linked.start();
+      const r = await linked.submit(id, script('bpy.ops.mesh.primitive_cube_add(size=10)', exportGlb));
+      expect(r.status, r.json.error).toBe(201);
+    } finally {
+      await linked.close();
+    }
   });
 
   it('runs the build, then the normal model review on the GLB it wrote', async () => {
@@ -321,7 +443,7 @@ describe.skipIf(!blender)('a model loop built in Blender', { timeout: 600_000 },
         'bpy.ops.export_scene.gltf(filepath=os.path.join(out, "model.glb"), export_yup=True, export_apply=True)',
       ),
     );
-    expect(r.status).toBe(201);
+    expect(r.status, JSON.stringify(r.json).slice(0, 800)).toBe(201);
     const round = r.json.round;
     expect(round.format).toBe('glb');
     expect(round.source).toMatch(/round-1\.py$/);
@@ -418,6 +540,38 @@ describe.skipIf(!blender)('a model loop built in Blender', { timeout: 600_000 },
     } finally {
       if (was === undefined) delete process.env.HILDEGARD_BLENDER_TIMEOUT;
       else process.env.HILDEGARD_BLENDER_TIMEOUT = was;
+    }
+  });
+});
+
+describe.skipIf(!blender)('a build when Hildegard stops', { timeout: 120_000 }, () => {
+  it('is stopped with everything it started, and holds updates while it runs', async () => {
+    const s = await serve();
+    const tag = `${5000 + Math.floor(Math.random() * 999)}.${Date.now() % 1000}`;
+    const pids = () =>
+      spawnSync('pgrep', ['-f', `sleep ${tag}`])
+        .stdout.toString()
+        .trim();
+    let closed = false;
+    try {
+      const id = await s.start();
+      const sent = s
+        .submit(
+          id,
+          script('import subprocess, time', `subprocess.Popen(["sleep", "${tag}"])`, 'time.sleep(600)'),
+        )
+        .catch(() => null);
+      for (let i = 0; i < 120 && !pids(); i++) await new Promise((ok) => setTimeout(ok, 500));
+      expect(pids()).not.toBe('');
+      expect(blenderBusy()).toBe(true);
+      await s.close();
+      closed = true;
+      await sent;
+      await new Promise((ok) => setTimeout(ok, 1000));
+      expect(pids()).toBe('');
+      expect(blenderBusy()).toBe(false);
+    } finally {
+      if (!closed) await s.close();
     }
   });
 });

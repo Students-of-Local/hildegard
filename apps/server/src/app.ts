@@ -239,9 +239,12 @@ export interface AppDeps {
   /** Blender on this computer, for model loops sent as build scripts. */
   blender?: () => Promise<{
     found: { path: string; version: string } | null;
-    cycles: boolean;
+    /** Null while the first check runs. */
+    cycles: boolean | null;
     sandboxed: boolean;
     scripts: 'on' | 'off';
+    /** Why blender.json turned build scripts off, when it can't be read or isn't valid. */
+    scriptsProblem: string | null;
   }>;
   /** Each person's own writing voice; in the data folder unless a test says otherwise. */
   writing?: WritingStore;
@@ -2813,6 +2816,7 @@ export function createApp(deps: AppDeps) {
         cycles: b.cycles,
         sandboxed: b.sandboxed,
         scripts: b.scripts,
+        scriptsProblem: b.scriptsProblem,
       });
     });
   }

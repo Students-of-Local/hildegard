@@ -59,8 +59,7 @@ export function registerLoopTools(
     'loop_start',
     {
       title: 'Start a loop',
-      description:
-        'Start a generate → render → critique → refine loop for a 3D model or printable part (kind "model"), a web page or site (kind "web"), an image, a video or a sound. Write the brief first: who it is for, what it is, and the specifics that make it this piece rather than the average one. Then make the first version (a model as OpenSCAD source, or as a Blender build script whose first line is `# hildegard: blender`, which Hildegard runs itself on this computer, or made in Blender, build123d, trimesh or signed-distance code and exported as GLB, STL, OBJ or PLY; a page as HTML and CSS, or a folder or ZIP of the site) and send it with loop_submit. Each round comes back measured and drawn (eight views and silhouettes for a model; every page at phone, tablet and desktop width, light and dark, with problems outlined, for the web; a contact sheet for media); answer its questions with loop_critique, change one thing, and send the next round. Read the skill first (read_skill): hildegard-3d for a model, hildegard-print for a part to print, hildegard-web for a page.',
+      description: `Start a generate → render → critique → refine loop for a 3D model or printable part (kind "model"), a web page or site (kind "web"), an image, a video or a sound. Write the brief first: who it is for, what it is, and the specifics that make it this piece rather than the average one. Then make the first version (a model as OpenSCAD source, ${remote ? '' : 'or as a Blender build script whose first line is `# hildegard: blender`, which Hildegard runs itself on this computer, '}or made in Blender, build123d, trimesh or signed-distance code and exported as GLB, STL, OBJ or PLY; a page as HTML and CSS, or a folder or ZIP of the site) and send it with loop_submit. Each round comes back measured and drawn (eight views and silhouettes for a model; every page at phone, tablet and desktop width, light and dark, with problems outlined, for the web; a contact sheet for media); answer its questions with loop_critique, change one thing, and send the next round. Read the skill first (read_skill): hildegard-3d for a model, hildegard-print for a part to print, hildegard-web for a page.`,
       inputSchema: {
         kind: z.enum(['model', 'web', 'image', 'video', 'audio']).describe('What the loop makes.'),
         title: z.string().min(1).max(120).describe('A short name, such as "Heron finial".'),
@@ -617,12 +616,14 @@ export function registerLoopTools(
         );
       return text(
         [
-          `Blender ${b.version}${b.path ? ` at ${b.path}` : ''}. Cycles ${b.cycles ? 'renders on the CPU here' : 'doesn’t render here'}.`,
-          b.scripts === 'off'
-            ? 'Build scripts are turned off on this Hildegard (blenderScripts off): export a GLB yourself and send that.'
-            : b.sandboxed
-              ? 'Build scripts run here in a sandbox, only when they come from this computer: no network, and they write only their own folder. Make the first line `# hildegard: blender`, export model.glb into the --out folder the script is given, and send it with loop_submit file_path.'
-              : 'Blender can’t be sandboxed here (Linux without bubblewrap, or Windows), so Hildegard won’t run build scripts: export a GLB yourself and send that.',
+          `Blender ${b.version}${b.path ? ` at ${b.path}` : ''}. ${b.cycles === null ? 'Whether Cycles renders on the CPU here is being checked: ask again in a minute.' : `Cycles ${b.cycles ? 'renders on the CPU here' : 'doesn’t render here'}.`}`,
+          b.scriptsProblem
+            ? `Build scripts are off on this Hildegard: ${b.scriptsProblem}. Export a GLB yourself and send that, or ask your user to fix the file.`
+            : b.scripts === 'off'
+              ? 'Build scripts are turned off on this Hildegard (blenderScripts off): export a GLB yourself and send that.'
+              : b.sandboxed
+                ? 'Build scripts run here in a sandbox, only when they come from this computer: no network, and they write only their own folder. Make the first line `# hildegard: blender`, export model.glb into the --out folder the script is given, and send it with loop_submit file_path.'
+                : 'Blender can’t be sandboxed here (Linux without bubblewrap, or Windows), so Hildegard won’t run build scripts: export a GLB yourself and send that.',
         ].join('\n'),
       );
     }),

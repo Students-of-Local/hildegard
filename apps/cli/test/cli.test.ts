@@ -1276,6 +1276,32 @@ describe('doctor’s ComfyUI step', () => {
   });
 });
 
+describe.skipIf(process.platform === 'win32')('doctor’s Blender step', () => {
+  it('says when Blender can’t be sandboxed, and when blender.json isn’t valid, as blender_status does', async () => {
+    const { blenderStep } = await import('../src/doctor.ts');
+    const data = mkdtempSync(join(tmpdir(), 'hg-cli-blender-'));
+    // A Blender in a folder that is neither a system install, an .app nor a download: nothing to sandbox it with.
+    const fake = join(mkdtempSync(join(tmpdir(), 'hg-cli-blender-bin-')), 'blender');
+    writeFileSync(fake, '#!/bin/sh\necho "Blender 5.2.2 LTS"\n', { mode: 0o755 });
+    const was = process.env.HILDEGARD_BLENDER;
+    process.env.HILDEGARD_BLENDER = fake;
+    try {
+      const step = blenderStep(data);
+      expect(step).toMatchObject({ id: 'blender', status: 'skipped' });
+      expect(step.detail).toContain('Blender 5.2.2 LTS');
+      expect(step.detail).toContain('can’t be sandboxed');
+      writeFileSync(join(data, 'blender.json'), '{"blenderScripts": "Off"}');
+      const invalid = blenderStep(data);
+      expect(invalid).toMatchObject({ status: 'skipped' });
+      expect(invalid.detail).toContain('blenderScripts is off');
+      expect(invalid.detail).toContain('blender.json isn’t valid');
+    } finally {
+      if (was === undefined) delete process.env.HILDEGARD_BLENDER;
+      else process.env.HILDEGARD_BLENDER = was;
+    }
+  });
+});
+
 describe('doctor’s model steps', () => {
   type Snap = Parameters<typeof import('../src/doctor.ts').modelSteps>[0];
   const model = (id: string, fitWhy: 'memory' | 'apple-gpu' | null, gated = false) =>

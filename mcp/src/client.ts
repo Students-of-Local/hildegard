@@ -102,12 +102,14 @@ export interface BlenderInfo {
   installed: boolean;
   version: string | null;
   path: string | null;
-  /** Whether Cycles renders on the CPU here. */
-  cycles: boolean;
+  /** Whether Cycles renders on the CPU here; null while the first check runs. */
+  cycles: boolean | null;
   /** Whether Blender can run sandboxed here; build scripts run only where it can. */
   sandboxed: boolean;
   /** The owner's blenderScripts setting. */
   scripts: 'on' | 'off';
+  /** Why blender.json turned build scripts off, when it can't be read or isn't valid. */
+  scriptsProblem: string | null;
 }
 
 export interface PrinterInfo {
