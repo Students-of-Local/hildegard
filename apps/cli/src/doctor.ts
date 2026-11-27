@@ -58,8 +58,8 @@ export async function frontDoorStep(url: string, get: typeof fetch = fetch): Pro
  * Blender for model loops sent as build scripts, the owner's word on whether they may run, and whether it can run in
  * a sandbox here, as blender_status says: without one no build script runs.
  */
-export function blenderStep(dataDir: string): Step {
-  const blender = findBlender();
+export async function blenderStep(dataDir: string): Promise<Step> {
+  const blender = await findBlender();
   const { scripts, problem } = blenderSetting(dataDir);
   const sandboxed = !!blender && !!blenderSandbox(blender, dataDir, [homedir(), dataDir]);
   const why = problem
@@ -200,7 +200,7 @@ export async function doctor(ctx: Ctx): Promise<Result> {
     });
   }
 
-  steps.push(blenderStep(c.dataDir));
+  steps.push(await blenderStep(c.dataDir));
 
   const agents = listAgents().filter((a) => a.connected);
   steps.push({

@@ -4,16 +4,19 @@ import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { request } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createMcpServer, HildegardClient } from '@hildegard/mcp';
+import { createMcpServer, HildegardClient, zip } from '@hildegard/mcp';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -24,16 +27,19 @@ import {
   blenderBusy,
   blenderFiles,
   blenderSetting,
+  cyclesKnown,
+  cyclesRenders,
   findBlender,
   looksLikeBlender,
   probeBlender,
+  runBlender,
   tracebackLine,
 } from '../src/blender.ts';
 import { fileStore, parseArgs, startServer } from '../src/index.ts';
 import { Loops, sniff } from '../src/loop.ts';
 import { freePort } from './harness.ts';
 
-const blender = findBlender();
+const blender = await findBlender();
 if (!blender)
   console.warn(
     'blender.test.ts: no Blender here (set HILDEGARD_BLENDER or put blender on PATH), so the tests that run build scripts skip.',
@@ -139,16 +145,75 @@ describe('reading a Blender build script', () => {
         'Traceback (most recent call last):\n  File "build.py", line 12, in <module>\n    boom()\nValueError: no head\n',
       ),
     ).toBe('build.py line 12: ValueError: no head');
+    expect(
+      tracebackLine(
+        [
+          'Traceback (most recent call last):',
+          '  File "build.py", line 6, in <module>',
+          '    bpy.ops.export_scene.gltf(export_format="NOPE")',
+          '  File "lib/parts.py", line 3, in head',
+          '  File "/usr/share/blender/5.2/scripts/modules/bpy/ops.py", line 109, in __call__',
+          '  File "<path>/blender/5.2/scripts/modules/bpy/ops.py", line 110, in __call__',
+          'TypeError: enum "NOPE" not found',
+        ].join('\n'),
+      ),
+    ).toBe('lib/parts.py line 3: TypeError: enum "NOPE" not found');
+    expect(
+      tracebackLine(
+        'Traceback (most recent call last):\n  File "/usr/lib/python3.13/json/__init__.py", line 293, in load\nValueError: x\n',
+      ),
+    ).toBe('/usr/lib/python3.13/json/__init__.py line 293: ValueError: x');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'probes a candidate once, again only when it changes, and a failed one not again for a while',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'hg-blender-probe-'));
+      const p = join(dir, 'blender');
+      const runs = () => readFileSync(join(dir, 'count'), 'utf8').split('\n').filter(Boolean).length;
+      const fake = (says: string) =>
+        writeFileSync(p, `#!/bin/sh\necho x >> "$(dirname "$0")/count"\n${says}\n`, { mode: 0o755 });
+      const env = { HILDEGARD_BLENDER: p, PATH: process.env.PATH };
+      fake('exit 1');
+      expect(await findBlender(env)).toBeNull();
+      expect(await findBlender(env)).toBeNull();
+      expect(runs()).toBe(1);
+      fake('echo "Blender 5.2.2 LTS"');
+      const later = new Date(Date.now() + 10_000);
+      utimesSync(p, later, later);
+      expect(await findBlender(env)).toMatchObject({ version: '5.2.2 LTS' });
+      expect(await findBlender(env)).toMatchObject({ version: '5.2.2 LTS' });
+      expect(runs()).toBe(2);
+      fake('echo "Blender 5.3.0"');
+      const upgraded = new Date(Date.now() + 20_000);
+      utimesSync(p, upgraded, upgraded);
+      expect(await findBlender(env)).toMatchObject({ version: '5.3.0' });
+      expect(runs()).toBe(3);
+    },
+  );
+
+  it('starts no Cycles render for a while after one failed', async () => {
+    // Nothing to sandbox it with, so the render fails at once.
+    const b = {
+      path: join(tmpdir(), `hg-no-blender-${randomBytes(4).toString('hex')}`),
+      version: '5.2.2 LTS',
+    };
+    expect(cyclesKnown(b)).toBeNull();
+    for (let i = 0; i < 50 && cyclesKnown(b) === null; i++) await new Promise((ok) => setTimeout(ok, 20));
+    for (let i = 0; i < 3; i++) {
+      expect(cyclesKnown(b)).toBe(false);
+      expect(blenderBusy()).toBe(false);
+    }
   });
 
   it.skipIf(process.platform === 'win32')(
     'finds a Blender installed after it first looked, without a restart',
-    () => {
+    async () => {
       const p = join(mkdtempSync(join(tmpdir(), 'hg-blender-late-')), 'blender');
       const env = { HILDEGARD_BLENDER: p, PATH: process.env.PATH };
-      expect(findBlender(env)).toBeNull();
+      expect(await findBlender(env)).toBeNull();
       writeFileSync(p, '#!/bin/sh\necho "Blender 5.2.2 LTS"\n', { mode: 0o755 });
-      expect(findBlender(env)).toEqual({ path: realpathSync(p), version: '5.2.2 LTS' });
+      expect(await findBlender(env)).toEqual({ path: realpathSync(p), version: '5.2.2 LTS' });
     },
   );
 
@@ -191,10 +256,37 @@ describe('reading a Blender build script', () => {
     }
   });
 
-  it('looks only where HILDEGARD_BLENDER says when it is set', () => {
+  it('looks only where HILDEGARD_BLENDER says when it is set', async () => {
     // Even with a Blender on PATH, as there is when one was found.
     const path = blender ? dirname(blender.path) : process.env.PATH;
-    expect(findBlender({ HILDEGARD_BLENDER: '/nowhere/blender', PATH: path })).toBeNull();
+    expect(await findBlender({ HILDEGARD_BLENDER: '/nowhere/blender', PATH: path })).toBeNull();
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('a Blender that never answers', { timeout: 60_000 }, () => {
+  it('holds up no other request while it is asked its version', async () => {
+    const p = join(mkdtempSync(join(tmpdir(), 'hg-blender-mute-')), 'blender');
+    writeFileSync(p, '#!/bin/sh\nexec sleep 4\n', { mode: 0o755 });
+    const was = process.env.HILDEGARD_BLENDER;
+    process.env.HILDEGARD_BLENDER = p;
+    const s = await serve();
+    try {
+      const asked = Date.now();
+      let answered = false;
+      const status = fetch(`${s.srv.url}/api/blender`, { headers: H }).then((r) => {
+        answered = true;
+        return r;
+      });
+      await new Promise((ok) => setTimeout(ok, 200));
+      expect((await fetch(`${s.srv.url}/api/health`, { headers: H })).status).toBe(200);
+      expect(Date.now() - asked).toBeLessThan(1000);
+      expect(answered).toBe(false);
+      expect(await (await status).json()).toMatchObject({ installed: false });
+    } finally {
+      if (was === undefined) delete process.env.HILDEGARD_BLENDER;
+      else process.env.HILDEGARD_BLENDER = was;
+      await s.close();
+    }
   });
 });
 
@@ -417,7 +509,7 @@ describe.skipIf(!blender)('a model loop built in Blender', { timeout: 600_000 },
   it('runs a Blender reached through a link, from its own folder', async () => {
     const link = join(mkdtempSync(join(tmpdir(), 'hg-blender-link-')), 'blender');
     symlinkSync(blender!.path, link);
-    const b = probeBlender(link)!;
+    const b = (await probeBlender(link))!;
     expect(b.path).toBe(realpathSync(blender!.path));
     expect(blenderFiles(b.path)).toEqual(blenderFiles(realpathSync(blender!.path)));
     expect(blenderFiles(b.path)).not.toBeNull();
@@ -478,6 +570,145 @@ describe.skipIf(!blender)('a model loop built in Blender', { timeout: 600_000 },
     expect(r.json.error).toContain('build.py line 12: ValueError: no head');
     expect(r.json.error).not.toContain(homedir());
     expect(r.json.error).not.toContain(s.dir);
+  });
+
+  it('names the line in build.py of a Blender operator that failed', async () => {
+    const id = await s.start();
+    // The glTF exporter is Blender's own Python, so its frames come after build.py's.
+    const call = 'bpy.ops.export_scene.gltf(filepath="/usr/hg-nowhere/model.glb")';
+    const lines = script('pass', 'bpy.ops.mesh.primitive_cube_add(size=10)', call);
+    const n = lines.split('\n').indexOf(call) + 1;
+    const r = await s.submit(id, lines);
+    expect(r).toMatchObject({ status: 422, json: { code: 'blender_failed' } });
+    expect(r.json.error).toContain(`build.py line ${n}: RuntimeError`);
+    expect(r.json.error).not.toMatch(/(export|__init__|os)\S* line/);
+  });
+
+  it('builds a ZIP round from the params.json sent with it', async () => {
+    const id = await s.start();
+    const build = script(
+      'import json',
+      'p = json.load(open(sys.argv[sys.argv.index("--params") + 1]))',
+      'bpy.ops.mesh.primitive_cube_add(size=p["size"])',
+      exportGlb,
+    );
+    const body = zip([
+      { name: 'build.py', data: new TextEncoder().encode(build) },
+      { name: 'params.json', data: new TextEncoder().encode('{"size": 30}') },
+    ]);
+    const res = await fetch(`${s.srv.url}/api/loops/${id}/rounds?note=build`, {
+      method: 'POST',
+      headers: { 'x-hildegard': '1' },
+      body,
+    });
+    const r = (await res.json()) as Reply;
+    expect(res.status, r.error).toBe(201);
+    for (const v of r.round.review.info.size as number[]) expect(v).toBeCloseTo(30, 0);
+  });
+
+  it('leaves nothing a build started running once it ends, even when it ends well', async () => {
+    const tag = `${6000 + Math.floor(Math.random() * 999)}.${Date.now() % 1000}`;
+    const id = await s.start();
+    const r = await s.submit(
+      id,
+      script(
+        'import subprocess',
+        `subprocess.Popen(["sleep", "${tag}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)`,
+        'bpy.ops.mesh.primitive_cube_add(size=10)',
+        exportGlb,
+      ),
+    );
+    expect(r.status, r.json.error).toBe(201);
+    await new Promise((ok) => setTimeout(ok, 500));
+    expect(
+      spawnSync('pgrep', ['-f', `sleep ${tag}`])
+        .stdout.toString()
+        .trim(),
+    ).toBe('');
+  });
+
+  it('refuses a model.glb that is a link', async () => {
+    const id = await s.start();
+    const r = await s.submit(
+      id,
+      script(
+        'bpy.ops.mesh.primitive_cube_add(size=10)',
+        'bpy.ops.export_scene.gltf(filepath=os.path.join(out, "real.glb"), export_yup=True)',
+        'os.symlink(os.path.join(out, "real.glb"), os.path.join(out, "model.glb"))',
+      ),
+    );
+    expect(r).toMatchObject({ status: 422, json: { code: 'blender_failed' } });
+    expect(r.json.error).toContain('wrote no model.glb');
+  });
+
+  it('runs a build while Cycles is being checked, without waiting for it', async () => {
+    // A Blender that hangs, in a folder laid out like a download so it runs in the sandbox.
+    const dir = mkdtempSync(join(tmpdir(), 'hg-blender-hang-'));
+    mkdirSync(join(dir, '5.2'));
+    writeFileSync(join(dir, 'blender'), '#!/bin/sh\nexec sleep 600\n', { mode: 0o755 });
+    const stop = new AbortController();
+    let checked = false;
+    const probe = cyclesRenders({ path: join(dir, 'blender'), version: '5.2.2 LTS' }, [], stop.signal).then(
+      (ok) => {
+        checked = true;
+        return ok;
+      },
+    );
+    try {
+      const work = mkdtempSync(join(tmpdir(), 'hg-blender-beside-'));
+      mkdirSync(join(work, 'src'));
+      writeFileSync(
+        join(work, 'src', 'build.py'),
+        script('bpy.ops.mesh.primitive_cube_add(size=10)', exportGlb),
+      );
+      const built = await runBlender(blender!, work, 'build.py', join(work, 'model.glb'), {
+        timeoutMs: 60_000,
+      });
+      expect(built.version).toBe(blender!.version);
+      expect(checked).toBe(false);
+    } finally {
+      stop.abort();
+    }
+    expect(await probe).toBe(false);
+  }, 90_000);
+
+  it('tells a client elsewhere that build scripts run only from this computer', async () => {
+    const hosted = await serve({ args: ['--allow-host', 'studio.example'] });
+    try {
+      await fetch(`${hosted.srv.url}/api/people/owner`, {
+        method: 'POST',
+        headers: H,
+        body: JSON.stringify({ name: 'Ada', passphrase: PASS }),
+      });
+      const key = (await (
+        await fetch(`${hosted.srv.url}/api/auth/keys`, {
+          method: 'POST',
+          headers: H,
+          body: JSON.stringify({ name: 'Laptop' }),
+        })
+      ).json()) as { key: string };
+      const client = new Client({ name: 'elsewhere', version: '1.0.0' });
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`${hosted.srv.hostedUrl()}/mcp`), {
+          requestInit: { headers: { authorization: `Bearer ${key.key}` } },
+        }),
+      );
+      try {
+        const there = textOf(
+          (await client.callTool({ name: 'blender_status', arguments: {} })) as CallToolResult,
+        );
+        expect(there).toContain('only when they come from the computer Hildegard runs on');
+        expect(there).toContain('export a GLB, and send it with loop_submit data');
+        expect(there).not.toContain('file_path');
+      } finally {
+        await client.close();
+      }
+      const here = textOf(await hosted.call('blender_status'));
+      expect(here).toContain('only when they come from this computer');
+      expect(here).toContain('send it with loop_submit file_path');
+    } finally {
+      await hosted.close();
+    }
   });
 
   it('says so when a build writes no model.glb', async () => {

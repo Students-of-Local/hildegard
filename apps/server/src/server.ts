@@ -686,7 +686,7 @@ async function serveStudio(
   const openscad = () => (opts.openscad === undefined ? findOpenScad() : opts.openscad);
   // Hidden from OpenSCAD: the owner's home and Hildegard's data, but for the round and the libraries.
   const scadHidden = [homedir(), config.dataDir];
-  const blender = () => (opts.blender === undefined ? findBlender() : opts.blender);
+  const blender = async () => (opts.blender === undefined ? findBlender() : opts.blender);
   // Stops a build running or waiting when the server closes.
   const builds = new AbortController();
   const app = createApp({
@@ -743,7 +743,7 @@ async function serveStudio(
           : null;
       },
       renderBlender: async (dir, script, out, params) => {
-        const b = blender();
+        const b = await blender();
         return b
           ? runBlender(b, dir, script, out, { hide: scadHidden, params, signal: builds.signal })
           : null;
@@ -775,7 +775,7 @@ async function serveStudio(
       };
     },
     blender: async () => {
-      const b = blender();
+      const b = await blender();
       const setting = blenderSetting(config.dataDir);
       return {
         found: b,
