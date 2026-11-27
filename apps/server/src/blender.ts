@@ -29,7 +29,7 @@ import {
 } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { homedir, platform, tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { findSandbox, MAX_MESH_BYTES, scrubPaths } from './openscad.ts';
 
 export interface Blender {
@@ -85,7 +85,7 @@ function version(real: string, argv0: string): Promise<Blender | null> {
     const end = () => {
       clearTimeout(timer);
       const m = /^Blender (\d+\.\d+(?:\.\d+)?(?: LTS)?)/m.exec(out);
-      done(m ? { path: real, version: m[1]!, ...(argv0 === real ? {} : { argv0 }) } : null);
+      done(m ? { path: real, version: m[1]!, ...(basename(argv0) === basename(real) ? {} : { argv0 }) } : null);
     };
     child.once('error', end);
     child.once('close', end);
