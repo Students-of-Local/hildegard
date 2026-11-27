@@ -92,4 +92,4 @@ debris and size, and for prints units, bed, base, overhang and balance, on a she
 view and silhouettes; print loops also measure fits between parts, likeness to a photographed outline, and slice
 every passing round (`apps/server/src/printer.ts`). Web pages are opened in a browser cut off from the network and
 audited at phone, tablet and desktop width, light and dark (`apps/server/src/web-review.ts`, `tools/review_web.js`).
-Making parts and sites: [make.md](make.md). `hildegard loop run codex "<idea>"` hands a whole loop to a coding agent, within its terms.
+A model round may also be a Blender build script, run only when it comes from this computer: [blender.md](blender.md). Making parts and sites: [make.md](make.md). `hildegard loop run codex "<idea>"` hands a whole loop to a coding agent, within its terms.

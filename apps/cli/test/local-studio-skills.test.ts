@@ -270,10 +270,12 @@ describe('the Local Studio plugin’s craft skills', { timeout: 60_000 }, () => 
 
   it('import a plugin module only in a script run with -B', () => {
     // Importing mesh_kit or motion from the plugin writes __pycache__ beside it unless Python runs with -B.
+    // blender_kit is copied beside build.py and imported there by Blender, never from the plugin.
     const modules = new Set(
       files(join(plugin, 'skills'))
         .filter((f) => /[\\/]scripts[\\/][^\\/]+\.py$/.test(f))
-        .map((f) => f.replace(/^.*[\\/]/, '').replace(/\.py$/, '')),
+        .map((f) => f.replace(/^.*[\\/]/, '').replace(/\.py$/, ''))
+        .filter((m) => m !== 'blender_kit'),
     );
     expect(modules.has('mesh_kit') && modules.has('motion')).toBe(true);
     const names = [...modules].join('|');

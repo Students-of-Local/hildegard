@@ -66,7 +66,7 @@ parameters** (`build.py`, `model.scad`), seeded, so each round is a small edit y
 | Subject | Route | Notes |
 | --- | --- | --- |
 | Organic: figures, animals, drapery, rocks | Signed-distance fields + smooth union, meshed with marching cubes | `scripts/mesh_kit.py` has the primitives, `smin`, and the mesher (needs scikit-image) |
-| Organic, with Blender here | Blender headless: `blender -b -P build.py` | primitives, Subdivision, Remesh, Sculpt by script, Geometry Nodes; export with `bpy.ops.export_scene.gltf` or `wm.stl_export` |
+| Organic, with Blender here | A Blender build script (below); with Hildegard linked, send the script itself and it runs it | primitives, Subdivision, Remesh, Sculpt by script, Geometry Nodes; `scripts/blender_kit.py` exports GLB Y up and STL |
 | Hard-surface, functional, printable parts | OpenSCAD (with Hildegard linked, send the `.scad` itself and it renders it); or build123d / CadQuery | exact dimensions, fillets, clearances, parts that fit |
 | Booleans and extrusions in Python | trimesh + manifold3d | `manifold3d` keeps booleans watertight |
 | Reliefs, coins, lithophanes | A heightmap image turned into a mesh | lithophanes 0.6 mm (light) to 3 mm (dark) thick |
@@ -79,6 +79,41 @@ model can be made and sent from any Python, including a chatbot's. To use it her
 working folder, put `import sys; sys.path.insert(0, "<folder>/scripts")` before `from mesh_kit import *`, and run
 it as `python3 -B build.py`: without `-B`, Python writes `__pycache__` into the plugin, and Local Studio turns
 Hildegard's tools off.
+
+### Blender by script
+
+`scripts/blender_kit.py` (with Hildegard linked and no files, `read_skill hildegard-3d scripts/blender_kit.py`) is a
+bpy kit: an empty scene in millimetres, primitives, Subdivision, voxel Remesh, exact Booleans, bevels, smooth
+shading, simple PBR materials, export of named objects to GLB (Y up) and STL (Z up), and `turntable(out, frames)`
+(Cycles on the CPU, an empty at the model's centre with the camera parented to it). Copy it beside `build.py` and
+import it from the script's own folder, by its absolute path: Blender reads relative paths against its own folder,
+and Hildegard runs the build where nothing outside its folder can be read.
+
+```python
+# hildegard: blender
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import blender_kit as bk
+
+out, params = bk.args()                       # --out and --params, absolute
+bk.clear_scene()
+bk.units_mm()
+body = bk.cylinder("body", radius=20, depth=45, location=(0, 0, 22.5))
+head = bk.sphere("head", radius=params.get("head", 15), location=(0, 0, 60))
+figure = bk.join([body, head], "figure")
+bk.remesh(figure, voxel=1.5)                  # one watertight surface
+bk.subdivide(figure, levels=1)
+bk.smooth(figure)
+bk.material(figure, "clay", (0.8, 0.75, 0.7))
+bk.export_glb(out, ["figure"])                # model.glb, what Hildegard checks
+bk.export_stl(out, ["figure"])
+```
+
+With Hildegard linked, call `blender_status`, then send the folder (`build.py`, `blender_kit.py`, an optional
+`params.json`) with `loop_submit` `file_path`: Hildegard runs it in a sandbox, only when it comes from the computer
+it runs on, and checks the `model.glb`. A failing build comes back as `blender_failed` with its line and error.
+Without Hildegard, run it yourself, every path absolute:
+`blender --background --factory-startup --python-exit-code 1 --python "$PWD/build.py" -- --out "$PWD/out"`.
 
 ## 3. Rounds: big to small, one change each
 
@@ -142,6 +177,6 @@ Six rounds is the default for a model. If a check still fails at the end, say so
 
 The chosen round's file (with Hildegard linked, the link `loop_finish` gives), the sheet, and the build script so the
 user can change it.
-For viewing, offer a turntable (Blender: an empty at the origin, the camera parented to it, 360° over 96 frames) or a
+For viewing, offer a turntable (Blender: `blender_kit.turntable(out)`, an empty at the model's centre, the camera parented to it, 360° over 96 frames) or a
 `<model-viewer>` page pinned to an exact version. State plainly what was measured (Hildegard's checks) and what wasn't
 (it hasn't been printed or held). No weapons or weapon parts, in any form.
