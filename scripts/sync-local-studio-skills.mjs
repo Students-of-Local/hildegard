@@ -176,6 +176,13 @@ export const EDITS = [
     replace: '`<folder>/scripts/mesh_kit.py` (read it there; with',
   },
   {
+    file: 'hildegard-3d/SKILL.md',
+    why: 'a model reading the kit by a path relative to the skill folder finds nothing outside the plugin',
+    find: '`scripts/blender_kit.py` (with Hildegard linked and no files, `read_skill hildegard-3d scripts/blender_kit.py`) is a\nbpy kit:',
+    replace:
+      '`<folder>/scripts/blender_kit.py` (copy it from there; with Hildegard linked and no files, `read_skill hildegard-3d\nscripts/blender_kit.py`) is a\nbpy kit:',
+  },
+  {
     file: 'hildegard-music/SKILL.md',
     why: 'scripts run from the skill folder write their output into the plugin',
     find: "Run the scripts from this skill's `scripts/` folder, or with their full path.",

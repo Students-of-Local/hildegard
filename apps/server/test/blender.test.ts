@@ -436,7 +436,7 @@ describe.skipIf(!blender)('a model loop built in Blender', { timeout: 600_000 },
     const r = await s.submit(
       id,
       script(
-        'bpy.ops.mesh.primitive_uv_sphere_add(radius=15, location=(0, 0, 60))',
+        'bpy.ops.mesh.primitive_uv_sphere_add(radius=15, location=(0, 0, 45 + 0.7 * 15))',
         'bpy.ops.mesh.primitive_cylinder_add(radius=20, depth=45, location=(0, 0, 22.5))',
         'for o in bpy.context.scene.objects:',
         '    o.modifiers.new("sub", "SUBSURF").levels = 2',

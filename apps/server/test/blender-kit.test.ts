@@ -34,27 +34,44 @@ function skillExample(): string {
   return block![1]!;
 }
 
+/** The size of the first mesh in a GLB along its x, y and z, with its node's scale. */
+function glbSize(path: string): number[] {
+  const glb = readFileSync(path);
+  const gltf = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8'));
+  const node = gltf.nodes.find((n: { mesh?: number }) => n.mesh !== undefined);
+  const acc = gltf.accessors[gltf.meshes[node.mesh].primitives[0].attributes.POSITION];
+  const scale: number[] = node.scale ?? [1, 1, 1];
+  return acc.max.map((m: number, i: number) => (m - acc.min[i]) * scale[i]!);
+}
+
+/** Writes `lines` as `work/src/build.py` beside a copy of the kit. */
+function build(work: string, lines: string[]) {
+  mkdirSync(join(work, 'src'));
+  copyFileSync(KIT, join(work, 'src', 'blender_kit.py'));
+  writeFileSync(
+    join(work, 'src', 'build.py'),
+    [
+      '# hildegard: blender',
+      'import os, sys',
+      'sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))',
+      'import blender_kit as bk',
+      'out, params = bk.args()',
+      'bk.clear_scene()',
+      'bk.units_mm()',
+      ...lines,
+    ].join('\n'),
+  );
+}
+
 describe.skipIf(!blender)('the Blender kit', { timeout: 600_000 }, () => {
   it('renders a turntable that circles the model, with Cycles on the CPU', async () => {
     const work = mkdtempSync(join(tmpdir(), 'hg-turntable-'));
-    mkdirSync(join(work, 'src'));
-    copyFileSync(KIT, join(work, 'src', 'blender_kit.py'));
-    writeFileSync(
-      join(work, 'src', 'build.py'),
-      [
-        '# hildegard: blender',
-        'import os, sys',
-        'sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))',
-        'import blender_kit as bk',
-        'out, params = bk.args()',
-        'bk.clear_scene()',
-        'bk.units_mm()',
-        'bk.box("base", size=(30, 20, 10), location=(0, 0, 5))',
-        'bk.sphere("knob", radius=8, location=(14, 0, 18))',
-        'bk.export_glb(out)',
-        'bk.turntable(out, frames=4, size=64, samples=4)',
-      ].join('\n'),
-    );
+    build(work, [
+      'bk.box("base", size=(30, 20, 10), location=(0, 0, 5))',
+      'bk.sphere("knob", radius=8, location=(14, 0, 15))',
+      'bk.export_glb(out)',
+      'bk.turntable(out, frames=4, size=64, samples=4)',
+    ]);
     await runBlender(blender!, work, 'build.py', join(work, 'model.glb'));
     const frames = [1, 2, 3, 4].map((f) => join(work, 'out', `turn_000${f}.png`));
     for (const f of frames) expect(statSync(f).size).toBeGreaterThan(1000);
@@ -79,6 +96,31 @@ describe.skipIf(!blender)('the Blender kit', { timeout: 600_000 }, () => {
     // Not one flat colour, and the half turn shows the knob on the other side.
     expect(spread).toBeGreaterThan(5);
     expect(moved).toBeGreaterThan(1);
+  });
+
+  it('cuts, bevels and exports an STL in millimetres and a GLB in metres', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'hg-cut-'));
+    build(work, [
+      'plate = bk.box("plate", size=(20, 20, 10), location=(0, 0, 5))',
+      'bk.boolean(plate, bk.cylinder("hole", radius=4, depth=30, location=(0, 0, 5)))',
+      'bk.bevel(plate, width=0.5, segments=2)',
+      'bk.export_stl(out, ["plate"])',
+      'bk.export_glb(out, ["plate"], scale=0.001)',
+      'try:',
+      '    bk.export_stl(out, [], filename="none.stl")',
+      'except ValueError as e:',
+      '    open(os.path.join(out, "empty.txt"), "w").write(str(e))',
+    ]);
+    const glb = join(work, 'model.glb');
+    await runBlender(blender!, work, 'build.py', glb);
+    expect(statSync(join(work, 'out', 'model.stl')).size).toBeGreaterThan(84);
+    expect(readFileSync(join(work, 'out', 'empty.txt'), 'utf8')).toBe('no mesh to export');
+    expect(existsSync(join(work, 'out', 'none.stl'))).toBe(false);
+    // 20 by 20 mm and 10 mm tall, Y up, in metres.
+    const [x, y, z] = glbSize(glb);
+    expect(x).toBeCloseTo(0.02, 4);
+    expect(y).toBeCloseTo(0.01, 4);
+    expect(z).toBeCloseTo(0.02, 4);
   });
 
   it('runs the skill’s example build through a loop, sent as its folder', async () => {
@@ -117,10 +159,10 @@ describe.skipIf(!blender)('the Blender kit', { timeout: 600_000 }, () => {
       expect(body.round.format).toBe('glb');
       expect(body.round.source).toMatch(/round-1\.zip$/);
       expect(body.round.review.info.blender).toMatch(/^\d+\.\d+/);
-      // The body is 45 mm and the 12 mm head sits at 60: about 72 mm tall, standing up.
+      // The body is 45 mm and the 12 mm head is sunk into it, centred at 53.4: about 65 mm tall, standing up.
       const [x, y, z] = body.round.review.info.size!;
-      expect(z).toBeGreaterThan(65);
-      expect(z).toBeLessThan(80);
+      expect(z).toBeGreaterThan(60);
+      expect(z).toBeLessThan(70);
       expect(Math.max(x!, y!)).toBeLessThan(z!);
       expect(existsSync(join(dir, 'media', 'loops', id, 'round-1.glb'))).toBe(true);
     } finally {

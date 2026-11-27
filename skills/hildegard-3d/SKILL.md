@@ -84,7 +84,8 @@ out, params = bk.args()                       # --out and --params, absolute
 bk.clear_scene()
 bk.units_mm()
 body = bk.cylinder("body", radius=20, depth=45, location=(0, 0, 22.5))
-head = bk.sphere("head", radius=params.get("head", 15), location=(0, 0, 60))
+r = params.get("head", 15)
+head = bk.sphere("head", radius=r, location=(0, 0, 45 + 0.7 * r))   # sunk into the body, so the two join
 figure = bk.join([body, head], "figure")
 bk.remesh(figure, voxel=1.5)                  # one watertight surface
 bk.subdivide(figure, levels=1)
@@ -93,6 +94,11 @@ bk.material(figure, "clay", (0.8, 0.75, 0.7))
 bk.export_glb(out, ["figure"])                # model.glb, what Hildegard checks
 bk.export_stl(out, ["figure"])
 ```
+
+The exports keep millimetres, as a print loop wants. glTF counts in metres, so for a GLB meant for viewing, AR, the
+web or a game, export `bk.export_glb(out, ["figure"], scale=0.001)`: it comes out in metres, Y up. The turntable is
+for delivery: its defaults (96 Cycles frames at 512 px) can outrun a loop round's 180 s build limit, so run it with
+Blender directly on the finished model, never inside a loop round.
 
 With Hildegard linked, call `blender_status`, then send the folder (`build.py`, `blender_kit.py`, an optional
 `params.json`) with `loop_submit` `file_path`: Hildegard runs it in a sandbox, only when it comes from the computer
