@@ -20,7 +20,7 @@ import { loadCatalog } from '@hildegard/presets';
 import { layout } from '@hildegard/runtime';
 import { fileStore, parseArgs, startServer } from '@hildegard/server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hildegardEnv, hildegardWithStdin, main, run } from './harness.ts';
+import { cliEnv, hildegardEnv, hildegardWithStdin, main, run } from './harness.ts';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 // The review runs Hildegard's Python checks (PyAV, numpy, Pillow): the Python CI installs them in, or, against an
@@ -61,7 +61,7 @@ describe('hildegard make', { timeout: 60_000 }, () => {
       }
       // A shell sees the refusal as a failure, so an agent can't read it as done.
       const exit = await run(process.execPath, [main, 'make', 'clone', 'my voice'], {
-        env: { ...process.env, HOME: home, HILDEGARD_URL: url },
+        env: { ...cliEnv(home), PATH: process.env.PATH ?? '', HILDEGARD_URL: url },
       }).then(
         () => 0,
         (e: { code: number }) => e.code,
