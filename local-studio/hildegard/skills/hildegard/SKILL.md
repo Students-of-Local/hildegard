@@ -24,8 +24,7 @@ Find the request in this table and read only what it names. For these, that is a
 | A browser game, interactive 3D scene, or real-time VFX | **hildegard-game** |
 | Install Hildegard, models, devices, linking apps, anything not working | **hildegard-setup** |
 
-Two rules hold everywhere: put in only the facts your user gave (no invented dates, numbers, names, quotes or
-taglines), and check the finished thing yourself before you hand it over: render it and look, measure it, or lint it.
+Two rules hold everywhere: put in only the facts your user gave (no invented dates, numbers, names, quotes or taglines), and check the finished thing yourself before you hand it over: render it and look, measure it, or lint it.
 
 The rest of this file is the full method for open-ended work, a piece that has no brief yet.
 
