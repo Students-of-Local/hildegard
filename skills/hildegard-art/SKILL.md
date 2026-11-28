@@ -126,3 +126,46 @@ sums meet the tier: `figure` >= 40 e.g. 14+14+16=44, `hero` >= 80 e.g. 28+28+28=
   "themes_checked": ["dark", "light"]
 }
 ```
+
+
+## Animated line-art SVG ink characters
+
+When asked for an animated pen-and-ink SVG illustration or living scene component (walkers, runners, cyclists, day/night village cards), build mechanics first and verify the contract with `python3 scripts/check_design.py --ink-anim ink.json --pre-render` before rendering and `python3 scripts/check_design.py --ink-anim ink.json` after zoomed strip signoff:
+
+- **Pen craft (`open_stroke_limbs`, `curved_lines`):** draw limbs as two open curved pen strokes with paper fill stopping short at the far end (never closed tubes), and bow every line slightly with rounded joints (never ruler-straight).
+- **Planted-foot gait math (`gait`):** never animate walks with free-running sines (`"free_sine_walk": false`). Choose `"kind"` (`"walk"` or `"shuffle"` with `duty >= 0.5`, or `"run"` with `duty < 0.5`) and move the figure by exact `travel_speed = (stride / (duty * period_s)) * scale` so stance feet never slide.
+- **Skeleton-first cloth (`skeleton_first_cloth`):** solve legs first even under a coat or kimono, then derive the hem and front/back edges from the forward knee and ankles; hang sleeves and bags on springs or pendulums.
+- **Self-contained card and day/night tokens (`card_fixed_bg`, `palette_tokens`):** keep the scene as a self-contained card whose surrounding page background never shifts with time of day (`"card_fixed_bg": true`). Set `"ink": "currentColor"` and `"paper_class": ".pp"` so one palette swap retints day, sunset, and night cleanly.
+- **Deterministic frame stepping (`debug_stepping`):** headless and background tabs throttle `requestAnimationFrame`. Expose `"query_flag": "?debug"` and `"step_fn": "window.__step"` advancing fixed `"dt_s"` (`<= 1/24`: `0.016667` for 60 fps, `0.033333` for 30 fps).
+- **Post-render audit (`zoomed_strip_checked`, `day_cycle_checked`):** omit these when running `--pre-render`; set `"zoomed_strip_checked": true` only after inspecting zoomed 4x to 11x frame strips of every moving figure.
+
+Exact `check_design.py --ink-anim` JSON shape (use ONLY these top-level keys):
+
+```json
+{
+  "open_stroke_limbs": true,
+  "curved_lines": true,
+  "gait": {
+    "kind": "walk",
+    "stride": 18,
+    "duty": 0.5,
+    "period_s": 1.0,
+    "scale": 1.0,
+    "travel_speed": 36.0,
+    "free_sine_walk": false
+  },
+  "skeleton_first_cloth": true,
+  "card_fixed_bg": true,
+  "palette_tokens": { "ink": "currentColor", "paper_class": ".pp" },
+  "debug_stepping": { "query_flag": "?debug", "step_fn": "window.__step", "dt_s": 0.016667 },
+  "zoomed_strip_checked": true,
+  "day_cycle_checked": true
+}
+```
+
+**Always recompute `gait.travel_speed` as a single plain decimal number (never copy `36.0`, never write operators or comments in JSON):**
+- `duty` 0.5, `period_s` 1.0, `scale` 1.0: `travel_speed` is double the `stride`.
+- `duty` 0.5, `period_s` 1.0, `scale` 0.5: `travel_speed` equals `stride` itself.
+- `duty` 0.5, `period_s` 2.0, `scale` 1.0: `travel_speed` equals `stride` itself.
+- `duty` 0.25, `period_s` 1.0, `scale` 1.0: `travel_speed` is four times the `stride`.
+- Match the brief's exact `kind`, `stride`, `duty`, `period_s`, `scale`, and `dt_s`. Omit `zoomed_strip_checked` and `day_cycle_checked` on pre-render plans.

@@ -60,6 +60,7 @@ Write the brief from hildegard-craft. Then a shot list, one line per shot:
 - Each shot has one action and a reason to exist. Vary size between consecutive shots (wide, medium, close).
 - Replace vague adjectives with numbers: lens focal length and aperture (`35mm f/2.8`, `85mm f/1.8`), colour temperature (`3200 K` key, `7500 K` rim), hero pixel width floor on stills (`>= 170 px` wide at 1080p in main shots, `>= 95 px` in wide group shots), and separate geometric planes so moving elements cannot clip.
 - For code-directed or beat-locked films, derive cuts and sound hits from one master `timing.json` clock (`frames_per_beat = fps * 60 / BPM`, audio hits 1 frame after visual events) and render seamless loops over frames `0..N-1` (never `N`).
+- Separate straight-ahead physics simulation (cloth, hair, rain, particles, crowds) from pose-to-pose hero beats, keep staging restrained (`1` to `3` active focal movers; if a shot feels busy, stop two things), and audit exports in three isolated single-question passes (4x3 1 fps macro sheet, 0.5 s every-frame hero micro-strip, one focus per pass: weight, overlap, staging, plus a muted phone-size check on frame 1; validate contracts with `python3 scripts/check_sync.py --camera spec.json`).
 - Keep `lighting`, `palette`, `camera_body` and `era` the same across a scene unless the story changes.
 - Write a continuity list (people, places, light) and paste it into every prompt word for word.
 - People who appear in more than one shot should be characters (step 2a), not just words.

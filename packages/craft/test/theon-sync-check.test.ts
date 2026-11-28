@@ -541,4 +541,117 @@ describe('check_sync.py', { timeout: 60_000 }, () => {
       ).toContain('seam_vector_law');
     }
   });
+
+  it('validates 12-rules principles, 3-act logo stings, 3-pass contact-sheet review, and malformed --camera inputs', () => {
+    const good12 = join(dir, 'twelve-ok.json');
+    writeFileSync(
+      good12,
+      JSON.stringify({
+        seed: 15,
+        contact_sheet_frames: 12,
+        principles: {
+          straight_ahead: ['cloth', 'dust'],
+          pose_to_pose: ['hero_jump', 'ui_card'],
+          planted_foot_lock: true,
+          stride_speed_check: { stride: 48, duty: 0.6, period_s: 0.8, scale: 0.5, travel_speed: 50.0 },
+          anticipation_ms: 140,
+          arc_motion: true,
+          stagger_ms: 40,
+          overshoot_settle: true,
+          staging_active_count: 2,
+          palette_colors: ['#14161a', '#f4efe6', '#d95d39'],
+        },
+        logo_sting: {
+          duration_s: 24.0,
+          acts: [
+            { kind: 'object', duration_s: 6.0 },
+            { kind: 'transformation', duration_s: 14.0 },
+            { kind: 'lockup', duration_s: 4.0 },
+          ],
+          lockup_hold_s: 2.0,
+        },
+        review_passes: {
+          macro_sheet: { cols: 4, rows: 3, fps: 0.5 },
+          micro_strip: { window_s: 0.5, every_frame: true },
+          passes: [
+            { focus: 'weight', single_issue_only: true },
+            { focus: 'overlap', single_issue_only: true },
+            { focus: 'staging', single_issue_only: true },
+          ],
+          frame1_mute_phone_checked: true,
+        },
+      }),
+    );
+    const rOk = runPy(['--camera', good12, '--json']);
+    expect(rOk.status, rOk.stdout).toBe(0);
+
+    // Overlapping sim/keyframe lists, skating speed, >30s sting, reversed acts, mixed-issue pass, and duplicate colors must fail
+    const bad12 = join(dir, 'twelve-bad.json');
+    writeFileSync(
+      bad12,
+      JSON.stringify({
+        seed: 15,
+        contact_sheet_frames: 12,
+        principles: {
+          straight_ahead: ['cloth', 'hero'],
+          pose_to_pose: ['hero'],
+          planted_foot_lock: false,
+          stride_speed_check: { stride: 60, duty: 0.6, period_s: 1.0, scale: 1.0, travel_speed: 42.0 },
+          anticipation_ms: 10,
+          arc_motion: false,
+          stagger_ms: 200,
+          overshoot_settle: false,
+          staging_active_count: 6,
+          palette_colors: ['#111111', '#111111', '#222222', '#333333'],
+        },
+        logo_sting: {
+          duration_s: 45.0,
+          acts: ['lockup', 'transformation', 'object'],
+          lockup_hold_s: 0.2,
+        },
+        review_passes: {
+          macro_sheet: { cols: 3, rows: 3, fps: 2.0 },
+          micro_strip: { window_s: 2.0, every_frame: false },
+          passes: [
+            { focus: 'weight', single_issue_only: true },
+            { focus: 'weight', single_issue_only: false },
+          ],
+          frame1_mute_phone_checked: false,
+        },
+      }),
+    );
+    const rBad = runPy(['--camera', bad12, '--json']);
+    expect(rBad.status).toBe(1);
+    const badIds = JSON.parse(rBad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(badIds).toContain('sim_vs_keyframe_split');
+    expect(badIds).toContain('planted_foot_lock');
+    expect(badIds).toContain('planted_foot_math');
+    expect(badIds).toContain('anticipation_windup');
+    expect(badIds).toContain('curved_arcs');
+    expect(badIds).toContain('ui_stagger_ms');
+    expect(badIds).toContain('overshoot_settle');
+    expect(badIds).toContain('staging_restraint');
+    expect(badIds).toContain('style_palette_restraint');
+    expect(badIds).toContain('logo_sting_duration');
+    expect(badIds).toContain('logo_sting_3act');
+    expect(badIds).toContain('logo_sting_lockup_hold');
+    expect(badIds).toContain('macro_contact_sheet');
+    expect(badIds).toContain('micro_hero_strip');
+    expect(badIds).toContain('isolated_review_passes');
+    expect(badIds).toContain('frame1_mute_phone');
+
+    // Missing/malformed/non-UTF-8/directory --camera --json returns JSON without traceback
+    const badJson = join(dir, 'cam-bad.json');
+    writeFileSync(badJson, '{oops');
+    const nonUtf8 = join(dir, 'cam-nonutf8.json');
+    writeFileSync(nonUtf8, Buffer.from([0xff, 0xfe, 0x00]));
+    for (const p of [join(dir, 'nope-cam.json'), dir, badJson, nonUtf8]) {
+      const rErr = runPy(['--camera', p, '--json']);
+      expect(rErr.status).toBe(1);
+      expect(rErr.stderr).not.toContain('Traceback');
+      expect(JSON.parse(rErr.stdout).ok).toBe(false);
+    }
+  });
 });

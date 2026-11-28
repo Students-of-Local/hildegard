@@ -258,6 +258,8 @@ export const EDITS = [
       'python3 scripts/contact_sheet.py',
       '`python3 scripts/check_design.py --iso iso.json --pre-render`',
       '`python3 scripts/check_design.py --iso iso.json`',
+      '`python3 scripts/check_design.py --ink-anim ink.json --pre-render`',
+      '`python3 scripts/check_design.py --ink-anim ink.json`',
     ],
     'hildegard-craft/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
     'hildegard-design/SKILL.md': [
@@ -267,6 +269,7 @@ export const EDITS = [
     'hildegard-film/SKILL.md': [
       'python3 scripts/review_media.py',
       'python3 scripts/contact_sheet.py',
+      'python3 scripts/check_sync.py --camera spec.json',
       'python3 scripts/check_sync.py --video film.mp4',
     ],
     'hildegard-game/SKILL.md': [
@@ -282,10 +285,12 @@ export const EDITS = [
       'python3 scripts/motion.py --fonts',
       'python3 scripts/check_sync.py --camera camera.json',
       'python3 scripts/check_sync.py --video out.mp4',
-      'python3 scripts/check_sync.py --camera spec.json',
+      'verify the JSON contract with `python3 scripts/check_sync.py --camera spec.json`',
+      'verify the brief with `python3 scripts/check_sync.py --camera spec.json`',
       'python3 <skill>/scripts/motion.py work/promo.json --check',
       'python3 <skill>/scripts/motion.py work/promo.json work/promo.mp4',
     ],
+    'hildegard-motion/references/going-further.md': ['python3 scripts/check_sync.py --video out.mp4'],
     'hildegard-motion/references/spec.md': [
       'python3 scripts/motion.py spec.json --check  ',
       'python3 scripts/motion.py spec.json out.mp4  ',
@@ -351,7 +356,11 @@ export const EDITS = [
       'python3 scripts/check_video.py final.mp4',
       'python3 scripts/check_sync.py --video final.mp4',
     ],
-    'hildegard-web/SKILL.md': ['python3 scripts/check_design.py --html site/'],
+    'hildegard-web/SKILL.md': [
+      'python3 scripts/check_design.py --html site/',
+      '`python3 scripts/check_design.py --sakuga control.json --pre-render`',
+      '`python3 scripts/check_design.py --sakuga control.json`',
+    ],
   }).flatMap(([file, finds]) =>
     finds.map((find) => ({
       file,

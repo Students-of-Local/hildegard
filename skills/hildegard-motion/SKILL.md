@@ -235,6 +235,64 @@ blocks requested by the brief; omit unused blocks and recompute every number fro
 - `framing`: verify `hero_width_px >= 170 * (frame_height / 1080)` for `"main"` and `>= 95 * (frame_height / 1080)` for `"wide"`.
 - `seams`: keep `"stage_bg_opaque": true`, match `"exit_dir" == "entry_dir"` (`"left"`, `"right"`, `"up"`, `"down"`, `"push"`, `"pull"`), and set `"cut_mid_motion": true`. Include only the blocks the brief asks for.
 
+### 12-Rules direction, logo sting structure, and 3-pass review
+
+Apply classic animation principles to code-directed motion and verify the brief with `python3 scripts/check_sync.py --camera spec.json`:
+
+- **12-Rules brief (`"principles"`):** include ONLY the keys requested by the brief:
+  - Separate **straight-ahead physics simulation** (`"straight_ahead"`: cloth, hair, water, rain, dust, particles, crowds) from **pose-to-pose keyframing** (`"pose_to_pose"`: hero beats, jumps, landings, UI cards, titles). Both lists must be non-empty and strictly disjoint.
+  - Lock weight-bearing stance feet (`"planted_foot_lock": true`); when `"stride_speed_check"` is requested, compute exact `"travel_speed"` as a plain JSON number from `(stride / (duty * period_s)) * scale`.
+  - Set wind-up `"anticipation_ms"` (`40..400` ms) and curved `"arc_motion": true` before impacts and hero paths.
+  - For sibling UI grids, set directional `"stagger_ms"` (`25..80` ms) and `"overshoot_settle": true`.
+  - Enforce staging restraint: `"staging_active_count"` in `1..3` and `"palette_colors"` with `2` or `3` distinct `#RRGGBB` hex colors (matching the exact count the brief asks for).
+- **3-Act logo sting (`"logo_sting"`):** `"duration_s"` (`<= 30.0`), `"lockup_hold_s"` (`>= 1.0`), and `"acts"` in exact order `object -> transformation -> lockup`:
+  - Default when no per-act durations are named: `["object", "transformation", "lockup"]`
+  - When the brief names three per-act durations: `[{"kind": "object", "duration_s": A}, {"kind": "transformation", "duration_s": B}, {"kind": "lockup", "duration_s": C}]` using the brief's exact three durations (always key `"kind"`).
+- **3-Pass frame-exact review (`"review_passes"`):** `"macro_sheet"` 4x3 grid at `<= 1.0` fps (`1.0` for `<= 12` s; lower for longer pieces), `"micro_strip"` `0.1..0.6` s with `"every_frame": true`, exactly 3 isolated `"passes"` (`"single_issue_only": true`, distinct `"focus"` values such as `"weight"`, `"overlap"`, `"staging"`), and `"frame1_mute_phone_checked": true`.
+- **Generator-based engine (Motion Canvas, MIT):** for TypeScript/Canvas programmatic explainers and voiceover-synced vector motion without Remotion's >3-person company license, use MIT-licensed Motion Canvas generators (`yield* all(...)`, `yield* chain(...)`, `yield* waitUntil('cue')`) and hold the rendered MP4 to the same `check_sync.py` bars.
+
+Optional `check_sync.py --camera` 12-rules JSON shape (include `"seed"`, `"contact_sheet_frames"`, and ONLY the blocks and keys requested by the brief):
+
+```json
+{
+  "seed": 15,
+  "contact_sheet_frames": 12,
+  "principles": {
+    "straight_ahead": ["cloth", "dust"],
+    "pose_to_pose": ["hero_jump", "ui_card"],
+    "planted_foot_lock": true,
+    "stride_speed_check": { "stride": 18, "duty": 0.5, "period_s": 1.0, "scale": 1.0, "travel_speed": 36.0 },
+    "anticipation_ms": 120,
+    "arc_motion": true,
+    "stagger_ms": 40,
+    "overshoot_settle": true,
+    "staging_active_count": 2,
+    "palette_colors": ["#14161a", "#f4efe6"]
+  },
+  "logo_sting": {
+    "duration_s": 10.0,
+    "acts": ["object", "transformation", "lockup"],
+    "lockup_hold_s": 1.5
+  },
+  "review_passes": {
+    "macro_sheet": { "cols": 4, "rows": 3, "fps": 1.0 },
+    "micro_strip": { "window_s": 0.5, "every_frame": true },
+    "passes": [
+      { "focus": "weight", "single_issue_only": true },
+      { "focus": "overlap", "single_issue_only": true },
+      { "focus": "staging", "single_issue_only": true }
+    ],
+    "frame1_mute_phone_checked": true
+  }
+}
+```
+
+**Recompute every 12-rules field from the brief as plain JSON numbers (never write operators or comments in JSON, and never copy example numbers or unrequested keys):**
+- `principles`: omit keys the brief did not mention. Match the brief's exact `stagger_ms`, `anticipation_ms`, `staging_active_count`, and `palette_colors` count (`2` hex strings when asked for 2 colors, `3` hex strings when asked for 3 colors).
+- `stride_speed_check.travel_speed`: NEVER copy `36.0`. For `duty` 0.5 and `period_s` 1.0: `travel_speed` is double the `stride` when `scale` is 1.0, and equals `stride` itself when `scale` is 0.5.
+- `logo_sting`: use the brief's exact `duration_s` and `lockup_hold_s`; keep `acts` as `["object", "transformation", "lockup"]` unless the brief gives three per-act durations, in which case emit `[{"kind": "object", "duration_s": A}, {"kind": "transformation", "duration_s": B}, {"kind": "lockup", "duration_s": C}]`.
+- `review_passes`: use the brief's exact `macro_sheet.fps` and `micro_strip.window_s`.
+
 ## What --check says, and what to do
 
 | It says | Do this |

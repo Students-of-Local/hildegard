@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Deterministic anti-slop HTML/CSS linter, DESIGN.md schema checker, and isometric technical-art contract checker.
+"""Deterministic anti-slop HTML/CSS linter, DESIGN.md schema checker, and art/VFX contract checker.
 
   python3 -B check_design.py --html FILE_OR_DIR [--json]
   python3 -B check_design.py --design-md DESIGN.md [--json]
   python3 -B check_design.py --iso ISO.json [--pre-render] [--json]
+  python3 -B check_design.py --ink-anim INK.json [--pre-render] [--json]
+  python3 -B check_design.py --sakuga SAKUGA.json [--pre-render] [--json]
 
 Pure Python 3 stdlib (zero external dependencies).
 """
@@ -72,6 +74,11 @@ METADATA_KEYS = {"version", "name", "description", "omitted"}
 ISO_KNOWN_KEYS = {"tier", "azimuth_deg", "elevation_deg", "tones", "lit_count", "parts", "depth_sorted", "floating_line_ends", "closeup_4x_checked", "themes_checked"}
 ISO_TIER_MIN = {"figure": 40, "hero": 80, "epic": 150}
 ISO_ROOT_HOSTS = {"ground", "base", "bench", "floor", "stand"}
+INK_ANIM_KNOWN_KEYS = {"open_stroke_limbs", "curved_lines", "gait", "skeleton_first_cloth", "card_fixed_bg", "palette_tokens", "debug_stepping", "zoomed_strip_checked", "day_cycle_checked"}
+INK_GAIT_KINDS = {"walk", "shuffle", "run"}
+SAKUGA_KNOWN_KEYS = {"control", "plain_at_rest", "immediate_state_change", "beats", "shared_clock_canvas", "visual_rules", "css_vars", "verification"}
+SAKUGA_CONTROLS = {"button", "toggle", "switch", "slider", "checkbox", "radio", "input", "tabs", "progress", "rating", "toast", "tooltip"}
+SAKUGA_BEAT_ORDER = ("anticipation", "hit", "follow_through", "settle")
 EMOJI_EXTRA_CPS = {0x26A0, 0x26A1, 0x2705, 0x2728, 0x274C, 0x2764}
 ROOT_THEME_SEL_RE = re.compile(
     r"^(?::root(?:\[data-theme[^\]]*\])?|html(?:\[data-theme[^\]]*\])?|\[data-theme[^\]]*\])$",
@@ -658,23 +665,235 @@ def check_iso_file(path, pre_render=False):
     return check_iso_spec(spec, pre_render=pre_render)
 
 
+def _finite_num(val):
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        f = float(val)
+        return f if math.isfinite(f) else None
+    return None
+
+
+def _strict_int(val):
+    return val if isinstance(val, int) and not isinstance(val, bool) else None
+
+
+def check_ink_anim_spec(spec, pre_render=False):
+    if not isinstance(spec, dict):
+        return {"ok": False, "checks": [_chk("spec_object", False, type(spec).__name__, "JSON object", "ink-anim spec must be a JSON object")]}
+    checks = []
+    unknown = sorted(set(spec.keys()) - INK_ANIM_KNOWN_KEYS)
+    if unknown:
+        checks.append(_chk("unknown_keys", False, unknown, "[]", f"unrecognized keys: {', '.join(unknown)}"))
+
+    checks.append(_chk("open_stroke_limbs", spec.get("open_stroke_limbs") is True, spec.get("open_stroke_limbs"), True, "limbs drawn as two open curved strokes, never closed tubes"))
+    checks.append(_chk("curved_lines", spec.get("curved_lines") is True, spec.get("curved_lines"), True, "joints rounded and edges slightly bowed, never ruler-straight"))
+
+    gait = spec.get("gait")
+    if not isinstance(gait, dict):
+        checks.append(_chk("planted_foot_gait", False, gait, "gait object with kind/stride/duty/period_s/scale/travel_speed", "gait mechanics object required"))
+    else:
+        kind = gait.get("kind").strip().lower() if isinstance(gait.get("kind"), str) else ""
+        stride = _finite_num(gait.get("stride"))
+        duty = _finite_num(gait.get("duty"))
+        period = _finite_num(gait.get("period_s"))
+        scale = _finite_num(gait.get("scale", 1.0))
+        speed = _finite_num(gait.get("travel_speed"))
+        kind_ok = kind in INK_GAIT_KINDS
+        duty_ok = duty is not None and (0.1 < duty < 0.95) and ((duty < 0.5) if kind == "run" else (duty >= 0.5))
+        if kind_ok and duty_ok and None not in (stride, period, scale, speed) and stride > 0.0 and period > 0.0 and scale > 0.0:
+            want = (stride / (duty * period)) * scale
+            speed_ok = abs(speed - want) <= 1e-3 * max(1.0, abs(want))
+            checks.append(_chk("planted_foot_gait", speed_ok, round(speed, 4), round(want, 4), "travel_speed == (stride / (duty * period_s)) * scale so stance feet stay planted"))
+        else:
+            checks.append(_chk("planted_foot_gait", False, gait, "valid kind (walk/shuffle/run), duty, stride, period_s, scale, and exact travel_speed", "planted-foot gait speed must match stride / (duty * period_s) * scale"))
+        checks.append(_chk("no_free_sine_walk", gait.get("free_sine_walk") is False, gait.get("free_sine_walk"), False, "never animate walking figures with free-running sines"))
+
+    checks.append(_chk("skeleton_first_cloth", spec.get("skeleton_first_cloth") is True, spec.get("skeleton_first_cloth"), True, "solve hidden legs first and derive garment hem from forward knee and ankles"))
+    checks.append(_chk("card_fixed_bg", spec.get("card_fixed_bg") is True, spec.get("card_fixed_bg"), True, "self-contained card; page background around it never shifts with time of day"))
+
+    pal = spec.get("palette_tokens")
+    pal_ok = (
+        isinstance(pal, dict)
+        and isinstance(pal.get("ink"), str)
+        and pal["ink"].strip().lower() == "currentcolor"
+        and isinstance(pal.get("paper_class"), str)
+        and pal["paper_class"].strip().startswith(".")
+        and len(pal["paper_class"].strip()) >= 2
+    )
+    checks.append(_chk("ink_paper_tokens", pal_ok, pal, "{'ink': 'currentColor', 'paper_class': '.pp'}", "ink uses currentColor and paper uses a dedicated CSS class for clean day/night retinting"))
+
+    dbg = spec.get("debug_stepping")
+    if isinstance(dbg, dict):
+        qf = dbg.get("query_flag")
+        sfn = dbg.get("step_fn")
+        dt = _finite_num(dbg.get("dt_s"))
+        dbg_ok = (
+            isinstance(qf, str)
+            and qf.strip().startswith("?")
+            and len(qf.strip()) >= 2
+            and isinstance(sfn, str)
+            and bool(sfn.strip())
+            and dt is not None
+            and 0.0 < dt <= (1.0 / 24.0) + 1e-6
+        )
+    else:
+        dbg_ok = False
+    checks.append(_chk("deterministic_debug_step", dbg_ok, dbg, "{'query_flag': '?debug', 'step_fn': 'window.__step', 'dt_s': <= 1/24}", "skip rAF in headless/background tabs and step exact fixed frames"))
+
+    if not pre_render:
+        checks.append(_chk("zoomed_strip_checked", spec.get("zoomed_strip_checked") is True, spec.get("zoomed_strip_checked"), True, "inspected zoomed 4x-11x frame strip of every moving figure"))
+        if "day_cycle_checked" in spec:
+            checks.append(_chk("day_cycle_checked", spec.get("day_cycle_checked") is True, spec.get("day_cycle_checked"), True, "contrast verified across day/sunset/night/dawn palette sweep"))
+
+    ok = bool(checks) and all(c["ok"] for c in checks)
+    return {"ok": ok, "checks": checks}
+
+
+def check_ink_anim_file(path, pre_render=False):
+    if not os.path.isfile(path):
+        return {"ok": False, "checks": [_chk("ink_anim_file_exists", False, path, "existing JSON file", "ink-anim spec path does not exist or is not a file")]}
+    try:
+        with open(path, encoding="utf-8") as f:
+            spec = json.load(f)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {"ok": False, "checks": [_chk("ink_anim_json_valid", False, str(exc), "valid JSON", "ink-anim spec must be valid JSON")]}
+    return check_ink_anim_spec(spec, pre_render=pre_render)
+
+
+def check_sakuga_spec(spec, pre_render=False):
+    if not isinstance(spec, dict):
+        return {"ok": False, "checks": [_chk("spec_object", False, type(spec).__name__, "JSON object", "sakuga spec must be a JSON object")]}
+    checks = []
+    unknown = sorted(set(spec.keys()) - SAKUGA_KNOWN_KEYS)
+    if unknown:
+        checks.append(_chk("unknown_keys", False, unknown, "[]", f"unrecognized keys: {', '.join(unknown)}"))
+
+    ctrl = spec.get("control").strip().lower() if isinstance(spec.get("control"), str) else ""
+    checks.append(_chk("semantic_control", ctrl in SAKUGA_CONTROLS, spec.get("control"), sorted(SAKUGA_CONTROLS), "built around a real semantic control with keyboard and focus support"))
+    checks.append(_chk("plain_at_rest", spec.get("plain_at_rest") is True, spec.get("plain_at_rest"), True, "control stays plain at rest with no idle animation clutter"))
+    checks.append(_chk("immediate_state_change", spec.get("immediate_state_change") is True, spec.get("immediate_state_change"), True, "functional state updates immediately; drawn VFX only decorate"))
+
+    beats = spec.get("beats")
+    beats_ok = False
+    sfx_ok = False
+    if isinstance(beats, list) and len(beats) == 4:
+        names = []
+        valid_beats = True
+        sfx_beats = []
+        for b in beats:
+            if not isinstance(b, dict):
+                valid_beats = False
+                break
+            bn = b.get("name").strip().lower() if isinstance(b.get("name"), str) else ""
+            effs = b.get("effects")
+            if not isinstance(effs, list) or not all(isinstance(e, str) and e.strip() for e in effs):
+                valid_beats = False
+                break
+            min_e = 0 if bn == "settle" else 1
+            if not (min_e <= len(effs) <= 2):
+                valid_beats = False
+                break
+            names.append(bn)
+            sw = b.get("sfx_word")
+            if sw is not None:
+                if not (isinstance(sw, str) and sw.strip()):
+                    valid_beats = False
+                    break
+                sfx_beats.append(bn)
+        beats_ok = valid_beats and tuple(names) == SAKUGA_BEAT_ORDER
+        sfx_ok = valid_beats and len(sfx_beats) <= 1 and all(bn == "hit" for bn in sfx_beats)
+    checks.append(_chk("sakuga_beats", beats_ok, beats, "ordered [anticipation, hit, follow_through, settle] with 1..2 effects/beat", "explicit 4-beat reaction with 1-2 effects per beat"))
+    checks.append(_chk("sakuga_sfx_on_hit", sfx_ok, [b.get("name") for b in beats if isinstance(b, dict) and b.get("sfx_word")] if isinstance(beats, list) else beats, "<= 1 sfx_word, on hit beat only", "at most one sound-effect lettering word per reaction, landing on hit"))
+
+    checks.append(_chk("shared_clock_canvas", spec.get("shared_clock_canvas") is True, spec.get("shared_clock_canvas"), True, "single shared overlay canvas and shared clock (later queue, no raw setTimeout)"))
+
+    vr = spec.get("visual_rules")
+    if not isinstance(vr, dict):
+        checks.append(_chk("sakuga_visual_rules", False, vr, "visual_rules object", "visual_rules object required"))
+    else:
+        checks.append(_chk("flat_two_tone_outline", vr.get("flat_two_tone_outline") is True, vr.get("flat_two_tone_outline"), True, "two flat tones plus ink outline; no gradients or blur"))
+        checks.append(_chk("exit_by_shrink_not_fade", vr.get("exit_by_shrink_not_fade") is True, vr.get("exit_by_shrink_not_fade"), True, "effects leave by shrinking or thinning, never by fading opacity"))
+        checks.append(_chk("spring_driven", vr.get("spring_driven") is True, vr.get("spring_driven"), True, "hand-moved controls use spring physics with velocity-driven stretch"))
+        checks.append(_chk("reduced_motion_keeps_state", vr.get("reduced_motion_keeps_state") is True, vr.get("reduced_motion_keeps_state"), True, "prefers-reduced-motion disables VFX while preserving functional state changes"))
+        sq = vr.get("volume_preserving_squash")
+        if isinstance(sq, dict):
+            sx = _finite_num(sq.get("scale_x"))
+            sy = _finite_num(sq.get("scale_y"))
+            sq_ok = sx is not None and sy is not None and sx > 0.0 and sy > 0.0 and (abs(sx - 1.0) > 1e-3 or abs(sy - 1.0) > 1e-3) and abs(sx * sy - 1.0) <= 0.15
+        else:
+            sq_ok = False
+        checks.append(_chk("volume_preserving_squash", sq_ok, sq, "scale_x * scale_y in [0.85, 1.15] with active squash/stretch", "squash keeps area/volume constant (shorter means wider)"))
+
+    cv = spec.get("css_vars")
+    cv_ok = (
+        isinstance(cv, dict)
+        and 2 <= len(cv) <= 8
+        and all(
+            isinstance(k, str)
+            and k.startswith("--")
+            and len(k) >= 4
+            and isinstance(v, str)
+            and not v.strip().startswith("{")
+            and _is_valid_css_color(v)
+            for k, v in cv.items()
+        )
+    )
+    checks.append(_chk("css_var_theming", cv_ok, cv, "2..8 --* CSS custom properties with valid CSS colors", "host page :root CSS variables override control colors cleanly"))
+
+    if not pre_render:
+        ver = spec.get("verification")
+        if not isinstance(ver, dict):
+            checks.append(_chk("sakuga_verification", False, ver, "verification object", "frame-strip and responsive/keyboard verification required"))
+        else:
+            ts = ver.get("frame_strip_times_s")
+            ts_nums = [_finite_num(x) for x in ts] if isinstance(ts, list) else []
+            ts_ok = isinstance(ts, list) and len(ts_nums) >= 4 and all(x is not None and x >= 0.0 for x in ts_nums) and all(ts_nums[i] < ts_nums[i + 1] for i in range(len(ts_nums) - 1))
+            checks.append(_chk("stepped_frame_strip", ts_ok, ts, ">= 4 strictly increasing timestamps in seconds", "stepped frame strip captured across anticipation, hit, follow-through, and settle"))
+            ws = ver.get("widths_px")
+            ws_ints = [_strict_int(x) for x in ws] if isinstance(ws, list) else []
+            ws_ok = isinstance(ws, list) and all(x is not None and x >= 320 for x in ws_ints) and any(x <= 390 for x in ws_ints) and any(x >= 1024 for x in ws_ints)
+            checks.append(_chk("responsive_widths", ws_ok, ws, "phone (<=390px) and desktop (>=1024px)", "verified at both phone and desktop widths"))
+            checks.append(_chk("no_horizontal_overflow", ver.get("horizontal_overflow") is False, ver.get("horizontal_overflow"), False, "zero sideways scroll at phone width"))
+            checks.append(_chk("keyboard_checked", ver.get("keyboard_checked") is True, ver.get("keyboard_checked"), True, "verified with Tab focus and keyboard activation"))
+
+    ok = bool(checks) and all(c["ok"] for c in checks)
+    return {"ok": ok, "checks": checks}
+
+
+def check_sakuga_file(path, pre_render=False):
+    if not os.path.isfile(path):
+        return {"ok": False, "checks": [_chk("sakuga_file_exists", False, path, "existing JSON file", "sakuga spec path does not exist or is not a file")]}
+    try:
+        with open(path, encoding="utf-8") as f:
+            spec = json.load(f)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {"ok": False, "checks": [_chk("sakuga_json_valid", False, str(exc), "valid JSON", "sakuga spec must be valid JSON")]}
+    return check_sakuga_spec(spec, pre_render=pre_render)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--html", help="HTML/CSS file or directory to audit against anti-slop Floor rules")
     ap.add_argument("--design-md", help="DESIGN.md file to validate against token and reference schema")
     ap.add_argument("--iso", help="Isometric technical illustration contract JSON to verify")
-    ap.add_argument("--pre-render", action="store_true", help="For --iso: validate pre-render geometry/density plan without requiring post-render audit flags")
+    ap.add_argument("--ink-anim", help="Line-art SVG ink animation contract JSON to verify")
+    ap.add_argument("--sakuga", help="Sakuga tactile UI VFX control contract JSON to verify")
+    ap.add_argument("--pre-render", action="store_true", help="For --iso/--ink-anim/--sakuga: validate pre-render plan without requiring post-render audit flags")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
-    if sum(bool(x) for x in (a.html, a.design_md, a.iso)) != 1:
-        ap.error("provide exactly one of --html, --design-md, or --iso")
+    modes = (a.html, a.design_md, a.iso, a.ink_anim, a.sakuga)
+    if sum(bool(x) for x in modes) != 1:
+        ap.error("provide exactly one of --html, --design-md, --iso, --ink-anim, or --sakuga")
     if a.html:
         res = check_html_path(a.html)
     elif a.design_md:
         res = check_design_md(a.design_md)
-    else:
+    elif a.iso:
         res = check_iso_file(a.iso, pre_render=a.pre_render)
+    elif a.ink_anim:
+        res = check_ink_anim_file(a.ink_anim, pre_render=a.pre_render)
+    else:
+        res = check_sakuga_file(a.sakuga, pre_render=a.pre_render)
 
     if a.json:
         print(json.dumps(res, indent=2))
