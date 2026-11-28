@@ -473,6 +473,7 @@ sys.exit(bool(bad))
 ffmpeg -i master.mp4 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -movflags +faststart -c:a copy final.mp4   # the sound is section 7's AAC, untouched
 hildegard review final.mp4 --final --film --audio --sheet final-sheet.jpg   # Hildegard installed
 python3 -B <folder>/scripts/check_video.py final.mp4 --lufs -14 --size 1920x1080         # without Hildegard; then the sheet and spec.json checks above, with "final": true
+python3 -B <folder>/scripts/check_sync.py --video final.mp4 --min-liveness 0.55          # verifies non-hold frame liveness (add --beats beats.json for word/beat sync within 45 ms)
 ```
 
 Look at the sheet and listen through once. Then tell your user the path, the length, what you cut and why, and
