@@ -1901,4 +1901,419 @@ h1 { font-size: 40px; }
     const scannedChk = dirOut.checks.find((c: { id: string }) => c.id === 'web_lint_files_scanned');
     expect(scannedChk.value).toBe(1);
   }, 60_000);
+
+  it('covers all round-1 --web-lint regression cases (nested JSX, style assertions, comments, regexes, generics, Tailwind normalization, CSS lines, clamp)', () => {
+    // HIGH #1: nested JSX inside prop expressions (trigger, renderItem, element) caught with exact line numbers
+    const nestedJsx = join(dir, 'wl-r1-h1-nested.tsx');
+    writeFileSync(
+      nestedJsx,
+      `export function PopoverDemo() {
+  return (
+    <Popover
+      trigger={<Button className="bg-red-500">Open</Button>}
+      renderItem={() => <Card style={{ color: 'red' }} />}
+      element={<Badge className="p-[13px]" />}
+    >
+      <span>Body</span>
+    </Popover>
+  );
+}`,
+    );
+    const rH1 = runPy(['--web-lint', nestedJsx, '--json']);
+    expect(rH1.status).toBe(1);
+    const h1Out = JSON.parse(rH1.stdout);
+    const h1Rules = new Set(h1Out.findings.map((f: { rule: string }) => f.rule));
+    expect(h1Rules).toContain('no-restyle');
+    expect(h1Rules).toContain('no-raw-colors');
+    expect(h1Rules).toContain('no-inline-styles');
+    expect(h1Rules).toContain('no-arbitrary-values');
+    const h1Btn = h1Out.findings.find(
+      (f: { rule: string; what: string }) => f.rule === 'no-restyle' && f.what.includes('<Button'),
+    );
+    expect(h1Btn?.line).toBe(4);
+    const h1Card = h1Out.findings.find((f: { rule: string }) => f.rule === 'no-inline-styles');
+    expect(h1Card?.line).toBe(5);
+    const h1Badge = h1Out.findings.find((f: { rule: string }) => f.rule === 'no-arbitrary-values');
+    expect(h1Badge?.line).toBe(6);
+
+    // HIGH #2: inline style with TS assertions, conditionals, identifiers, and spreads fail; custom-prop-only with TS assertion passes
+    const stylePassTsx = join(dir, 'wl-r1-h2-style-ok.tsx');
+    writeFileSync(
+      stylePassTsx,
+      `export function VarsOnly() {
+  return (
+    <div style={{ '--idx': 1 } as React.CSSProperties}>
+      <span style={({ '--delay': '40ms' }) satisfies React.CSSProperties}>Hi</span>
+    </div>
+  );
+}`,
+    );
+    const rH2Ok = runPy(['--web-lint', stylePassTsx, '--json']);
+    expect(rH2Ok.status, rH2Ok.stdout).toBe(0);
+
+    const styleBadTsx = join(dir, 'wl-r1-h2-style-bad.tsx');
+    writeFileSync(
+      styleBadTsx,
+      `export function BadStyles({ cond, obj, base }: { cond: boolean; obj: React.CSSProperties; base: React.CSSProperties }) {
+  return (
+    <section>
+      <div style={{ color: 'red' } as React.CSSProperties} />
+      <div style={cond ? { padding: 4 } : undefined} />
+      <div style={obj} />
+      <div style={{ ...base, '--x': 1 }} />
+    </section>
+  );
+}`,
+    );
+    const rH2Bad = runPy(['--web-lint', styleBadTsx, '--json']);
+    expect(rH2Bad.status).toBe(1);
+    const h2Findings = JSON.parse(rH2Bad.stdout).findings.filter(
+      (f: { rule: string }) => f.rule === 'no-inline-styles',
+    );
+    expect(h2Findings.length).toBe(4);
+
+    // HIGH #3: two separate {/* a */} ... <Button className='bg-red-500'/> ... {/* b */} comments must NOT delete Button
+    const twoCommentsTsx = join(dir, 'wl-r1-h3-comments.tsx');
+    writeFileSync(
+      twoCommentsTsx,
+      `export function BetweenComments() {
+  return (
+    <div>
+      {/* a */}
+      <Button className="bg-red-500">Act</Button>
+      {/* b */}
+    </div>
+  );
+}`,
+    );
+    const rH3 = runPy(['--web-lint', twoCommentsTsx, '--json']);
+    expect(rH3.status).toBe(1);
+    const h3Rules = new Set(JSON.parse(rH3.stdout).findings.map((f: { rule: string }) => f.rule));
+    expect(h3Rules).toContain('no-restyle');
+    expect(h3Rules).toContain('no-raw-colors');
+
+    // HIGH #4: raw <button> in JSX-only file without focus-visible fails; <button className='focus-visible:ring-2'> and <Button variant='brand'> pass
+    const rawBtnBad = join(dir, 'wl-r1-h4-raw-btn-bad.tsx');
+    writeFileSync(
+      rawBtnBad,
+      `export function RawBtn() {
+  return <button type="button">Click</button>;
+}`,
+    );
+    const rH4Bad = runPy(['--web-lint', rawBtnBad, '--json']);
+    expect(rH4Bad.status).toBe(1);
+    expect(JSON.parse(rH4Bad.stdout).findings.map((f: { rule: string }) => f.rule)).toContain(
+      'focus-visible',
+    );
+
+    const rawBtnOk = join(dir, 'wl-r1-h4-raw-btn-ok.tsx');
+    writeFileSync(
+      rawBtnOk,
+      `export function RawBtnOk() {
+  return <button type="button" className="focus-visible:ring-2">Click</button>;
+}`,
+    );
+    expect(runPy(['--web-lint', rawBtnOk, '--json']).status).toBe(0);
+
+    const compBtnOk = join(dir, 'wl-r1-h4-comp-btn-ok.tsx');
+    writeFileSync(
+      compBtnOk,
+      `export function CompBtnOk() {
+  return <Button variant="brand">Click</Button>;
+}`,
+    );
+    expect(runPy(['--web-lint', compBtnOk, '--json']).status).toBe(0);
+
+    // MEDIUM #5: // and /* */ comments between JSX props do NOT drop the tag
+    const propCommentsTsx = join(dir, 'wl-r1-m5-prop-comments.tsx');
+    writeFileSync(
+      propCommentsTsx,
+      `export function CommentedProps() {
+  return (
+    <Button
+      // inline prop comment
+      /* block prop comment */
+      className="bg-red-500"
+    >
+      Save
+    </Button>
+  );
+}`,
+    );
+    const rM5 = runPy(['--web-lint', propCommentsTsx, '--json']);
+    expect(rM5.status).toBe(1);
+    const m5Rules = new Set(JSON.parse(rM5.stdout).findings.map((f: { rule: string }) => f.rule));
+    expect(m5Rules).toContain('no-restyle');
+    expect(m5Rules).toContain('no-raw-colors');
+
+    // MEDIUM #6: cn([...]) and clsx([...]) array arguments are audited (while subscript lookup keys are skipped)
+    const cnArrayTsx = join(dir, 'wl-r1-m6-cn-array.tsx');
+    writeFileSync(
+      cnArrayTsx,
+      `const TONE_MAP: Record<string, string> = { 'bg-red-500': 'text-foreground' };
+export function CnArrays() {
+  return (
+    <div>
+      <span className={TONE_MAP['bg-red-500']} />
+      <div className={cn(['bg-red-500', 'p-[13px]'])} />
+      <section className={clsx(['h-screen'])} />
+    </div>
+  );
+}`,
+    );
+    const rM6 = runPy(['--web-lint', cnArrayTsx, '--json']);
+    expect(rM6.status).toBe(1);
+    const m6Out = JSON.parse(rM6.stdout);
+    const m6Rules = new Set(m6Out.findings.map((f: { rule: string }) => f.rule));
+    expect(m6Rules).toContain('no-raw-colors');
+    expect(m6Rules).toContain('no-arbitrary-values');
+    expect(m6Rules).toContain('micro-craft');
+    // Subscript key TONE_MAP['bg-red-500'] on line 5 must NOT trigger no-raw-colors
+    const m6RawLines = m6Out.findings
+      .filter((f: { rule: string }) => f.rule === 'no-raw-colors')
+      .map((f: { line: number }) => f.line);
+    expect(m6RawLines).toEqual([6]);
+
+    // MEDIUM #7: data-class, <script> strings, and Vue :class do not trigger fake HTML unknown-class errors; Vue :class template literal triggers require-static-classes
+    const htmlSafety = join(dir, 'wl-r1-m7-safe.vue');
+    writeFileSync(
+      htmlSafety,
+      `<template>
+  <div class="card" data-class="foo" :class="active" v-bind:class="selected">Hello</div>
+</template>
+<script>
+var s = 'class="bogus"';
+var bad = 'style="color:#ff0000"';
+</script>
+<style>
+:root { --bg: #fff; --ink: #111; }
+.card { background: var(--bg); color: var(--ink); }
+</style>`,
+    );
+    const rM7Safe = runPy(['--web-lint', htmlSafety, '--json']);
+    expect(rM7Safe.status, rM7Safe.stdout).toBe(0);
+
+    const vueDynClass = join(dir, 'wl-r1-m7-vue-dyn.vue');
+    writeFileSync(vueDynClass, `<template><div :class="\`bg-\${tone}-500\`">Hi</div></template>`);
+    const rM7Dyn = runPy(['--web-lint', vueDynClass, '--json']);
+    expect(rM7Dyn.status).toBe(1);
+    expect(JSON.parse(rM7Dyn.stdout).findings.map((f: { rule: string }) => f.rule)).toContain(
+      'require-static-classes',
+    );
+
+    // MEDIUM #8: footer p { font-size: 11px; } must NOT override body { font-size: 16px; }
+    const m8Html = join(dir, 'wl-r1-m8-body-prec.html');
+    writeFileSync(
+      m8Html,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; --surface: #fafafa; --accent: #a63d28; }
+body { background: var(--bg); color: var(--ink); font-size: 16px; }
+h1 { font-size: 28px; }
+footer p { font-size: 11px; }
+@media (min-width: 768px) { body { padding: 16px; } }
+</style></head><body><header><h1>Title</h1></header><main><p>Body</p></main><footer><p>Small</p></footer></body></html>`,
+    );
+    const rM8 = runPy(['--web-lint', m8Html, '--fidelity', '--json']);
+    expect(rM8.status).toBe(1);
+    const m8TypeCheck = JSON.parse(rM8.stdout).checks.find(
+      (c: { id: string }) => c.id === 'fidelity_type_scale',
+    );
+    expect(m8TypeCheck.ok).toBe(false);
+    expect(m8TypeCheck.value).toBe(1.75);
+
+    // MEDIUM #9: generic JSX component <DataTable<User> className='bg-red-500'/> triggers no-restyle & no-raw-colors
+    const genericTsx = join(dir, 'wl-r1-m9-generic.tsx');
+    writeFileSync(
+      genericTsx,
+      `export function Users() {
+  return <DataTable<User> className="bg-red-500" />;
+}`,
+    );
+    const rM9 = runPy(['--web-lint', genericTsx, '--json']);
+    expect(rM9.status).toBe(1);
+    const m9Rules = new Set(JSON.parse(rM9.stdout).findings.map((f: { rule: string }) => f.rule));
+    expect(m9Rules).toContain('no-restyle');
+    expect(m9Rules).toContain('no-raw-colors');
+
+    // MEDIUM #10: plain HTML without Tailwind flags class='text-heroo' as no-unknown-classes
+    const plainHtmlTypo = join(dir, 'wl-r1-m10-plain-typo.html');
+    writeFileSync(
+      plainHtmlTypo,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; }
+body { background: var(--bg); color: var(--ink); }
+.text-hero { color: var(--ink); }
+</style></head><body><p class="text-heroo">Typo</p></body></html>`,
+    );
+    const rM10 = runPy(['--web-lint', plainHtmlTypo, '--json']);
+    expect(rM10.status).toBe(1);
+    const m10Finding = JSON.parse(rM10.stdout).findings.find(
+      (f: { rule: string; what: string }) => f.rule === 'no-unknown-classes' && f.what.includes('text-heroo'),
+    );
+    expect(m10Finding).toBeTruthy();
+    expect(m10Finding.fix).toContain('.text-hero');
+
+    // MEDIUM #11: !bg-red-500, bg-red-500!, hover:!bg-red-500, -m-[13px], and bare <Button className='border rounded'>
+    const normTsx = join(dir, 'wl-r1-m11-norm.tsx');
+    writeFileSync(
+      normTsx,
+      `export function Modifiers() {
+  return (
+    <div className="!bg-red-500 bg-red-500! hover:!bg-red-500 -m-[13px]">
+      <Button className="border rounded">Save</Button>
+    </div>
+  );
+}`,
+    );
+    const rM11 = runPy(['--web-lint', normTsx, '--json']);
+    expect(rM11.status).toBe(1);
+    const m11Out = JSON.parse(rM11.stdout);
+    const m11Raw = m11Out.findings.filter((f: { rule: string }) => f.rule === 'no-raw-colors');
+    expect(m11Raw.length).toBe(3);
+    expect(m11Out.findings.some((f: { rule: string }) => f.rule === 'no-arbitrary-values')).toBe(true);
+    const m11Restyle = m11Out.findings.filter((f: { rule: string }) => f.rule === 'no-restyle');
+    expect(m11Restyle.length).toBe(2);
+
+    // MEDIUM #12: regex literal /^https?:\/\// before JSX props (and inside JSX prop expr) not misread as comment
+    const regexTsx = join(dir, 'wl-r1-m12-regex.tsx');
+    writeFileSync(
+      regexTsx,
+      `export function RegexCheck({ url }: { url: string }) {
+  const ok = /^https?:\\/\\//.test(url);
+  const slashClass = /[/*]/.test(url);
+  return (
+    <Button onClick={() => /^https?:\\/\\//.test(url) && ok && slashClass} className="bg-red-500">
+      Go
+    </Button>
+  );
+}`,
+    );
+    const rM12 = runPy(['--web-lint', regexTsx, '--json']);
+    expect(rM12.status).toBe(1);
+    const m12Rules = new Set(JSON.parse(rM12.stdout).findings.map((f: { rule: string }) => f.rule));
+    expect(m12Rules).toContain('no-restyle');
+    expect(m12Rules).toContain('no-raw-colors');
+    expect(m12Rules).not.toContain('web-lint-unparsed');
+
+    // Fail-loud web-lint-unparsed: malformed JSX attribute and unsupported dynamic className emit web-lint-unparsed
+    const unparsedTsx = join(dir, 'wl-r1-unparsed.tsx');
+    writeFileSync(
+      unparsedTsx,
+      `export function Unparsed({ tone }: { tone: string }) {
+  return (
+    <div>
+      <Button className=bg-red-500 />
+      <span className={computeClasses(tone)} />
+    </div>
+  );
+}`,
+    );
+    const rUnp = runPy(['--web-lint', unparsedTsx, '--json']);
+    expect(rUnp.status).toBe(1);
+    const unpOut = JSON.parse(rUnp.stdout);
+    const unpFindings = unpOut.findings.filter((f: { rule: string }) => f.rule === 'web-lint-unparsed');
+    expect(unpFindings.length).toBeGreaterThanOrEqual(2);
+    const unpCheck = unpOut.checks.find((c: { id: string }) => c.id === 'web-lint-unparsed');
+    expect(unpCheck?.ok).toBe(false);
+
+    // LOW #1: transition-timing-function: ease-in fails micro-craft while my-ease-in and ease-in-out pass
+    const easeBadCss = join(dir, 'wl-r1-l1-ease-bad.css');
+    writeFileSync(
+      easeBadCss,
+      `:root { --bg: #fff; --ink: #111; }
+.a { transition-timing-function: ease-in; }
+.b { animation-timing-function: ease-in; }
+@media (prefers-reduced-motion: reduce) { .a, .b { transition: none; animation: none; } }`,
+    );
+    const rL1Bad = runPy(['--web-lint', easeBadCss, '--json']);
+    expect(rL1Bad.status).toBe(1);
+    const l1Hits = JSON.parse(rL1Bad.stdout).findings.filter(
+      (f: { rule: string }) => f.rule === 'micro-craft',
+    );
+    expect(l1Hits.length).toBe(2);
+
+    const easeOkCss = join(dir, 'wl-r1-l1-ease-ok.css');
+    writeFileSync(
+      easeOkCss,
+      `:root { --bg: #fff; --ink: #111; --my-ease-in: cubic-bezier(0.22, 1, 0.36, 1); }
+.a { transition: transform 180ms ease-in-out; }
+.b { animation: my-ease-in 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .a, .b { transition: none; animation: none; } }`,
+    );
+    const rL1Ok = runPy(['--web-lint', easeOkCss, '--json']);
+    expect(rL1Ok.status, rL1Ok.stdout).toBe(0);
+
+    // LOW #2: CSS finding reports actual declaration line (> 1) and multi-file slop finding points to offending file & line
+    const multiDir = join(dir, 'wl-r1-l2-multi');
+    mkdirSync(multiDir, { recursive: true });
+    writeFileSync(
+      join(multiDir, 'a-clean.html'),
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; }
+body { background: var(--bg); color: var(--ink); }
+</style></head><body><main><p>Clean file.</p></main></body></html>`,
+    );
+    writeFileSync(
+      join(multiDir, 'b-slop.html'),
+      `<!doctype html>
+<html lang="en">
+<head><style>
+:root { --bg: #fff; --ink: #111; }
+body {
+  background: var(--bg);
+  color: #222222;
+}
+</style></head>
+<body>
+  <main>
+    <p>Unlock the power of widgets</p>
+  </main>
+</body>
+</html>`,
+    );
+    const rL2 = runPy(['--web-lint', multiDir, '--json']);
+    expect(rL2.status).toBe(1);
+    const l2Out = JSON.parse(rL2.stdout);
+    const l2Color = l2Out.findings.find((f: { rule: string }) => f.rule === 'no-raw-colors');
+    expect(l2Color.file).toBe('b-slop.html');
+    expect(l2Color.line).toBe(7);
+    const l2Slop = l2Out.findings.find((f: { rule: string }) => f.rule === 'no-slop-patterns');
+    expect(l2Slop.file).toBe('b-slop.html');
+    expect(l2Slop.line).toBe(12);
+
+    // LOW #3: CSS hsl(...) and oklch(...) outside :root fail no-raw-colors
+    const modernColorCss = join(dir, 'wl-r1-l3-colors.css');
+    writeFileSync(
+      modernColorCss,
+      `:root { --bg: #fff; --ink: #111; }
+.a { color: hsl(210 50% 50%); }
+.b { background: oklch(0.6 0.15 240); }`,
+    );
+    const rL3 = runPy(['--web-lint', modernColorCss, '--json']);
+    expect(rL3.status).toBe(1);
+    const l3Hits = JSON.parse(rL3.stdout).findings.filter(
+      (f: { rule: string }) => f.rule === 'no-raw-colors',
+    );
+    expect(l3Hits.length).toBe(2);
+    expect(l3Hits.map((f: { line: number }) => f.line)).toEqual([2, 3]);
+
+    // LOW #4: clamp(24px, 4vw, max(36px, 2.5rem)) parses cleanly (40px / 16px = 2.5 >= 2.0)
+    const clampNestedHtml = join(dir, 'wl-r1-l4-clamp.html');
+    writeFileSync(
+      clampNestedHtml,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; --surface: #fafafa; --accent: #a63d28; }
+body { background: var(--bg); color: var(--ink); font-size: 16px; }
+h1 { font-size: clamp(24px, 4vw, max(36px, 2.5rem)); }
+@media (min-width: 768px) { body { padding: 16px; } }
+</style></head><body><header><h1>Fluid</h1></header><main><p>Body</p></main></body></html>`,
+    );
+    const rL4 = runPy(['--web-lint', clampNestedHtml, '--fidelity', '--json']);
+    expect(rL4.status, rL4.stdout).toBe(0);
+    const l4TypeCheck = JSON.parse(rL4.stdout).checks.find(
+      (c: { id: string }) => c.id === 'fidelity_type_scale',
+    );
+    expect(l4TypeCheck.ok).toBe(true);
+    expect(l4TypeCheck.value).toBe(2.5);
+  }, 60_000);
 });
