@@ -90,8 +90,10 @@ do next with more time. Never say a generated image is hand-made, and keep its A
 
 When asked for an isometric technical illustration or interactive explainer diagram, make **the physical object the
 explanation** (a real instrument, rig, lock, plotter, valve manifold, or cabinet of drawers whose working IS the
-concept, never floating labelled boxes or arrows). Verify the illustration contract with
-`python3 scripts/check_design.py --iso iso.json` before rendering:
+concept, never floating labelled boxes or arrows). Before rendering, validate the geometry and density plan with
+`python3 scripts/check_design.py --iso iso.json --pre-render`. After rendering both themes and inspecting 4x close-ups
+at junctions, run `python3 scripts/check_design.py --iso iso.json` for full signoff (never set
+`closeup_4x_checked: true` or populate `themes_checked` before rendering):
 
 - **Camera (`azimuth_deg`, `elevation_deg`):** isometric azimuth in `35..60` deg (default `45`) and elevation in `20..50`
   deg (default `30`; higher up to `44` to look into an open vessel).

@@ -4,7 +4,7 @@
 
   python3 -B check_design.py --html FILE_OR_DIR [--json]
   python3 -B check_design.py --design-md DESIGN.md [--json]
-  python3 -B check_design.py --iso ISO.json [--json]
+  python3 -B check_design.py --iso ISO.json [--pre-render] [--json]
 
 Pure Python 3 stdlib (zero external dependencies).
 """
@@ -23,13 +23,13 @@ WEB_EXTS = HTML_EXTS | CSS_EXTS
 
 CSS_COMMENT_RE = re.compile(r"/\*[\s\S]*?\*/")
 STYLE_TAG_RE = re.compile(r"<style\b[^>]*>([\s\S]*?)</style>", re.I)
+INLINE_STYLE_RE = re.compile(r'\bstyle\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', re.I)
 TRANSITION_ALL_RE = re.compile(r"\btransition(?:-property)?\s*:\s*[^;{}]*\ball\b", re.I)
 LAYOUT_ANIM_RE = re.compile(r"\btransition(?:-property)?\s*:\s*[^;{}]*\b(width|height|top|left)\b", re.I)
 VW_100_RE = re.compile(r"(?:width|min-width|max-width)\s*:\s*100vw\b", re.I)
 OVERFLOW_HIDDEN_ROOT_RE = re.compile(r"(?:^|[}\s,])(?:html|body)[^{]*\{[^}]*overflow-x\s*:\s*hidden\b", re.I | re.S)
 HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 RGB_COLOR_RE = re.compile(r"\b(?:rgba?|hsla?|oklch)\s*\(", re.I)
-FONT_FAMILY_DECL_RE = re.compile(r"\bfont-family\s*:\s*([^;{}]+)", re.I)
 PURPLE_BLUE_GRAD_RE = re.compile(
     r"linear-gradient\([^)]*(?:#(?:[5-9a-d][0-9a-f][0-5][0-9a-f][a-f][0-9a-f]|6366f1|7c3aed|8b5cf6|a855f7)|purple|violet|indigo)[^)]*(?:#(?:[0-4][0-9a-f][5-9a-f][0-9a-f][c-f][0-9a-f]|3b82f6|2563eb|06b6d4)|blue|cyan)",
     re.I,
@@ -41,13 +41,14 @@ HAS_MOTION_RE = re.compile(r"@keyframes\b|\b(?:transition|animation)\s*:", re.I)
 
 YAML_FENCE_RE = re.compile(r"```yaml\s*\n([\s\S]*?)```", re.I)
 TOKEN_REF_RE = re.compile(r"\{([a-zA-Z0-9_.-]+)\}")
-EXT_REF_RE = re.compile(r"`@([^\s`#]+\.[a-zA-Z0-9]+)(?:#[^\s`]+)?`")
+EXT_REF_RE = re.compile(r"(?<![A-Za-z0-9_.+-])@([^\s`\"'()\[\]<>#,;]+)")
 CSS_COLOR_VAL_RE = re.compile(
     r"^(?:#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?|hwb|oklch|oklab|lch|lab|color-mix)\([^)]+\)|transparent|[a-zA-Z]+|\{[a-zA-Z0-9_.-]+\})$"
 )
-DESIGN_TOP_KEYS = {"version", "name", "description", "omitted", "colors", "typography", "rounded", "spacing", "motion", "components"}
+METADATA_KEYS = {"version", "name", "description", "omitted"}
 ISO_KNOWN_KEYS = {"tier", "azimuth_deg", "elevation_deg", "tones", "lit_count", "parts", "depth_sorted", "floating_line_ends", "closeup_4x_checked", "themes_checked"}
 ISO_TIER_MIN = {"figure": 40, "hero": 80, "epic": 150}
+ISO_ROOT_HOSTS = {"ground", "base", "bench", "floor", "stand"}
 
 
 def _chk(cid, ok, value, limit, detail):
@@ -84,6 +85,20 @@ def _strip_token_blocks(css):
     return "".join(out)
 
 
+def _declaration_values(css):
+    """Extract (property, value) pairs strictly inside innermost { ... } declaration bodies (never selectors)."""
+    vals = []
+    for body in re.findall(r"\{([^{}]*)\}", css):
+        for decl in body.split(";"):
+            if ":" not in decl:
+                continue
+            prop, val = decl.split(":", 1)
+            prop = prop.strip().lower()
+            if prop and re.fullmatch(r"[a-z-]+", prop):
+                vals.append((prop, val.strip()))
+    return vals
+
+
 def check_html_path(target):
     if not os.path.exists(target):
         return {"ok": False, "checks": [_chk("html_path_exists", False, target, "existing file or directory", "HTML/CSS path does not exist")]}
@@ -103,6 +118,7 @@ def check_html_path(target):
 
     all_html = []
     all_css = []
+    inline_css = []
     for path, _ in files:
         ext = os.path.splitext(path)[1].lower()
         text = open(path, encoding="utf-8", errors="replace").read()
@@ -110,23 +126,27 @@ def check_html_path(target):
             all_html.append(text)
             for sm in STYLE_TAG_RE.finditer(text):
                 all_css.append(sm.group(1))
+            for im in INLINE_STYLE_RE.finditer(text):
+                style_val = im.group(1) if im.group(1) is not None else im.group(2)
+                if style_val and style_val.strip():
+                    inline_css.append(f"inline-style {{ {style_val} }}")
         else:
             all_css.append(text)
 
     html_blob = "\n".join(all_html)
-    css_blob = CSS_COMMENT_RE.sub(" ", "\n".join(all_css))
+    css_blob = CSS_COMMENT_RE.sub(" ", "\n".join(all_css + inline_css))
     non_token_css = _strip_token_blocks(css_blob)
 
     checks = [_chk("html_files_scanned", True, len(files), ">= 1 .html/.css file", "HTML/CSS files audited")]
 
     if css_blob.strip():
         has_root_tokens = bool(re.search(r"(?::root|\[data-theme[^\]]*\])[^{]*\{[^}]*--[a-zA-Z0-9_-]+\s*:", css_blob, re.S))
-        decl_vals = [m.group(2) for m in re.finditer(r"(?:^|[;{\s])([a-zA-Z-]+)\s*:\s*([^;{}]+)", non_token_css)]
-        raw_colors = [c for v in decl_vals for c in (HEX_COLOR_RE.findall(v) + RGB_COLOR_RE.findall(v))]
+        decls = _declaration_values(non_token_css)
+        raw_colors = [c for _, v in decls for c in (HEX_COLOR_RE.findall(v) + RGB_COLOR_RE.findall(v))]
         raw_fonts = [
-            m.group(1).strip()
-            for m in FONT_FAMILY_DECL_RE.finditer(non_token_css)
-            if "var(" not in m.group(1) and m.group(1).strip().lower() not in ("inherit", "initial", "unset")
+            v
+            for prop, v in decls
+            if prop == "font-family" and "var(" not in v and v.lower() not in ("inherit", "initial", "unset")
         ]
         token_ok = has_root_tokens and not raw_colors and not raw_fonts
         detail_val = "clean" if token_ok else {"has_root_tokens": has_root_tokens, "raw_colors": raw_colors[:5], "raw_fonts": raw_fonts[:5]}
@@ -140,12 +160,13 @@ def check_html_path(target):
         ov_hidden = bool(OVERFLOW_HIDDEN_ROOT_RE.search(css_blob))
         checks.append(_chk("safe_overflow", not vw_bad and not ov_hidden, "clean" if (not vw_bad and not ov_hidden) else {"100vw": vw_bad, "overflow_x_hidden": ov_hidden}, "no 100vw width or html/body overflow-x: hidden (use clip)", "use overflow-x: clip and avoid 100vw scrollbar overflow"))
 
-        if INTERACTIVE_TAG_RE.search(html_blob):
-            has_focus = ":focus-visible" in css_blob
-            checks.append(_chk("focus_visible", has_focus, has_focus, True, "interactive controls define :focus-visible styling"))
         if HAS_MOTION_RE.search(css_blob):
             has_rm = "prefers-reduced-motion" in css_blob
             checks.append(_chk("reduced_motion", has_rm, has_rm, True, "animations include a prefers-reduced-motion fallback"))
+
+    if INTERACTIVE_TAG_RE.search(html_blob):
+        has_focus = ":focus-visible" in css_blob
+        checks.append(_chk("focus_visible", has_focus, has_focus, True, "interactive controls define :focus-visible styling"))
 
     slop_hits = []
     if PURPLE_BLUE_GRAD_RE.search(css_blob):
@@ -177,8 +198,9 @@ def _strip_yaml_comment(raw):
 
 
 def _parse_simple_yaml(block):
-    """Minimal stdlib YAML subset parser for DESIGN.md token blocks (mappings, nested maps, simple lists)."""
+    """Minimal stdlib YAML subset parser for DESIGN.md token blocks; returns (root, duplicate_top_keys)."""
     root = {}
+    dup_top = []
     stack = [(-1, root)]
     for raw in block.splitlines():
         line = _strip_yaml_comment(raw)
@@ -203,8 +225,9 @@ def _parse_simple_yaml(block):
         val = rest.strip()
         if not isinstance(parent, dict):
             continue
+        if parent is root and key in root:
+            dup_top.append(key)
         if val == "":
-            # Peek whether children will be list or dict is decided lazily; default dict unless omitted
             child = [] if key == "omitted" else {}
             parent[key] = child
             stack.append((indent, child))
@@ -213,7 +236,7 @@ def _parse_simple_yaml(block):
                 parent[key] = [x.strip().strip("\"'") for x in val[1:-1].split(",") if x.strip()]
             else:
                 parent[key] = val.strip("\"'")
-    return root
+    return root, dup_top
 
 
 def _flatten_tokens(obj, prefix=""):
@@ -227,6 +250,33 @@ def _flatten_tokens(obj, prefix=""):
             else:
                 out[path] = v
     return out
+
+
+def _resolve_token_ref(start_key, ref, flat):
+    """Resolve {ref} transitively, rejecting missing, group, metadata, and cyclic references."""
+    seen = {start_key}
+    cur = ref
+    while True:
+        if cur in seen:
+            return None, "cycle", cur
+        if cur in METADATA_KEYS:
+            return None, "non-token", cur
+        if cur not in flat:
+            return None, "missing", cur
+        seen.add(cur)
+        val = flat[cur]
+        if isinstance(val, dict):
+            if start_key.startswith("components.") and "." in cur and val and all(not isinstance(x, dict) for x in val.values()):
+                return val, "composite", cur
+            return None, "group", cur
+        if isinstance(val, list):
+            return None, "group", cur
+        if isinstance(val, str):
+            m_full = re.fullmatch(r"\{([a-zA-Z0-9_.-]+)\}", val.strip())
+            if m_full:
+                cur = m_full.group(1)
+                continue
+        return val, "scalar", cur
 
 
 def check_design_md(path):
@@ -248,8 +298,12 @@ def check_design_md(path):
 
     merged = {}
     dup_keys = []
+    all_color_maps = []
     for blk in blocks:
-        parsed = _parse_simple_yaml(blk)
+        parsed, block_dups = _parse_simple_yaml(blk)
+        dup_keys.extend(block_dups)
+        if isinstance(parsed.get("colors"), dict):
+            all_color_maps.append(parsed["colors"])
         for k, v in parsed.items():
             if k in merged:
                 dup_keys.append(k)
@@ -267,8 +321,8 @@ def check_design_md(path):
 
     flat = _flatten_tokens(merged)
     bad_colors = []
-    if isinstance(merged.get("colors"), dict):
-        for k, v in _flatten_tokens(merged["colors"], "colors").items():
+    for cmap in all_color_maps:
+        for k, v in _flatten_tokens(cmap, "colors").items():
             if isinstance(v, str) and not CSS_COLOR_VAL_RE.match(v.strip()):
                 bad_colors.append(f"{k}={v}")
     checks.append(_chk("valid_color_tokens", not bad_colors, bad_colors or "valid", "[]", "color tokens use valid CSS color syntax or token references"))
@@ -278,27 +332,32 @@ def check_design_md(path):
         if isinstance(v, str):
             for rm in TOKEN_REF_RE.finditer(v):
                 ref = rm.group(1)
-                if ref not in flat:
-                    broken_refs.append(f"{k}->{{{ref}}}")
-    checks.append(_chk("token_refs_valid", not broken_refs, broken_refs or "valid", "[]", "every {path.to.token} reference resolves"))
+                resolved_val, kind, terminal = _resolve_token_ref(k, ref, flat)
+                if resolved_val is None:
+                    broken_refs.append(f"{k}->{{{ref}}}({kind})")
+                elif k.startswith("colors.") and (kind != "scalar" or not terminal.startswith("colors.")):
+                    broken_refs.append(f"{k}->{{{ref}}}(non-color)")
+    checks.append(_chk("token_refs_valid", not broken_refs, broken_refs or "valid", "[]", "every {path.to.token} reference resolves to a non-cyclic token"))
 
     base_dir = os.path.realpath(os.path.dirname(os.path.abspath(path)))
     unsafe_ext = []
     for em in EXT_REF_RE.finditer(text):
-        rel = em.group(1)
-        if rel.startswith("/") or ".." in rel.split("/"):
-            unsafe_ext.append(rel)
+        raw_ref = em.group(1)
+        norm = raw_ref.replace("\\", "/")
+        if norm.startswith("/") or norm.startswith("~") or re.match(r"^[A-Za-z]:/", norm) or ".." in norm.split("/"):
+            unsafe_ext.append(raw_ref)
             continue
-        resolved = os.path.realpath(os.path.join(base_dir, rel))
-        if not (resolved == base_dir or resolved.startswith(base_dir + os.sep)):
-            unsafe_ext.append(rel)
+        if "/" in norm or "." in norm:
+            resolved = os.path.realpath(os.path.join(base_dir, norm))
+            if not (resolved == base_dir or resolved.startswith(base_dir + os.sep)):
+                unsafe_ext.append(raw_ref)
     checks.append(_chk("external_refs_safe", not unsafe_ext, unsafe_ext or "safe", "[]", "external @path references stay inside the DESIGN.md directory"))
 
     ok = all(c["ok"] for c in checks)
     return {"ok": ok, "checks": checks}
 
 
-def check_iso_spec(spec):
+def check_iso_spec(spec, pre_render=False):
     if not isinstance(spec, dict):
         return {"ok": False, "checks": [_chk("spec_object", False, type(spec).__name__, "JSON object", "iso spec must be a JSON object")]}
     checks = []
@@ -326,14 +385,16 @@ def check_iso_spec(spec):
     lit_ok = isinstance(lit_count, int) and not isinstance(lit_count, bool) and lit_count == 1
     checks.append(_chk("four_tone_ramp", tones_ok and lit_ok, {"tones": sorted(tones.keys()) if isinstance(tones, dict) else tones, "lit_count": lit_count}, "4 distinct tones (lo/mid/hi/lit) + lit_count == 1", "four-tone directional shading with one lit focal accent"))
 
-    tier = str(spec.get("tier", "figure")).strip().lower()
-    min_parts = ISO_TIER_MIN.get(tier)
+    tier_raw = spec.get("tier")
+    tier = tier_raw.strip().lower() if isinstance(tier_raw, str) else None
+    min_parts = ISO_TIER_MIN.get(tier) if tier else None
     parts = spec.get("parts")
     if min_parts is None:
-        checks.append(_chk("part_density", False, tier, "figure|hero|epic", "unknown isometric tier"))
+        checks.append(_chk("part_density", False, tier_raw, "figure|hero|epic", "explicit isometric tier required"))
     elif isinstance(parts, list):
         total_parts = 0
         unmounted = 0
+        entries = []
         for p in parts:
             if not isinstance(p, dict):
                 unmounted += 1
@@ -343,20 +404,40 @@ def check_iso_spec(spec):
                 unmounted += 1
                 continue
             total_parts += c
-            if not (isinstance(p.get("host"), str) and p["host"].strip()):
+            pid = str(p.get("group") or p.get("name") or "").strip().lower()
+            host = str(p.get("host") or "").strip().lower()
+            entries.append((pid, host, c))
+        host_map = {pid: host for pid, host, _ in entries if pid}
+        for pid, host, c in entries:
+            if not host:
                 unmounted += c
-        checks.append(_chk("part_density", total_parts >= min_parts and unmounted == 0, {"count": total_parts, "unmounted": unmounted}, f">= {min_parts} mounted parts for {tier}", "dense recognizable machine where every part sits on a host"))
+                continue
+            cur = host
+            seen = {pid} if pid else set()
+            grounded = False
+            while cur:
+                if cur in ISO_ROOT_HOSTS:
+                    grounded = True
+                    break
+                if cur in seen or cur not in host_map:
+                    break
+                seen.add(cur)
+                cur = host_map[cur]
+            if not grounded:
+                unmounted += c
+        checks.append(_chk("part_density", total_parts >= min_parts and unmounted == 0, {"count": total_parts, "unmounted": unmounted}, f">= {min_parts} grounded parts for {tier}", "dense recognizable machine where every part mounts transitively to ground/base without cycles"))
     else:
         checks.append(_chk("part_density", False, parts, f"list of >= {min_parts} part objects with host", "parts list required"))
 
     checks.append(_chk("depth_sorted", spec.get("depth_sorted") is True, spec.get("depth_sorted"), True, "painter's depth order verified"))
-    fl = spec.get("floating_line_ends", -1)
-    fl_ok = isinstance(fl, int) and not isinstance(fl, bool) and fl == 0
-    checks.append(_chk("line_ends_resolved", fl_ok, fl, 0, "every seam, tick, and texture line ends on a stroke, dot, or outline"))
-    checks.append(_chk("closeup_4x_checked", spec.get("closeup_4x_checked") is True, spec.get("closeup_4x_checked"), True, "4x close-up audit performed at junctions"))
-    themes = spec.get("themes_checked")
-    themes_ok = isinstance(themes, list) and {"light", "dark"}.issubset({str(x).lower() for x in themes})
-    checks.append(_chk("dual_theme_checked", themes_ok, themes, "['light', 'dark']", "verified in both dark and light paper themes"))
+    if not pre_render:
+        fl = spec.get("floating_line_ends", -1)
+        fl_ok = isinstance(fl, int) and not isinstance(fl, bool) and fl == 0
+        checks.append(_chk("line_ends_resolved", fl_ok, fl, 0, "every seam, tick, and texture line ends on a stroke, dot, or outline"))
+        checks.append(_chk("closeup_4x_checked", spec.get("closeup_4x_checked") is True, spec.get("closeup_4x_checked"), True, "4x close-up audit performed at junctions"))
+        themes = spec.get("themes_checked")
+        themes_ok = isinstance(themes, list) and {"light", "dark"}.issubset({str(x).lower() for x in themes})
+        checks.append(_chk("dual_theme_checked", themes_ok, themes, "['light', 'dark']", "verified in both dark and light paper themes"))
 
     ok = bool(checks) and all(c["ok"] for c in checks)
     return {"ok": ok, "checks": checks}
@@ -367,6 +448,7 @@ def main():
     ap.add_argument("--html", help="HTML/CSS file or directory to audit against anti-slop Floor rules")
     ap.add_argument("--design-md", help="DESIGN.md file to validate against token and reference schema")
     ap.add_argument("--iso", help="Isometric technical illustration contract JSON to verify")
+    ap.add_argument("--pre-render", action="store_true", help="For --iso: validate pre-render geometry/density plan without requiring post-render audit flags")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -377,7 +459,7 @@ def main():
     elif a.design_md:
         res = check_design_md(a.design_md)
     else:
-        res = check_iso_spec(json.load(open(a.iso, encoding="utf-8")))
+        res = check_iso_spec(json.load(open(a.iso, encoding="utf-8")), pre_render=a.pre_render)
 
     if a.json:
         print(json.dumps(res, indent=2))

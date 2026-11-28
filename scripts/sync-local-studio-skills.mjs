@@ -256,7 +256,8 @@ export const EDITS = [
     'hildegard-art/SKILL.md': [
       'python3 scripts/review_media.py',
       'python3 scripts/contact_sheet.py',
-      'python3 scripts/check_design.py --iso iso.json',
+      '`python3 scripts/check_design.py --iso iso.json --pre-render`',
+      '`python3 scripts/check_design.py --iso iso.json`',
     ],
     'hildegard-craft/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
     'hildegard-design/SKILL.md': [
