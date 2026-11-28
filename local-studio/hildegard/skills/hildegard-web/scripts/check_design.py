@@ -880,7 +880,7 @@ SVG_NS_TAG = f"{{{SVG_NS}}}svg"
 LOGO_SHAPE_TAGS = frozenset({"path", "circle", "ellipse", "rect", "polygon", "polyline", "line"})
 LOGO_ALWAYS_ALLOWED_TAGS = frozenset({
     "svg", "g", "path", "rect", "circle", "ellipse", "line",
-    "polygon", "polyline", "title", "desc", "metadata",
+    "polygon", "polyline", "title", "desc",
 })
 LOGO_DRAFT_TEXT_TAGS = frozenset({"text", "tspan"})
 LOGO_EFFECT_TAGS = frozenset({
@@ -890,9 +890,6 @@ LOGO_NON_RENDER_TAGS = frozenset({
     "defs", "clippath", "mask", "symbol", "pattern", "marker",
     "filter", "lineargradient", "radialgradient", "title", "desc",
     "metadata", "script", "style", "foreignobject",
-})
-LOGO_METADATA_FORBIDDEN_TAGS = frozenset({
-    "script", "foreignobject", "image", "iframe", "embed", "object", "style",
 })
 LOGO_SHARED_ATTRS = frozenset({
     "id", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
@@ -921,7 +918,6 @@ LOGO_TAG_ATTRS = {
     }),
     "title": frozenset({"id"}),
     "desc": frozenset({"id"}),
-    "metadata": frozenset({"id"}),
 }
 
 # Packed 24-bit sRGB values for every named color in CSS_NAMED_COLORS (grouped by family)
@@ -974,7 +970,7 @@ LOGO_NAMED_HEX = {
 }
 
 SVG_NUM_RE = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
-SVG_LEN_RE = re.compile(r"^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(px|pt|pc|in|cm|mm|%)?$", re.I)
+SVG_LEN_RE = re.compile(r"^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(px|pt|pc|in|cm|mm|%|em)?$", re.I)
 SVG_LEN_UNIT_PX = {
     "": 1.0,
     "px": 1.0,
@@ -1024,8 +1020,8 @@ def _parse_plain_float(val):
         return None
 
 
-def _parse_svg_len(val, ref_len=None):
-    """Parse SVG length supporting unitless, px, pt, pc, in, cm, mm, and % (relative to ref_len)."""
+def _parse_svg_len(val, ref_len=None, em_size=None):
+    """Parse SVG length supporting unitless, px, pt, pc, in, cm, mm, %, and em (relative to em_size)."""
     if not isinstance(val, str):
         return None
     s = val.strip()
@@ -1042,8 +1038,14 @@ def _parse_svg_len(val, ref_len=None):
     if unit == "%":
         if ref_len is None or not math.isfinite(ref_len):
             return None
-        return (num / 100.0) * ref_len
-    return num * SVG_LEN_UNIT_PX[unit]
+        res = (num / 100.0) * ref_len
+    elif unit == "em":
+        if em_size is None or not math.isfinite(em_size):
+            return None
+        res = num * em_size
+    else:
+        res = num * SVG_LEN_UNIT_PX[unit]
+    return res if math.isfinite(res) else None
 
 
 def _parse_opacity_val(val):
@@ -1234,7 +1236,7 @@ def _contrast_ratio(rgb1, rgb2):
 def _mat_mul(m1, m2):
     a1, b1, c1, d1, e1, f1 = m1
     a2, b2, c2, d2, e2, f2 = m2
-    return (
+    res = (
         a1 * a2 + c1 * b2,
         b1 * a2 + d1 * b2,
         a1 * c2 + c1 * d2,
@@ -1242,6 +1244,7 @@ def _mat_mul(m1, m2):
         a1 * e2 + c1 * f2 + e1,
         b1 * e2 + d1 * f2 + f1,
     )
+    return res if all(math.isfinite(v) for v in res) else None
 
 
 def _mat_apply(mat, x, y):
@@ -1326,7 +1329,12 @@ def _parse_transform_matrix(attr):
             cur = tuple(nums)
         else:
             return mat, f"transform:unsupported:{kind}({len(nums)})"
-        mat = _mat_mul(mat, cur)
+        if not all(math.isfinite(v) for v in cur):
+            return SVG_MAT_IDENTITY, f"transform:{kind}:non-finite"
+        nxt = _mat_mul(mat, cur)
+        if nxt is None:
+            return SVG_MAT_IDENTITY, f"transform:{kind}:non-finite"
+        mat = nxt
     return mat, None
 
 
@@ -1828,32 +1836,12 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
         inh_baseline,
         parent_mat,
         in_non_render=False,
-        in_metadata=False,
         is_root=False,
-        parent_text_xy=None,
+        text_cursor=None,
     ):
         nonlocal text_hits, shape_count, path_cmd_total
         el_ns, local = _split_ns_name(el.tag)
         local_low = local.lower()
-
-        if in_metadata:
-            if local_low in LOGO_METADATA_FORBIDDEN_TAGS:
-                security_hits.append(f"metadata:tag:<{local}>")
-            for k, v in el.attrib.items():
-                _, alocal = _split_ns_name(k)
-                alocal_low = alocal.lower()
-                if alocal_low.startswith("on"):
-                    security_hits.append(f"metadata:attr:{alocal}")
-                if alocal_low in ("href", "src"):
-                    security_hits.append(f"metadata:attr:{alocal}")
-                if _has_forbidden_uri_or_url(v):
-                    security_hits.append(f"metadata:uri:{alocal}")
-            for child in list(el):
-                walk(
-                    child, inh_fill, inh_stroke, inh_sw, inh_color, inh_op, inh_fop, inh_sop,
-                    inh_fs, inh_anchor, inh_baseline, parent_mat, True, True, False, None,
-                )
-            return
 
         in_svg_ns = el_ns == SVG_NS
         tag = local
@@ -1887,14 +1875,6 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                 effect_hits.append(f"{tag}:filter:{vl}")
             if _has_forbidden_uri_or_url(v):
                 security_hits.append(f"{tag}:forbidden-uri:{alocal}")
-
-        if in_svg_ns and tag == "metadata":
-            for child in list(el):
-                walk(
-                    child, inh_fill, inh_stroke, inh_sw, inh_color, inh_op, inh_fop, inh_sop,
-                    inh_fs, inh_anchor, inh_baseline, parent_mat, True, True, False, None,
-                )
-            return
 
         cur_fill = el.attrib.get("fill", inh_fill)
         cur_stroke = el.attrib.get("stroke", inh_stroke)
@@ -1953,11 +1933,16 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
         if tf_err and not next_non_render:
             geometry_errors.append(f"{tag}:{tf_err}")
         cur_mat = _mat_mul(parent_mat, tf_mat)
+        if cur_mat is None:
+            if not next_non_render:
+                geometry_errors.append(f"{tag}:transform:non-finite")
+            cur_mat = SVG_MAT_IDENTITY
 
         cur_fs = inh_fs
         cur_anchor = el.attrib.get("text-anchor", inh_anchor).strip().lower() if "text-anchor" in el.attrib else inh_anchor
         cur_baseline = el.attrib.get("dominant-baseline", inh_baseline).strip().lower() if "dominant-baseline" in el.attrib else inh_baseline
-        next_text_xy = parent_text_xy
+        child_text_cursor = text_cursor
+        measure_text_segment = None
 
         is_rendered_shape = in_svg_ns and tag in LOGO_SHAPE_TAGS
         is_rendered_text = in_svg_ns and allow_draft_text and tag == "text"
@@ -1981,6 +1966,9 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                 stroke_kind = inspect_paint(tag, "stroke", cur_stroke, cur_color)
 
             eff_scale_min, eff_scale_max = _mat_linear_scales(cur_mat)
+            if not (math.isfinite(eff_scale_min) and math.isfinite(eff_scale_max)):
+                geometry_errors.append(f"{tag}:transform:non-finite")
+                eff_scale_min, eff_scale_max = 1.0, 1.0
             fill_active = fill_kind != "none"
             stroke_active = stroke_kind != "none"
             if cur_sw_raw is None:
@@ -2091,75 +2079,142 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                         if max(bw, bh) + eff_sw < min_feature - 1e-6:
                             thin_features.append(f"path:span={round(max(bw, bh) + eff_sw, 2)}<{round(min_feature, 2)}")
             elif tag in ("text", "tspan"):
-                # Conservative bbox estimate for --allow-draft-text pure wordmark drafts and <tspan> overrides
-                has_x = "x" in el.attrib and bool(el.attrib["x"].strip())
-                has_y = "y" in el.attrib and bool(el.attrib["y"].strip())
-                tx = parent_text_xy[0] if (tag == "tspan" and parent_text_xy is not None) else 0.0
-                ty = parent_text_xy[1] if (tag == "tspan" and parent_text_xy is not None) else 0.0
+                # Per-span bbox & micro-legibility for --allow-draft-text wordmarks (supporting stacked tspans and em units)
+                if "font-size" in el.attrib:
+                    raw_fs = el.attrib["font-size"]
+                    fs_val = _parse_svg_len(raw_fs, ref_len=vb_diag, em_size=inh_fs)
+                    if fs_val is None or fs_val < 0.0:
+                        geometry_errors.append(f"{tag}:font-size={raw_fs}")
+                        fs_val = None
+                    else:
+                        cur_fs = fs_val
+                else:
+                    fs_val = inh_fs
+
+                em_ref = cur_fs if fs_val is not None else inh_fs
+                if tag == "text" or child_text_cursor is None:
+                    child_text_cursor = [0.0, 0.0]
+
+                def parse_coord_first(attr_name, ref_len):
+                    raw_attr = el.attrib.get(attr_name)
+                    if raw_attr is None or not raw_attr.strip():
+                        return False, None
+                    tokens = [tok for tok in re.split(r"[\s,]+", raw_attr.strip()) if tok]
+                    if not tokens:
+                        geometry_errors.append(f"{tag}:{attr_name}={raw_attr}")
+                        return True, None
+                    parsed = [_parse_svg_len(tok, ref_len=ref_len, em_size=em_ref) for tok in tokens]
+                    if any(v is None for v in parsed):
+                        geometry_errors.append(f"{tag}:{attr_name}={raw_attr}")
+                        return True, None
+                    return True, parsed[0]
+
+                has_x, x_val = parse_coord_first("x", vb_w)
                 if has_x:
-                    tx_tokens = el.attrib["x"].strip().split()
-                    parsed_xs = [_parse_svg_len(tok, ref_len=vb_w) for tok in tx_tokens]
-                    if any(v is None for v in parsed_xs):
-                        geometry_errors.append(f"{tag}:x={el.attrib.get('x')}")
-                        tx = None
-                    else:
-                        tx = parsed_xs[0]
+                    child_text_cursor[0] = x_val
+                has_y, y_val = parse_coord_first("y", vb_h)
                 if has_y:
-                    ty_tokens = el.attrib["y"].strip().split()
-                    parsed_ys = [_parse_svg_len(tok, ref_len=vb_h) for tok in ty_tokens]
-                    if any(v is None for v in parsed_ys):
-                        geometry_errors.append(f"{tag}:y={el.attrib.get('y')}")
-                        ty = None
+                    child_text_cursor[1] = y_val
+                has_dx, dx_val = parse_coord_first("dx", vb_w)
+                if has_dx:
+                    if dx_val is None or child_text_cursor[0] is None:
+                        child_text_cursor[0] = None
                     else:
-                        ty = parsed_ys[0]
-                for d_attr, d_ref in (("dx", vb_w), ("dy", vb_h)):
-                    if d_attr in el.attrib and el.attrib[d_attr].strip():
-                        d_tokens = el.attrib[d_attr].strip().split()
-                        if any(_parse_svg_len(tok, ref_len=d_ref) is None for tok in d_tokens):
-                            geometry_errors.append(f"{tag}:{d_attr}={el.attrib.get(d_attr)}")
-                fs_val = read_len_attr(el, tag, "font-size", inh_fs, vb_diag, non_negative=True)
-                if fs_val is not None:
-                    cur_fs = fs_val
-                if tx is not None and ty is not None:
-                    next_text_xy = (tx, ty)
-                if (tag == "text" or has_x or has_y) and None not in (tx, ty, fs_val) and fs_val > 0.0:
-                    txt_content = "".join(el.itertext()).strip()
-                    n_chars = max(1, len(txt_content))
-                    est_w = n_chars * 0.55 * fs_val
-                    if cur_anchor == "middle":
+                        nx = child_text_cursor[0] + dx_val
+                        if not math.isfinite(nx):
+                            geometry_errors.append(f"{tag}:dx={el.attrib.get('dx')}")
+                            child_text_cursor[0] = None
+                        else:
+                            child_text_cursor[0] = nx
+                has_dy, dy_val = parse_coord_first("dy", vb_h)
+                if has_dy:
+                    if dy_val is None or child_text_cursor[1] is None:
+                        child_text_cursor[1] = None
+                    else:
+                        ny = child_text_cursor[1] + dy_val
+                        if not math.isfinite(ny):
+                            geometry_errors.append(f"{tag}:dy={el.attrib.get('dy')}")
+                            child_text_cursor[1] = None
+                        else:
+                            child_text_cursor[1] = ny
+
+                text_legibility_checked = False
+
+                def _measure_seg(
+                    seg_text,
+                    _fs=fs_val,
+                    _scale_min=eff_scale_min,
+                    _anchor=cur_anchor,
+                    _baseline=cur_baseline,
+                    _mat=cur_mat,
+                    _pad=pad,
+                    _tag=tag,
+                    _cursor=child_text_cursor,
+                ):
+                    nonlocal text_legibility_checked
+                    txt_content = (seg_text or "").strip()
+                    if not txt_content:
+                        return
+                    if not text_legibility_checked and _fs is not None:
+                        text_legibility_checked = True
+                        eff_fs = _fs * _scale_min
+                        if not math.isfinite(eff_fs) or eff_fs < min_feature - 1e-6:
+                            thin_features.append(f"{_tag}:font-size={round(eff_fs, 3)}<{round(min_feature, 3)}")
+                    if None in (_cursor[0], _cursor[1], _fs) or _fs <= 0.0:
+                        return
+                    tx, ty = _cursor[0], _cursor[1]
+                    est_w = len(txt_content) * 0.55 * _fs
+                    if _anchor == "middle":
                         x0, x1 = tx - 0.5 * est_w, tx + 0.5 * est_w
-                    elif cur_anchor == "end":
+                    elif _anchor == "end":
                         x0, x1 = tx - est_w, tx
                     else:
                         x0, x1 = tx, tx + est_w
-                    if cur_baseline in ("middle", "central"):
-                        y0, y1 = ty - 0.45 * fs_val, ty + 0.45 * fs_val
-                    elif cur_baseline in ("hanging", "text-before-edge", "text-top"):
-                        y0, y1 = ty, ty + 0.95 * fs_val
+                    if _baseline in ("middle", "central"):
+                        y0, y1 = ty - 0.45 * _fs, ty + 0.45 * _fs
+                    elif _baseline in ("hanging", "text-before-edge", "text-top"):
+                        y0, y1 = ty, ty + 0.95 * _fs
                     else:
-                        y0, y1 = ty - 0.75 * fs_val, ty + 0.2 * fs_val
-                    tpts = [
-                        _mat_apply(cur_mat, x0, y0),
-                        _mat_apply(cur_mat, x1, y0),
-                        _mat_apply(cur_mat, x0, y1),
-                        _mat_apply(cur_mat, x1, y1),
+                        y0, y1 = ty - 0.75 * _fs, ty + 0.2 * _fs
+                    seg_pts = [
+                        _mat_apply(_mat, x0, y0),
+                        _mat_apply(_mat, x1, y0),
+                        _mat_apply(_mat, x0, y1),
+                        _mat_apply(_mat, x1, y1),
                     ]
+                    if any(not (math.isfinite(px) and math.isfinite(py)) for px, py in seg_pts):
+                        geometry_errors.append(f"{_tag}:non-finite-bbox")
+                        return
+                    for px, py in seg_pts:
+                        bbox[0] = min(bbox[0], px - _pad)
+                        bbox[1] = min(bbox[1], py - _pad)
+                        bbox[2] = max(bbox[2], px + _pad)
+                        bbox[3] = max(bbox[3], py + _pad)
 
-            for px, py in tpts:
-                bbox[0] = min(bbox[0], px - pad)
-                bbox[1] = min(bbox[1], py - pad)
-                bbox[2] = max(bbox[2], px + pad)
-                bbox[3] = max(bbox[3], py + pad)
+                measure_text_segment = _measure_seg
+                measure_text_segment(el.text)
+
+            if any(not (math.isfinite(px) and math.isfinite(py)) for px, py in tpts):
+                geometry_errors.append(f"{tag}:non-finite-bbox")
+            else:
+                for px, py in tpts:
+                    bbox[0] = min(bbox[0], px - pad)
+                    bbox[1] = min(bbox[1], py - pad)
+                    bbox[2] = max(bbox[2], px + pad)
+                    bbox[3] = max(bbox[3], py + pad)
 
         for child in list(el):
             walk(
                 child, cur_fill, cur_stroke, cur_sw_raw, cur_color, cur_op, cur_fop, cur_sop,
-                cur_fs, cur_anchor, cur_baseline, cur_mat, next_non_render, False, False, next_text_xy,
+                cur_fs, cur_anchor, cur_baseline, cur_mat, next_non_render, False,
+                child_text_cursor if (is_rendered_text or is_rendered_tspan) else None,
             )
+            if measure_text_segment is not None and child.tail:
+                measure_text_segment(child.tail)
 
-    walk(root, "black", "none", None, None, 1.0, 1.0, 1.0, 16.0, "start", "auto", SVG_MAT_IDENTITY, False, False, True, None)
+    walk(root, "black", "none", None, None, 1.0, 1.0, 1.0, 16.0, "start", "auto", SVG_MAT_IDENTITY, False, True, None)
 
-    checks.append(_chk("logo_self_contained", not security_hits, security_hits or "clean", "[]", "strict SVG tag/namespace/attribute allowlist: zero style attributes, disallowed tags, event handlers, url(...) references, external/data URIs, or non-SVG elements outside <metadata>"))
+    checks.append(_chk("logo_self_contained", not security_hits, security_hits or "clean", "[]", "strict SVG tag/namespace/attribute allowlist: zero style attributes, disallowed tags, event handlers, url(...) references, external/data URIs, or non-SVG elements"))
     checks.append(_chk("logo_geometry", not geometry_errors, geometry_errors or "valid", "[]", "valid SVG path syntax, transforms, points, and length attributes"))
     text_ok = allow_draft_text or text_hits == 0
     checks.append(_chk("logo_outlined_text", text_ok, text_hits if not text_ok else "outlined", "0 <text> nodes (or --allow-draft-text)", "convert wordmark glyphs to <path> outlines so logos never font-substitute"))

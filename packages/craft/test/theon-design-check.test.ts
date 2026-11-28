@@ -800,14 +800,13 @@ omitted:
   });
 
   it('validates vector logo SVGs (--logo) for viewBox, security, outlined text, clearspace, 16px legibility, flat monochrome, and WCAG contrast', () => {
-    // 1. Clean light-surface evenodd mark + benign <title>/<desc>/<metadata> must PASS
+    // 1. Clean light-surface evenodd mark + benign <title>/<desc> must PASS
     const goodLight = join(dir, 'logo-light.svg');
     writeFileSync(
       goodLight,
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
   <title>Hearth</title>
   <desc>Clean geometric brand mark</desc>
-  <metadata><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description>Hearth Brand</rdf:Description></rdf:RDF></metadata>
   <path fill="#1A1C1E" fill-rule="evenodd" d="M 16 16 H 84 V 84 H 16 Z M 34 34 H 66 V 66 H 34 Z"/>
   <rect x="42" y="42" width="16" height="16" fill="#B8422E"/>
 </svg>`,
@@ -1303,7 +1302,7 @@ omitted:
       expect(r.status, label).toBe(1);
       expect(r.bad, label).toContain('logo_viewbox');
     }
-  }, 15_000);
+  }, 60_000);
 
   it('enforces strict SVG tag/namespace/attribute allowlist and round-2 logo hardening regressions', () => {
     const failedIds = (svgText: string, extraArgs: string[] = [], name = 'r2-case.svg') => {
@@ -1484,7 +1483,7 @@ omitted:
     expect(borderlineContrast.status).toBe(1);
     expect(borderlineContrast.bad).toContain('logo_contrast');
 
-    // MEDIUM #10: Non-SVG namespace child rejected outside <metadata>; malicious <metadata> child rejected; benign <metadata> allowed
+    // MEDIUM #10 & round-4 HIGH #1: Non-SVG namespace child and ANY <metadata> (plain or carrying XHTML <img>) rejected
     const foreignNsChild = failedIds(
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><xhtml:div xmlns:xhtml="http://www.w3.org/1999/xhtml"/><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
       [],
@@ -1508,6 +1507,22 @@ omitted:
     );
     expect(evilMetadataUri.status).toBe(1);
     expect(evilMetadataUri.bad).toContain('logo_self_contained');
+
+    const evilMetadataXhtmlImg = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata><img xmlns="http://www.w3.org/1999/xhtml" srcset="//evil.example/t.png 1x"/></metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r4-meta-xhtml-img.svg',
+    );
+    expect(evilMetadataXhtmlImg.status).toBe(1);
+    expect(evilMetadataXhtmlImg.bad).toContain('logo_self_contained');
+
+    const plainMetadata = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata>Hearth Brand</metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r4-meta-plain.svg',
+    );
+    expect(plainMetadata.status).toBe(1);
+    expect(plainMetadata.bad).toContain('logo_self_contained');
 
     // MEDIUM #11 & #12: display="none", visibility="hidden", mix-blend-mode="multiply" rejected
     for (const [label, attr] of [
@@ -1538,5 +1553,49 @@ omitted:
     );
     expect(densePoly.status).toBe(1);
     expect(densePoly.bad).toContain('logo_complexity');
-  }, 15_000);
+
+    // Round-4 MEDIUM #2: 2-line stacked wordmark passes --allow-draft-text clearspace
+    const stackedWordmark = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <text x="50" y="42" text-anchor="middle" font-size="14" fill="#1A1C1E"><tspan x="50" dy="0">NORTH</tspan><tspan x="50" dy="18">FORGE</tspan></text>
+</svg>`,
+      ['--allow-draft-text'],
+      'logo-r4-stacked-wordmark.svg',
+    );
+    expect(stackedWordmark.status, stackedWordmark.stdout).toBe(0);
+
+    // Round-4 LOW #3: Non-finite length overflow fails logo_viewbox; non-finite transform composition fails logo_geometry
+    const overflowWidth = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1e308in" height="100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r4-overflow-width.svg',
+    );
+    expect(overflowWidth.status).toBe(1);
+    expect(overflowWidth.bad).toContain('logo_viewbox');
+
+    const overflowTransform = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" transform="scale(1e200) scale(1e200)"/></svg>`,
+      [],
+      'logo-r4-overflow-transform.svg',
+    );
+    expect(overflowTransform.status).toBe(1);
+    expect(overflowTransform.bad).toContain('logo_geometry');
+
+    // Round-4 LOW #4: Tiny draft <text> font-size or scaled-down draft <text> fails logo_micro_legibility under --allow-draft-text
+    const tinyFontDraft = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="50" y="50" text-anchor="middle" font-size="1" fill="#1A1C1E">HI</text></svg>`,
+      ['--allow-draft-text'],
+      'logo-r4-tiny-font.svg',
+    );
+    expect(tinyFontDraft.status).toBe(1);
+    expect(tinyFontDraft.bad).toContain('logo_micro_legibility');
+
+    const scaledDownDraft = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="50" y="50" text-anchor="middle" transform="scale(0.01)" font-size="16" fill="#1A1C1E">HI</text></svg>`,
+      ['--allow-draft-text'],
+      'logo-r4-scaled-text.svg',
+    );
+    expect(scaledDownDraft.status).toBe(1);
+    expect(scaledDownDraft.bad).toContain('logo_micro_legibility');
+  }, 60_000);
 });
