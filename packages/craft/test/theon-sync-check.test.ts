@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Deterministic tests for check_sync.py (log-space zoom, cyclic shake seams, beat frames, video liveness & beat sync).
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -347,6 +347,70 @@ describe('check_sync.py', { timeout: 60_000 }, () => {
         .checks.filter((c: { ok: boolean }) => !c.ok)
         .map((c: { id: string }) => c.id);
       expect(hotBad).toContain('post_aac_peak');
+
+      // --static skips frame_liveness for honest static footage / reading holds while keeping post-AAC checks active
+      const staticAac = join(dir, 'static-aac.mp4');
+      execFileSync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
+        frozen,
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=440:duration=3',
+        '-af',
+        'volume=8dB',
+        '-c:v',
+        'copy',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '192k',
+        staticAac,
+      ]);
+      expect(
+        runPy(['--video', staticAac, '--post-aac-lufs', '-14', '--post-aac-peak', '-2.0', '--json']).status,
+      ).toBe(1);
+      const rStatic = runPy([
+        '--video',
+        staticAac,
+        '--static',
+        '--post-aac-lufs',
+        '-14',
+        '--post-aac-peak',
+        '-2.0',
+        '--json',
+      ]);
+      expect(rStatic.status, rStatic.stdout).toBe(0);
+
+      // Verify hildegard-video-edit SKILL.md uses numeric setpts offset (never FFmpeg's built-in T variable) and that the shifted overlay keeps 1x timing
+      const videoEditSkill = readFileSync(join(root, 'skills/hildegard-video-edit/SKILL.md'), 'utf8');
+      expect(videoEditSkill).not.toContain('setpts=PTS-STARTPTS+T/TB');
+      expect(videoEditSkill).toContain('setpts=PTS-STARTPTS+<offset_s>/TB');
+      const shifted = join(dir, 'shifted.mp4');
+      execFileSync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=0x102040:s=160x90:r=20:d=2',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=white:s=24x24:r=20:d=1',
+        '-filter_complex',
+        '[1:v]setpts=PTS-STARTPTS+0.5/TB[ov];[0:v][ov]overlay=10:10:eof_action=pass',
+        '-pix_fmt',
+        'yuv420p',
+        shifted,
+      ]);
+      expect(runPy(['--video', shifted, '--static', '--json']).status).toBe(0);
     },
   );
 
@@ -453,5 +517,28 @@ describe('check_sync.py', { timeout: 60_000 }, () => {
     expect(badIds).toContain('seam_vector_law');
     expect(badIds).toContain('seam_mid_motion');
     expect(badIds).toContain('no_uncaused_ping_pong');
+
+    // Off-axis named directions (e.g. x with pull, z with right/down) MUST fail seam_vector_law
+    for (const [label, row] of [
+      ['x-pull', { axis: 'x', exit_dir: 'left', entry_dir: 'pull', cut_mid_motion: true }],
+      ['z-right-down', { axis: 'z', exit_dir: 'right', entry_dir: 'down', cut_mid_motion: true }],
+    ] as const) {
+      const p = join(dir, `seam-${label}.json`);
+      writeFileSync(
+        p,
+        JSON.stringify({
+          seed: 7,
+          contact_sheet_frames: 8,
+          seams: { stage_bg_opaque: true, transitions: [row] },
+        }),
+      );
+      const r = runPy(['--camera', p, '--json']);
+      expect(r.status, `${label}: ${r.stdout}`).toBe(1);
+      expect(
+        JSON.parse(r.stdout)
+          .checks.filter((c: { ok: boolean }) => !c.ok)
+          .map((c: { id: string }) => c.id),
+      ).toContain('seam_vector_law');
+    }
   });
 });

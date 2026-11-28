@@ -3,7 +3,7 @@
 """Check procedural video sync, freeze-free liveness, post-AAC loudness, and motion/timing/framing/seam contracts.
 
   python3 -B check_sync.py --video FILE.mp4 [--beats BEATS.json] [--tol-ms 45]
-                           [--hold-tail 1.0] [--min-liveness 0.55]
+                           [--hold-tail 1.0] [--min-liveness 0.55 | --static]
                            [--max-freeze 0.5] [--post-aac-lufs -14] [--post-aac-peak -2.0] [--json]
   python3 -B check_sync.py --camera CAMERA.json [--json]
 
@@ -39,16 +39,10 @@ BEZIER_RE = re.compile(
     r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\)$"
 )
 FEEL_DAMPING = {"dead_still": 1.0, "single_bounce": 0.8, "playful": 0.5}
-DIR_SIGN = {
-    "left": -1,
-    "right": 1,
-    "up": -1,
-    "down": 1,
-    "push": 1,
-    "pull": -1,
-    "+1": 1,
-    "-1": -1,
-    "1": 1,
+AXIS_DIRS = {
+    "x": {"left": -1, "right": 1, "-1": -1, "1": 1, "+1": 1},
+    "y": {"up": -1, "down": 1, "-1": -1, "1": 1, "+1": 1},
+    "z": {"pull": -1, "push": 1, "-1": -1, "1": 1, "+1": 1},
 }
 
 
@@ -124,6 +118,7 @@ def check_video_sync(
     tol_ms=45.0,
     hold_tail=1.0,
     min_liveness=0.55,
+    static=False,
     max_freeze=None,
     post_aac_lufs=None,
     post_aac_peak=None,
@@ -157,9 +152,14 @@ def check_video_sync(
     liveness = live_count / max(1, active_end)
     per_second_energy = {str(s): round(sum(v) / len(v), 5) for s, v in sorted(sec_buckets.items())}
 
-    checks = [
-        _chk("frame_liveness", liveness >= min_liveness, round(liveness, 3), f">= {min_liveness}", "non-hold frames show real motion (not dead/frozen)"),
-    ]
+    if static:
+        checks = [
+            _chk("frame_liveness", True, round(liveness, 3), "skipped (--static)", "static footage skips frame_liveness requirement"),
+        ]
+    else:
+        checks = [
+            _chk("frame_liveness", liveness >= min_liveness, round(liveness, 3), f">= {min_liveness}", "non-hold frames show real motion (not dead/frozen)"),
+        ]
 
     if max_freeze is not None:
         if not math.isfinite(max_freeze) or max_freeze <= 0.0:
@@ -241,11 +241,14 @@ def _valid_bezier(text):
     return 0.0 <= x1 <= 1.0 and 0.0 <= x2 <= 1.0
 
 
-def _dir_sign(val):
+def _dir_sign(axis, val):
+    allowed = AXIS_DIRS.get(axis)
+    if not allowed:
+        return None
     if isinstance(val, (int, float)) and not isinstance(val, bool) and val in (-1, 1):
         return int(val)
     if isinstance(val, str):
-        return DIR_SIGN.get(val.strip().lower())
+        return allowed.get(val.strip().lower())
     return None
 
 
@@ -381,8 +384,8 @@ def _check_seams_block(sm):
                 bad_vec.append(idx)
                 continue
             axis = str(row.get("axis", "")).strip().lower()
-            s_out = _dir_sign(row.get("exit_dir"))
-            s_in = _dir_sign(row.get("entry_dir"))
+            s_out = _dir_sign(axis, row.get("exit_dir"))
+            s_in = _dir_sign(axis, row.get("entry_dir"))
             if axis not in ("x", "y", "z") or s_out is None or s_in is None or s_out != s_in:
                 bad_vec.append(idx)
             if row.get("cut_mid_motion") is not True:
@@ -476,6 +479,7 @@ def main():
     ap.add_argument("--tol-ms", type=float, default=45.0)
     ap.add_argument("--hold-tail", type=float, default=1.0)
     ap.add_argument("--min-liveness", type=float, default=0.55)
+    ap.add_argument("--static", action="store_true", help="Skip frame_liveness requirement for static talking heads or reading holds")
     ap.add_argument("--max-freeze", type=float, default=None)
     ap.add_argument("--post-aac-lufs", type=float, default=None)
     ap.add_argument("--post-aac-peak", type=float, default=None)
@@ -493,6 +497,7 @@ def main():
             tol_ms=a.tol_ms,
             hold_tail=a.hold_tail,
             min_liveness=a.min_liveness,
+            static=a.static,
             max_freeze=a.max_freeze,
             post_aac_lufs=a.post_aac_lufs,
             post_aac_peak=a.post_aac_peak,
