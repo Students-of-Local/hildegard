@@ -72,7 +72,11 @@ METADATA_KEYS = {"version", "name", "description", "omitted"}
 ISO_KNOWN_KEYS = {"tier", "azimuth_deg", "elevation_deg", "tones", "lit_count", "parts", "depth_sorted", "floating_line_ends", "closeup_4x_checked", "themes_checked"}
 ISO_TIER_MIN = {"figure": 40, "hero": 80, "epic": 150}
 ISO_ROOT_HOSTS = {"ground", "base", "bench", "floor", "stand"}
-EMOJI_EXTRA_CPS = {0x26A1, 0x2705, 0x2728, 0x274C}
+EMOJI_EXTRA_CPS = {0x26A0, 0x26A1, 0x2705, 0x2728, 0x274C, 0x2764}
+ROOT_THEME_SEL_RE = re.compile(
+    r"^(?::root(?:\[data-theme[^\]]*\])?|html(?:\[data-theme[^\]]*\])?|\[data-theme[^\]]*\])$",
+    re.I,
+)
 
 
 def _chk(cid, ok, value, limit, detail):
@@ -108,33 +112,25 @@ def _is_valid_css_color(val):
     return False
 
 
-def _strip_token_blocks(css):
-    """Return CSS with pure :root, [data-theme=...], and @font-face blocks removed (preserving scoped descendant rules)."""
-    out = []
-    i, n = 0, len(css)
-    while i < n:
-        m = re.search(r"(?:^|[}\s,])(?::root|\[data-theme[^\]]*\]|@font-face)\s*\{", css[i:], re.I)
-        if not m:
-            out.append(css[i:])
-            break
-        # Keep leading separator char if matched
-        lead = css[i + m.start()]
-        keep_sep = 1 if lead in ("}", ",", " ", "\t", "\n", "\r") else 0
-        out.append(css[i : i + m.start() + keep_sep])
-        j = i + m.end()
-        depth = 1
-        while j < n and depth > 0:
-            if css[j] == "{":
-                depth += 1
-            elif css[j] == "}":
-                depth -= 1
-            j += 1
-        i = j
-    return "".join(out)
+def _is_root_theme_stack(sel_stack):
+    """True iff sel_stack is a pure root/theme token selector (optionally wrapped in @media/@layer/@supports)."""
+    if not sel_stack:
+        return False
+    if any(not s.lstrip().startswith("@") for s in sel_stack[:-1]):
+        return False
+    inner = sel_stack[-1].strip()
+    if not inner:
+        return False
+    parts = [p.strip() for p in inner.split(",") if p.strip()]
+    return bool(parts) and all(ROOT_THEME_SEL_RE.match(p) for p in parts)
+
+
+def _is_font_face_stack(sel_stack):
+    return bool(sel_stack) and sel_stack[-1].strip().lower().startswith("@font-face")
 
 
 def _iter_declarations(css):
-    """Yield (selector_stack_top, prop, val) for declarations at any CSS nesting depth (never selectors)."""
+    """Yield (sel_stack_tuple, prop, val) for declarations at any CSS nesting depth (never selectors)."""
     sel_stack = []
     buf = []
     in_sq = in_dq = False
@@ -162,8 +158,8 @@ def _iter_declarations(css):
             if sel_stack and ":" in seg and not seg.startswith("@"):
                 prop, val = seg.split(":", 1)
                 prop = prop.strip().lower()
-                if prop and re.fullmatch(r"[a-z-]+", prop):
-                    yield sel_stack[-1], prop, val.strip()
+                if prop and re.fullmatch(r"(?:--[a-z0-9_-]+|[a-z-]+)", prop):
+                    yield tuple(sel_stack), prop, val.strip()
             if ch == "}" and sel_stack:
                 sel_stack.pop()
         else:
@@ -175,8 +171,9 @@ def _is_bad_transition(prop, val):
     """Return (transition_all_hit, layout_prop_hit) for transition / transition-property declarations."""
     t_all = False
     l_prop = False
+    val_no_imp = re.sub(r"\s*!important\s*$", "", val, flags=re.I)
     # Strip var(...) and cubic-bezier(...) / steps(...) parens so tokens like var(--t-all) never false-match
-    cleaned = re.sub(r"\b(?:var|cubic-bezier|steps)\s*\([^)]*\)", " ", val, flags=re.I)
+    cleaned = re.sub(r"\b(?:var|cubic-bezier|steps)\s*\([^)]*\)", " ", val_no_imp, flags=re.I)
     for item in cleaned.split(","):
         s = item.strip().lower()
         if not s or s == "none":
@@ -242,39 +239,46 @@ def check_html_path(target):
 
     html_blob = "\n".join(all_html)
     css_blob = CSS_COMMENT_RE.sub(" ", "\n".join(all_css + inline_css))
-    non_token_css = _strip_token_blocks(css_blob)
 
     checks = [_chk("html_files_scanned", True, len(files), ">= 1 .html/.css file", "HTML/CSS files audited")]
 
     if css_blob.strip():
-        has_root_tokens = bool(re.search(r"(?:^|[}\s,])(?::root|\[data-theme[^\]]*\])\s*\{[^}]*--[a-zA-Z0-9_-]+\s*:", css_blob, re.S))
-        decls = list(_iter_declarations(non_token_css))
+        all_decls = list(_iter_declarations(css_blob))
+        has_root_tokens = False
         raw_colors = []
         raw_fonts = []
-        for _, prop, v in decls:
-            if prop != "content":
-                scrubbed = QUOTED_STR_RE.sub(" ", URL_FUNC_RE.sub(" ", v))
-                raw_colors.extend(HEX_COLOR_RE.findall(scrubbed))
-                raw_colors.extend(RGB_COLOR_RE.findall(scrubbed))
-            if prop == "font-family" and "var(" not in v and v.lower() not in ("inherit", "initial", "unset"):
-                raw_fonts.append(v)
-        token_ok = has_root_tokens and not raw_colors and not raw_fonts
-        detail_val = "clean" if token_ok else {"has_root_tokens": has_root_tokens, "raw_colors": raw_colors[:5], "raw_fonts": raw_fonts[:5]}
-        checks.append(_chk("css_tokens", token_ok, detail_val, "all colors and fonts via :root custom properties", "declare tokens in :root and reference them with var(--*)"))
-
-        all_decls = list(_iter_declarations(css_blob))
         trans_all = False
         layout_anim = False
         ov_hidden = False
-        for sel, prop, v in all_decls:
+        for sel_stack, prop, v in all_decls:
+            is_root_theme = _is_root_theme_stack(sel_stack)
+            is_font_face = _is_font_face_stack(sel_stack)
+            if prop.startswith("--"):
+                if is_root_theme:
+                    has_root_tokens = True
+                    continue
+            if not is_font_face:
+                if prop != "content":
+                    scrubbed = QUOTED_STR_RE.sub(" ", URL_FUNC_RE.sub(" ", v))
+                    raw_colors.extend(HEX_COLOR_RE.findall(scrubbed))
+                    raw_colors.extend(RGB_COLOR_RE.findall(scrubbed))
+                if prop == "font-family" and "var(" not in v and v.lower() not in ("inherit", "initial", "unset"):
+                    raw_fonts.append(v)
             if prop in ("transition", "transition-property"):
                 ta, lp = _is_bad_transition(prop, v)
                 trans_all = trans_all or ta
                 layout_anim = layout_anim or lp
-            if prop == "overflow-x" and v.lower().split()[0] == "hidden":
-                parts = [p.strip().lower() for p in sel.split(",")]
-                if any(p in ("html", "body") for p in parts):
-                    ov_hidden = True
+            if prop == "overflow-x":
+                ov_clean = re.sub(r"\s*!important\s*$", "", v, flags=re.I).strip().lower()
+                ov_tokens = ov_clean.split()
+                if ov_tokens and ov_tokens[0] == "hidden":
+                    parts = [p.strip().lower() for p in sel_stack[-1].split(",")]
+                    if any(p in ("html", "body") for p in parts):
+                        ov_hidden = True
+
+        token_ok = has_root_tokens and not raw_colors and not raw_fonts
+        detail_val = "clean" if token_ok else {"has_root_tokens": has_root_tokens, "raw_colors": raw_colors[:5], "raw_fonts": raw_fonts[:5]}
+        checks.append(_chk("css_tokens", token_ok, detail_val, "all colors and fonts via :root custom properties", "declare tokens in :root and reference them with var(--*)"))
 
         checks.append(_chk("no_transition_all", not trans_all and not layout_anim, "clean" if (not trans_all and not layout_anim) else {"transition_all": trans_all, "layout_prop": layout_anim}, "no transition:all or width/height/top/left animation", "animate transform/opacity only, never transition: all"))
 
@@ -331,20 +335,39 @@ def _parse_simple_yaml(block):
         indent = len(line) - len(line.lstrip(" "))
         stripped = line.strip()
         if stripped.startswith("- "):
-            # Support both 0-indented (same indent as parent key) and indented block lists
+            # Support both 0-indented (same indent as parent key) and indented block lists (including lists of mappings)
             while len(stack) > 1 and indent < stack[-1][0]:
                 stack.pop()
+            if len(stack) > 1 and not isinstance(stack[-1][1], list) and indent <= stack[-1][0]:
+                # Only pop a non-list item if its container was a previous list-item mapping
+                if stack[-1][2] is None and isinstance(stack[-2][1], list):
+                    stack.pop()
             _, container, k_in_parent = stack[-1]
-            if isinstance(container, dict) and container == {} and len(stack) > 1 and k_in_parent is not None:
+            if (
+                isinstance(container, dict)
+                and container == {}
+                and len(stack) > 1
+                and k_in_parent is not None
+                and isinstance(stack[-2][1], dict)
+            ):
                 lst = []
                 stack[-2][1][k_in_parent] = lst
                 stack[-1] = (stack[-1][0], lst, k_in_parent)
                 container = lst
-            item = stripped[2:].strip().strip("\"'")
-            if item.startswith("section:"):
-                item = item.split(":", 1)[1].strip().strip("\"'")
+            item_raw = stripped[2:].strip()
             if isinstance(container, list):
-                container.append(item)
+                if re.match(r"^[A-Za-z0-9_.-]+\s*:(?:\s|$)", item_raw):
+                    ik, iv = item_raw.split(":", 1)
+                    ik = ik.strip().strip("\"'")
+                    iv = iv.strip().strip("\"'")
+                    entry = {ik: iv} if iv else {ik: {}}
+                    if k_in_parent == "omitted" and ik == "section" and iv:
+                        container.append(iv)
+                    else:
+                        container.append(entry)
+                    stack.append((indent + 1, entry, None))
+                else:
+                    container.append(item_raw.strip("\"'"))
             continue
         while len(stack) > 1 and indent <= stack[-1][0]:
             stack.pop()
@@ -484,16 +507,24 @@ def check_design_md(path):
     base_dir = os.path.realpath(os.path.dirname(os.path.abspath(path)))
     unsafe_ext = []
     for em in EXT_REF_RE.finditer(text):
-        raw_ref = em.group(1).rstrip(".,;:!?")
-        if not raw_ref or raw_ref.lower() in CSS_AT_RULES:
+        base_ref = em.group(1).rstrip(",;:!?")
+        if not base_ref or base_ref.lower() in CSS_AT_RULES:
             continue
-        norm = raw_ref.replace("\\", "/")
-        if norm.startswith("/") or norm.startswith("~") or re.match(r"^[A-Za-z]:", norm) or ".." in norm.split("/"):
-            unsafe_ext.append(raw_ref)
-            continue
-        resolved = os.path.realpath(os.path.join(base_dir, norm))
-        if not (resolved == base_dir or resolved.startswith(base_dir + os.sep)):
-            unsafe_ext.append(raw_ref)
+        cands = [base_ref]
+        stripped_dot = base_ref.rstrip(".")
+        if stripped_dot and stripped_dot != base_ref:
+            cands.append(stripped_dot)
+        for cand in cands:
+            if cand.lower() in CSS_AT_RULES:
+                continue
+            norm = cand.replace("\\", "/")
+            if norm.startswith("/") or norm.startswith("~") or re.match(r"^[A-Za-z]:", norm) or ".." in norm.split("/"):
+                unsafe_ext.append(base_ref)
+                break
+            resolved = os.path.realpath(os.path.join(base_dir, norm))
+            if not (resolved == base_dir or resolved.startswith(base_dir + os.sep)):
+                unsafe_ext.append(base_ref)
+                break
     checks.append(_chk("external_refs_safe", not unsafe_ext, unsafe_ext or "safe", "[]", "external @path references stay inside the DESIGN.md directory"))
 
     ok = all(c["ok"] for c in checks)
@@ -592,7 +623,7 @@ def check_iso_file(path, pre_render=False):
     try:
         with open(path, encoding="utf-8") as f:
             spec = json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return {"ok": False, "checks": [_chk("iso_json_valid", False, str(exc), "valid JSON", "iso spec must be valid JSON")]}
     return check_iso_spec(spec, pre_render=pre_render)
 

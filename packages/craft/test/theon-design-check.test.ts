@@ -154,6 +154,43 @@ button:focus-visible { outline: 2px solid var(--ink); }
     expect(nestedBadIds).toContain('css_tokens');
     expect(nestedBadIds).toContain('safe_overflow');
     expect(nestedBadIds).toContain('no_transition_all');
+
+    // Round-1 #209 highs + mediums:
+    // 1. html[data-theme="dark"], :root[data-theme], minified @media/@layer {:root{--*}} must PASS css_tokens
+    const themeRootOk = join(dir, 'theme-root-ok.html');
+    writeFileSync(
+      themeRootOk,
+      `<!doctype html><html><head><style>
+@layer base{:root[data-theme]{--bg:#fff;--ink:#111}}
+@media(prefers-color-scheme:dark){html[data-theme="dark"]{--bg:#111;--ink:#eee}}
+html, body { overflow-x: clip; background: var(--bg); color: var(--ink); }
+.empty-ov { overflow-x: ; }
+</style></head><body><p>Clean</p></body></html>`,
+    );
+    expect(runPy(['--html', themeRootOk, '--json']).status).toBe(0);
+
+    // 2. .app [data-theme="dark"], nested :root { .card { color:#f00 } }, body{overflow-x:hidden!important}, transition: 200ms ease-out !important, and ⚠️/❤️ must FAIL
+    const r1Bad = join(dir, 'r1-bad.html');
+    writeFileSync(
+      r1Bad,
+      `<!doctype html><html><head><style>
+:root { --bg: #fff; --ink: #111; .card { color: #ff0000; } }
+.app [data-theme="dark"] { color: #00ff00; }
+body{overflow-x:hidden!important}
+button { transition: 200ms ease-out !important; }
+button:focus-visible { outline: 2px solid var(--ink); }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style></head><body><div class="app"><div data-theme="dark"><p>Warn \u26A0\uFE0F \u2764\uFE0F</p><button>Go</button></div></div></body></html>`,
+    );
+    const rR1Bad = runPy(['--html', r1Bad, '--json']);
+    expect(rR1Bad.status).toBe(1);
+    const r1BadIds = JSON.parse(rR1Bad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(r1BadIds).toContain('css_tokens');
+    expect(r1BadIds).toContain('safe_overflow');
+    expect(r1BadIds).toContain('no_transition_all');
+    expect(r1BadIds).toContain('no_slop_patterns');
   });
 
   it('validates DESIGN.md YAML token blocks, unique keys, token refs, and safe @path references', () => {
@@ -297,6 +334,45 @@ Check \`@C:..\\secret\`${process.platform !== 'win32' ? ' and see @secret.' : ''
     const badColorVals = hardOut.checks.find((c: { id: string }) => c.id === 'valid_color_tokens').value;
     expect(badColorVals.some((v: string) => v.includes('notacolor'))).toBe(true);
     expect(badColorVals.some((v: string) => v.includes('#12345'))).toBe(true);
+
+    // Round-1 #209 highs: YAML block lists of mappings must not crash, and @.., @./.., @.\.. must fail external_refs_safe
+    const listMapMd = join(dir, 'LIST-MAP-DESIGN.md');
+    writeFileSync(
+      listMapMd,
+      `---
+name: List Map System
+omitted:
+- section: spacing
+  reason: static
+fonts:
+  - family: Inter
+    weight: 400
+colors:
+  primary: "#1A1C1E"
+---
+`,
+    );
+    const rListMap = runPy(['--design-md', listMapMd, '--json']);
+    expect(rListMap.status, rListMap.stdout).toBe(0);
+
+    const dotTravMd = join(dir, 'DOT-TRAV-DESIGN.md');
+    writeFileSync(
+      dotTravMd,
+      `---
+name: Dot Trav
+colors:
+  primary: "#1A1C1E"
+---
+
+Bad refs: \`@..\`, \`@./..\`, and \`@.\\..\`.
+`,
+    );
+    const rDotTrav = runPy(['--design-md', dotTravMd, '--json']);
+    expect(rDotTrav.status).toBe(1);
+    const dotOut = JSON.parse(rDotTrav.stdout);
+    const dotExt = dotOut.checks.find((c: { id: string }) => c.id === 'external_refs_safe');
+    expect(dotExt.ok).toBe(false);
+    expect(dotExt.value.length).toBe(3);
   });
 
   it('validates isometric mechanical illustration contracts and rejects sparse/unmounted/floating-line specs', () => {
@@ -449,7 +525,9 @@ Check \`@C:..\\secret\`${process.platform !== 'win32' ? ' and see @secret.' : ''
 
     const malformedIso = join(dir, 'iso-malformed.json');
     writeFileSync(malformedIso, '{bad json');
-    for (const badPath of [join(dir, 'does-not-exist.json'), dir, malformedIso]) {
+    const nonUtf8Iso = join(dir, 'iso-nonutf8.json');
+    writeFileSync(nonUtf8Iso, Buffer.from([0xff, 0xfe, 0x00, 0x80]));
+    for (const badPath of [join(dir, 'does-not-exist.json'), dir, malformedIso, nonUtf8Iso]) {
       const rErr = runPy(['--iso', badPath, '--json']);
       expect(rErr.status).toBe(1);
       expect(rErr.stderr).not.toContain('Traceback');
