@@ -40,7 +40,7 @@ references (qualities, not names). Decide what the model is **for**, since that 
 | --- | --- | --- | --- |
 | A 3D print | STL (or GLB) | millimetres, Z up | watertight, one body (or parts on purpose), fits the bed, a base, few overhangs |
 | Viewing, AR, the web | GLB | metres, Y up | silhouette from every side, a sensible triangle budget, PBR materials |
-| A game | GLB | metres, Y up | a hard triangle budget, clean silhouette at small size |
+| A game | GLB | metres, Y up | a hard triangle budget, clean silhouette at small size, unit scale, UV/rig/LOD checks |
 | A render or turntable | GLB or the Blender file | as authored | form and surface under raking light |
 
 Then start the loop with those targets. With Hildegard linked, call `loop_start`:
@@ -168,7 +168,57 @@ Six rounds is the default for a model. If a check still fails at the end, say so
 - **Hollow parts** (resin): drain holes.
 - **Units:** if `units` warns, the model was made in metres or centimetres. Scale it, don't change the target.
 
-## 5. Things that go wrong
+## 5. Multi-part assemblies and game-ready GLB export
+
+When building multi-part assemblies or game assets (Y-up metres), apply these geometric and export invariants before
+shipping and check the exported GLB with `python3 -B <folder>/scripts/check_game_asset.py model.glb`:
+
+- **Half-extent placement math (avoid floating gaps):** a box of full dimensions `[sx, sy, sz]` centered at `[cx, cy, cz]`
+  spans `[cy - sy/2, cy + sy/2]` on Y. To sit flush on floor `y = 0`, set `cy = sy / 2`. To stack part B (height `hB`)
+  flush on top of part A (top at `topA`), set `cy_B = topA + hB / 2`. Never confuse Blender's default `size=2` cube
+  (half-extent `1.0`) with a 1-unit box.
+- **Endpoint-constructed beams and braces:** connect two anchor points directly with `endpoint_a` and `endpoint_b` plus
+  `thickness` instead of guessing Euler rotations. Both endpoints must touch or enter their supporting parts.
+- **Clean game-asset transforms and budgets:** apply all node scales to `[1, 1, 1]` before export (zero negative scale),
+  stay inside triangle and material/draw-call budgets (`--max-triangles`, `--max-materials`), pack `TEXCOORD_0` UVs
+  strictly inside `[0, 1]`, and for rigged meshes limit skinning to at most 4 non-negative weights per vertex summing
+  to `1.0`.
+- **LODs, collision proxies, and Ship/No-Ship gate:** LOD meshes must reduce triangles monotonically while keeping
+  bounding-box IoU `>= 0.85`; collision proxies must have `<=` visual triangles. Re-import the exported GLB into a
+  blank scene (or run `check_game_asset.py`) before issuing a `SHIP` verdict.
+
+Exact JSON assembly spec shape (Y-up metres, clean unit scale):
+
+```json
+{
+  "materials": ["wood"],
+  "parts": [
+    {
+      "name": "base",
+      "kind": "box",
+      "center": [0.0, 0.2, 0.0],
+      "size": [1.0, 0.4, 1.0],
+      "scale": [1.0, 1.0, 1.0],
+      "uv": true
+    },
+    {
+      "name": "brace",
+      "kind": "beam",
+      "endpoint_a": [-0.45, 0.9, 0.0],
+      "endpoint_b": [0.4, 0.1, 0.0],
+      "thickness": 0.1,
+      "scale": [1.0, 1.0, 1.0]
+    }
+  ],
+  "weights": [0.6, 0.3, 0.1, 0.0]
+}
+```
+
+Include `"uv": true` when UVs are required, and `"weights"` (4 non-negative floats summing to `1.0`) when rigged.
+Run `python3 -B <folder>/scripts/check_game_asset.py model.glb --max-triangles 25000 --max-materials 4 --contact-tol 0.02`
+(add `--require-uv`, `--require-rig`, `--lods lod1.glb`, `--collider col.glb` as needed).
+
+## 6. Things that go wrong
 
 - **Front-only modeling.** It looks right in the front view and is a slab from the side. Judge the side and back
   views first; they're where blockouts fail.
@@ -179,8 +229,10 @@ Six rounds is the default for a model. If a check still fails at the end, say so
 - **Booleans that leave slivers.** `debris` and `manifold` catch them; union with manifold3d, or remesh.
 - **Marching cubes upside down.** A mesher can emit faces inside out: `volume` goes negative and the views go magenta.
   `mesh_kit.mesh_sdf` orients them; anything else, flip the faces.
+- **Floating parts or unapplied scale.** Computing box centers without `size / 2` leaves gaps; exporting non-unit
+  scale breaks physics and normals. Run `check_game_asset.py` to catch both.
 
-## 6. Deliver
+## 7. Deliver
 
 The chosen round's file (with Hildegard linked, the link `loop_finish` gives), the sheet, and the build script so the
 user can change it.

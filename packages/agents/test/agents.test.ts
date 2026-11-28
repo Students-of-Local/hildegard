@@ -825,6 +825,7 @@ describe('the skills Hildegard ships', () => {
       expect.arrayContaining([
         'hildegard-craft',
         'hildegard-film',
+        'hildegard-game',
         'hildegard-video-edit',
         'hildegard-motion',
         'hildegard-photo-edit',

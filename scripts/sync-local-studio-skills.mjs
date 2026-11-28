@@ -45,6 +45,7 @@ export const CRAFT = [
   'hildegard-craft',
   'hildegard-design',
   'hildegard-film',
+  'hildegard-game',
   'hildegard-loop',
   'hildegard-motion',
   'hildegard-music',
@@ -247,10 +248,18 @@ export const EDITS = [
   // `find` is the exact source text, and every `python3 scripts/` in it becomes `python3 -B <folder>/scripts/`.
   ...Object.entries({
     'hildegard/references/blog.md': ['python3 scripts/prose_lint.py'],
-    'hildegard-3d/SKILL.md': ['python3 scripts/review_mesh.py'],
+    'hildegard-3d/SKILL.md': [
+      'python3 scripts/review_mesh.py',
+      '`python3 scripts/check_game_asset.py model.glb`',
+      'python3 scripts/check_game_asset.py model.glb --max-triangles',
+    ],
     'hildegard-art/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
     'hildegard-craft/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
     'hildegard-film/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
+    'hildegard-game/SKILL.md': [
+      '`python3 scripts/check_game.py spec.json`',
+      '   python3 scripts/check_game.py spec.json',
+    ],
     'hildegard-loop/SKILL.md': [
       'python3 scripts/review_mesh.py',
       'python3 scripts/review_media.py',
@@ -307,6 +316,9 @@ export const EDITS = [
       'python3 scripts/clean_voice.py',
       'python3 scripts/duck_mix.py',
       'python3 scripts/spot.py',
+      '`python3 scripts/spatial_mix.py spec.json out.wav`',
+      'python3 scripts/spatial_mix.py spec.json out.wav --json',
+      'python3 scripts/spatial_mix.py --check out.wav --spec spec.json',
       'python3 scripts/measure.py out.wav',
       'python3 scripts/measure.py final.wav',
     ],
@@ -397,6 +409,10 @@ export const FIRST = {
   ],
   'hildegard-motion': [
     'First pick the closest template in `<folder>/templates/` (the table below), copy it into your working folder (`cp <folder>/templates/promo.json promo.json`), change the copy, and run `python3 -B <folder>/scripts/motion.py promo.json --check` until it prints `result: clean`. Where this skill says `<skill>`, that is `<folder>`. If numpy or Pillow is missing, or neither ffmpeg nor PyAV is there, give the person the install line below and install nothing yourself.',
+    folder,
+  ],
+  'hildegard-game': [
+    'First write `spec.json` in your working folder for the subsystems in the brief and run `python3 -B <folder>/scripts/check_game.py spec.json` until every line prints OK. Use local assets only, then inspect the running build on a real GPU in headless Chromium before delivering.',
     folder,
   ],
 };
