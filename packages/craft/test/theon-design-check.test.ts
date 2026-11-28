@@ -798,4 +798,804 @@ omitted:
       expect(JSON.parse(rErr.stdout).ok).toBe(false);
     }
   });
+
+  it('validates vector logo SVGs (--logo) for viewBox, security, outlined text, clearspace, 16px legibility, flat monochrome, and WCAG contrast', () => {
+    // 1. Clean light-surface evenodd mark + benign <title>/<desc> must PASS
+    const goodLight = join(dir, 'logo-light.svg');
+    writeFileSync(
+      goodLight,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <title>Hearth</title>
+  <desc>Clean geometric brand mark</desc>
+  <path fill="#1A1C1E" fill-rule="evenodd" d="M 16 16 H 84 V 84 H 16 Z M 34 34 H 66 V 66 H 34 Z"/>
+  <rect x="42" y="42" width="16" height="16" fill="#B8422E"/>
+</svg>`,
+    );
+    expect(runPy(['--logo', goodLight, '--surface', '#FFFFFF', '--json']).status).toBe(0);
+    expect(runPy(['--logo', goodLight, '--json']).status).toBe(0);
+
+    // 2. Clean dark-surface inverse mark + universal currentColor mark must PASS
+    const goodDark = join(dir, 'logo-dark.svg');
+    writeFileSync(
+      goodDark,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="12" y="12" width="40" height="40" fill="#F6F1E7"/>
+  <circle cx="32" cy="32" r="10" fill="#F2B84B"/>
+</svg>`,
+    );
+    expect(runPy(['--logo', goodDark, '--surface', '#111111', '--json']).status).toBe(0);
+    expect(runPy(['--logo', goodDark, '--surface', '#FFFFFF', '--json']).status).toBe(1);
+
+    const goodMono = join(dir, 'logo-mono.svg');
+    writeFileSync(
+      goodMono,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <polygon points="32,10 54,52 10,52" fill="currentColor"/>
+</svg>`,
+    );
+    expect(runPy(['--logo', goodMono, '--surface', '#FFFFFF', '--json']).status).toBe(0);
+    expect(runPy(['--logo', goodMono, '--surface', '#111111', '--json']).status).toBe(0);
+
+    // 3. Live <text> rejected by default, allowed with --allow-draft-text
+    const draftSvg = join(dir, 'logo-draft.svg');
+    writeFileSync(
+      draftSvg,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <rect x="16" y="16" width="48" height="48" fill="#1A1C1E"/>
+  <text x="80" y="50" fill="#1A1C1E">HEARTH</text>
+</svg>`,
+    );
+    const rDraftFail = runPy(['--logo', draftSvg, '--json']);
+    expect(rDraftFail.status).toBe(1);
+    expect(
+      JSON.parse(rDraftFail.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('logo_outlined_text');
+    expect(runPy(['--logo', draftSvg, '--allow-draft-text', '--json']).status).toBe(0);
+
+    // 4. Fake white-fill cutout hack (#1A1C1E + #FFFFFF) must FAIL logo_contrast on both light and dark
+    const fakeCutout = join(dir, 'logo-fake-cutout.svg');
+    writeFileSync(
+      fakeCutout,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <circle cx="50" cy="50" r="34" fill="#1A1C1E"/>
+  <circle cx="50" cy="50" r="14" fill="#FFFFFF"/>
+</svg>`,
+    );
+    const rCut = runPy(['--logo', fakeCutout, '--json']);
+    expect(rCut.status).toBe(1);
+    expect(
+      JSON.parse(rCut.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('logo_contrast');
+
+    // 5. Security, aspect mismatch, hairline stroke, edge clip, gradient/filter, >3 inks, and >64 shapes must FAIL
+    const badSvg = join(dir, 'logo-bad.svg');
+    const manyRects = Array.from(
+      { length: 65 },
+      (_, i) => `<rect x="20" y="${20 + (i % 5)}" width="10" height="10" fill="#1A1C1E"/>`,
+    ).join('');
+    writeFileSync(
+      badSvg,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="100" onload="alert(1)">
+  <defs><linearGradient id="g"/><filter id="f"><feGaussianBlur stdDeviation="2"/></filter></defs>
+  <script>alert(1)</script>
+  <image href="https://example.com/x.png" width="20" height="20"/>
+  <rect x="0" y="0" width="100" height="100" fill="url(#g)" filter="url(#f)" stroke="#111111" stroke-width="1"/>
+  <circle cx="30" cy="30" r="10" fill="#B8422E"/>
+  <circle cx="50" cy="50" r="10" fill="#14532D"/>
+  <circle cx="70" cy="70" r="10" fill="#1E3A8A"/>
+  ${manyRects}
+</svg>`,
+    );
+    const rBad = runPy(['--logo', badSvg, '--json']);
+    expect(rBad.status).toBe(1);
+    const badIds = JSON.parse(rBad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(badIds).toContain('logo_viewbox');
+    expect(badIds).toContain('logo_self_contained');
+    expect(badIds).toContain('logo_complexity');
+    expect(badIds).toContain('logo_micro_legibility');
+    expect(badIds).toContain('logo_clearspace');
+    expect(badIds).toContain('logo_monochrome_safe');
+    expect(badIds).toContain('logo_palette_restraint');
+
+    // 6. XML entity bomb, malformed XML, non-UTF-8, missing file, and directory must emit clean JSON without traceback
+    const xxeSvg = join(dir, 'logo-xxe.svg');
+    writeFileSync(xxeSvg, '<!DOCTYPE svg [<!ENTITY x "boom">]><svg viewBox="0 0 10 10"/>');
+    const badXml = join(dir, 'logo-malformed.svg');
+    writeFileSync(badXml, '<svg><unclosed></svg>');
+    const nonUtf8 = join(dir, 'logo-nonutf8.svg');
+    writeFileSync(nonUtf8, Buffer.from([0xff, 0xfe, 0x00]));
+    for (const p of [xxeSvg, badXml, nonUtf8, join(dir, 'missing-logo.svg'), dir]) {
+      const rErr = runPy(['--logo', p, '--json']);
+      expect(rErr.status).toBe(1);
+      expect(rErr.stderr).not.toContain('Traceback');
+      expect(JSON.parse(rErr.stdout).ok).toBe(false);
+    }
+  });
+
+  it('enforces strict flattened-logo contract, accurate SVG path/curve/transform geometry, paints, lengths, namespace, and pure wordmark drafts', () => {
+    const failedIds = (svgText: string, extraArgs: string[] = [], name = 'case.svg') => {
+      const p = join(dir, name);
+      writeFileSync(p, svgText);
+      const r = runPy(['--logo', p, ...extraArgs, '--json']);
+      const parsed = JSON.parse(r.stdout);
+      const bad = parsed.checks.filter((c: { ok: boolean }) => !c.ok).map((c: { id: string }) => c.id);
+      return { status: r.status, ok: parsed.ok, bad, checks: parsed.checks, stdout: r.stdout };
+    };
+
+    // 1. Compact svgo arc flags & compact numbers PASS; malformed/truncated/unknown/bad-flag paths FAIL; implicit repeated commands > 400 FAIL
+    const compactArcOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <path fill="#1A1C1E" d="M50 15a30 30 0 01-20 40A30 30 0 0180 80l-10-10 .5.5 1e-3 0Z"/>
+</svg>`,
+      [],
+      'logo-compact-arc.svg',
+    );
+    expect(compactArcOk.status, compactArcOk.stdout).toBe(0);
+
+    for (const [label, d] of [
+      ['truncated-L', 'M 20 20 L 40'],
+      ['unknown-cmd', 'M 20 20 X 40 40'],
+      ['bad-arc-flag', 'M 20 20 A 30 30 0 2 1 80 80'],
+      ['no-moveto', 'L 20 20 80 80'],
+      ['trailing-after-z', 'M 20 20 L 80 80 Z 40 40'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#1A1C1E" d="${d}"/></svg>`,
+        [],
+        `logo-bad-path-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_geometry');
+    }
+
+    const manyImplicit = Array.from(
+      { length: 405 },
+      (_, i) => `${20 + (i % 50)} ${20 + ((i * 3) % 50)}`,
+    ).join(' ');
+    const rImplicit = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#1A1C1E" d="M 20 20 L ${manyImplicit} Z"/></svg>`,
+      [],
+      'logo-implicit-405.svg',
+    );
+    expect(rImplicit.status).toBe(1);
+    expect(rImplicit.bad).toContain('logo_complexity');
+
+    // 2. <line> must NEVER inherit default black fill; light stroke on dark surface PASSES
+    const lineDark = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <line x1="20" y1="50" x2="80" y2="50" stroke="#F6F1E7" stroke-width="8"/>
+</svg>`,
+      ['--surface', '#111111'],
+      'logo-line-dark.svg',
+    );
+    expect(lineDark.status, lineDark.stdout).toBe(0);
+
+    // 3. Paints: rgba white cutout fails contrast; translucent rgba/#rrggbbaa/hsla fails monochrome; opaque hsl/#rrggbbaa/CSS named passes; unparsed paint fails
+    const rgbaCutout = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="34" fill="#1A1C1E"/>
+  <circle cx="50" cy="50" r="14" fill="rgba(255, 255, 255, 1)"/>
+</svg>`,
+      ['--surface', '#FFFFFF'],
+      'logo-rgba-cutout.svg',
+    );
+    expect(rgbaCutout.status).toBe(1);
+    expect(rgbaCutout.bad).toContain('logo_contrast');
+
+    for (const [label, paint] of [
+      ['rgba-half', 'rgba(26, 28, 30, 0.5)'],
+      ['hex8-half', '#1A1C1E80'],
+      ['hex4-half', '#1118'],
+      ['hsla-half', 'hsla(210, 8%, 11%, 0.5)'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="${paint}"/></svg>`,
+        [],
+        `logo-trans-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_monochrome_safe');
+    }
+
+    const richColorsOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="16" y="16" width="30" height="30" fill="hsl(210, 10%, 12%)"/>
+  <rect x="54" y="16" width="30" height="30" fill="#B8422EFF"/>
+  <rect x="35" y="54" width="30" height="30" fill="midnightblue" stroke="rgba(255,255,255,0)"/>
+</svg>`,
+      ['--surface', '#FFFFFF'],
+      'logo-rich-colors-ok.svg',
+    );
+    expect(richColorsOk.status, richColorsOk.stdout).toBe(0);
+
+    for (const [label, paint] of [
+      ['inherit', 'inherit'],
+      ['context-fill', 'context-fill'],
+      ['bogus', 'not-a-color'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="20" y="20" width="60" height="60" fill="#1A1C1E" stroke="${paint}" stroke-width="6"/>
+</svg>`,
+        [],
+        `logo-unparsed-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_palette_restraint');
+    }
+
+    // 4. Strict flattened-logo contract & security: <style>, <use>, nested <svg>, SMIL, <?xml-stylesheet?>, data: URI, style url(), and opacity/fill-opacity/stroke-opacity < 1
+    for (const [label, body, expectedCheck] of [
+      [
+        'style-tag',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><style>.a{fill:#111}</style><rect class="a" x="20" y="20" width="60" height="60" fill="#111"/></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'use-tag',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><rect id="r" x="20" y="20" width="60" height="60"/></defs><use href="#r" fill="#111"/><rect x="20" y="20" width="60" height="60" fill="#111"/></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'nested-svg',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><svg x="10" y="10" width="80" height="80"><rect x="10" y="10" width="60" height="60" fill="#111"/></svg></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'smil-animate',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#111"><animate attributeName="x" from="20" to="30" dur="1s"/></rect></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'smil-set',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#111"><set attributeName="fill" to="#000"/></rect></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'xml-stylesheet',
+        `<?xml-stylesheet type="text/css" href="evil.css"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#111"/></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'data-uri-xlink',
+        `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100"><a xlink:href="data:image/svg+xml;base64,PHN2Zy8+"><rect x="20" y="20" width="60" height="60" fill="#111"/></a></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'style-url-data',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#111" style="background:url(data:image/png;base64,AA==)"/></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'style-url-local',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#111" style="clip-path:url(#c)"/></svg>`,
+        'logo_self_contained',
+      ],
+      [
+        'el-opacity',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#111" opacity="0.8"/></svg>`,
+        'logo_monochrome_safe',
+      ],
+      [
+        'group-opacity',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g opacity="0.5"><rect x="20" y="20" width="60" height="60" fill="#111"/></g></svg>`,
+        'logo_monochrome_safe',
+      ],
+      [
+        'fill-opacity',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#111" fill-opacity="0.6"/></svg>`,
+        'logo_monochrome_safe',
+      ],
+      [
+        'stroke-opacity',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><line x1="20" y1="50" x2="80" y2="50" stroke="#111" stroke-width="8" stroke-opacity="0.5"/></svg>`,
+        'logo_monochrome_safe',
+      ],
+    ] as const) {
+      const r = failedIds(body, [], `logo-flat-${label}.svg`);
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain(expectedCheck);
+    }
+
+    // 5. True Bezier & arc bounding boxes (control points outside 4% while curve stays inside PASS; reflected S/T and curve crossing margin FAIL)
+    const cubicControlOutCurveIn = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path fill="#1A1C1E" d="M 20 50 C 20 0 80 0 80 50 L 80 80 L 20 80 Z"/>
+</svg>`,
+      [],
+      'logo-cubic-in.svg',
+    );
+    expect(cubicControlOutCurveIn.status, cubicControlOutCurveIn.stdout).toBe(0);
+
+    const quadControlOutCurveIn = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path fill="#1A1C1E" d="M 20 50 Q 50 -20 80 50 L 80 80 L 20 80 Z"/>
+</svg>`,
+      [],
+      'logo-quad-in.svg',
+    );
+    expect(quadControlOutCurveIn.status, quadControlOutCurveIn.stdout).toBe(0);
+
+    const smoothTReflectOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path fill="none" stroke="#1A1C1E" stroke-width="6" d="M 15 50 Q 32.5 10 50 50 T 85 50"/>
+</svg>`,
+      [],
+      'logo-smooth-t-ok.svg',
+    );
+    expect(smoothTReflectOk.status, smoothTReflectOk.stdout).toBe(0);
+
+    const smoothTReflectOut = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path fill="none" stroke="#1A1C1E" stroke-width="6" d="M 15 50 Q 32.5 -50 50 50 T 85 50"/>
+</svg>`,
+      [],
+      'logo-smooth-t-out.svg',
+    );
+    expect(smoothTReflectOut.status).toBe(1);
+    expect(smoothTReflectOut.bad).toContain('logo_clearspace');
+
+    const smoothSReflectOut = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path fill="none" stroke="#1A1C1E" stroke-width="6" d="M 15 50 C 25 20 40 -20 50 50 S 75 110 85 50"/>
+</svg>`,
+      [],
+      'logo-smooth-s-out.svg',
+    );
+    expect(smoothSReflectOut.status).toBe(1);
+    expect(smoothSReflectOut.bad).toContain('logo_clearspace');
+
+    const arcBulgeOut = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path fill="#1A1C1E" d="M 30 30 A 45 45 0 1 1 70 30 Z"/>
+</svg>`,
+      [],
+      'logo-arc-bulge-out.svg',
+    );
+    expect(arcBulgeOut.status).toBe(1);
+    expect(arcBulgeOut.bad).toContain('logo_clearspace');
+
+    // 6. Full 2D affine transforms (matrix, skewX, skewY, rotate) & exact rotated circle/ellipse/rect bboxes
+    const rotatedCircleOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="40" fill="#1A1C1E" transform="rotate(45 50 50)"/>
+</svg>`,
+      [],
+      'logo-rot-circle-ok.svg',
+    );
+    expect(rotatedCircleOk.status, rotatedCircleOk.stdout).toBe(0);
+
+    const rotatedEllipseOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <ellipse cx="50" cy="50" rx="40" ry="15" fill="#1A1C1E" transform="rotate(90 50 50)"/>
+</svg>`,
+      [],
+      'logo-rot-ellipse-ok.svg',
+    );
+    expect(rotatedEllipseOk.status, rotatedEllipseOk.stdout).toBe(0);
+
+    const rotatedEllipseOut = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <ellipse cx="50" cy="50" rx="48" ry="15" fill="#1A1C1E" transform="rotate(90 50 50)"/>
+</svg>`,
+      [],
+      'logo-rot-ellipse-out.svg',
+    );
+    expect(rotatedEllipseOut.status).toBe(1);
+    expect(rotatedEllipseOut.bad).toContain('logo_clearspace');
+
+    const rotatedRectOut = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="10" y="10" width="80" height="80" fill="#1A1C1E" transform="rotate(45 50 50)"/>
+</svg>`,
+      [],
+      'logo-rot-rect-out.svg',
+    );
+    expect(rotatedRectOut.status).toBe(1);
+    expect(rotatedRectOut.bad).toContain('logo_clearspace');
+
+    const matrixSkewOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="matrix(1 0 0 1 10 10) skewX(5) skewY(5)">
+    <rect x="20" y="20" width="35" height="35" fill="#1A1C1E"/>
+  </g>
+</svg>`,
+      [],
+      'logo-matrix-skew-ok.svg',
+    );
+    expect(matrixSkewOk.status, matrixSkewOk.stdout).toBe(0);
+
+    const matrixSkewOut = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="20" y="20" width="60" height="60" fill="#1A1C1E" transform="skewX(45)"/>
+</svg>`,
+      [],
+      'logo-skew-out.svg',
+    );
+    expect(matrixSkewOut.status).toBe(1);
+    expect(matrixSkewOut.bad).toContain('logo_clearspace');
+
+    const badTransform = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="20" y="20" width="60" height="60" fill="#1A1C1E" transform="bogus(10)"/>
+</svg>`,
+      [],
+      'logo-bad-transform.svg',
+    );
+    expect(badTransform.status).toBe(1);
+    expect(badTransform.bad).toContain('logo_geometry');
+
+    // 7. Strict SVG namespace: missing or wrong xmlns must fail logo_svg_valid
+    for (const [label, rootTag] of [
+      ['missing-xmlns', '<svg viewBox="0 0 100 100">'],
+      ['wrong-xmlns', '<svg xmlns="http://example.com/svg" viewBox="0 0 100 100">'],
+    ] as const) {
+      const r = failedIds(
+        `${rootTag}<rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+        [],
+        `logo-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_svg_valid');
+    }
+
+    // 8. Percent and mm/pt lengths parsed cleanly (not coerced to 0); unparseable non-empty length fails logo_geometry
+    const unitsOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm">
+  <rect x="20%" y="20%" width="60%" height="60%" fill="#1A1C1E"/>
+  <circle cx="50%" cy="50%" r="10pt" fill="#B8422E"/>
+</svg>`,
+      ['--surface', '#FFFFFF'],
+      'logo-units-ok.svg',
+    );
+    expect(unitsOk.status, unitsOk.stdout).toBe(0);
+
+    const mmRectOk = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="5mm" y="5mm" width="15mm" height="15mm" fill="#1A1C1E"/>
+</svg>`,
+      [],
+      'logo-mm-ok.svg',
+    );
+    expect(mmRectOk.status, mmRectOk.stdout).toBe(0);
+
+    const badLen = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect x="20" y="20" width="bogus" height="40" fill="#1A1C1E"/>
+</svg>`,
+      [],
+      'logo-bad-len.svg',
+    );
+    expect(badLen.status).toBe(1);
+    expect(badLen.bad).toContain('logo_geometry');
+
+    // 9. --allow-draft-text pure <text> wordmark passes with flag and fails without flag
+    const pureWordmarkSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" text-anchor="middle" font-size="28" fill="#1A1C1E">HEARTH</text>
+</svg>`;
+    const rPureFail = failedIds(pureWordmarkSvg, [], 'logo-pure-wordmark.svg');
+    expect(rPureFail.status).toBe(1);
+    expect(rPureFail.bad).toContain('logo_outlined_text');
+    expect(rPureFail.bad).toContain('logo_complexity');
+
+    const rPureDraftOk = failedIds(pureWordmarkSvg, ['--allow-draft-text'], 'logo-pure-wordmark.svg');
+    expect(rPureDraftOk.status, rPureDraftOk.stdout).toBe(0);
+
+    // 10. viewBox with px units rejected; width="0" with no height rejected
+    for (const [label, attrs] of [
+      ['vb-units', 'viewBox="0 0 100px 100px"'],
+      ['width-zero-only', 'viewBox="0 0 100 100" width="0"'],
+      ['height-neg-only', 'viewBox="0 0 100 100" height="-10"'],
+      ['width-unparseable', 'viewBox="0 0 100 100" width="auto"'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" ${attrs}><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+        [],
+        `logo-vb-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_viewbox');
+    }
+  }, 60_000);
+
+  it('enforces strict SVG tag/namespace/attribute allowlist and round-2 logo hardening regressions', () => {
+    const failedIds = (svgText: string, extraArgs: string[] = [], name = 'r2-case.svg') => {
+      const p = join(dir, name);
+      writeFileSync(p, svgText);
+      const r = runPy(['--logo', p, ...extraArgs, '--json']);
+      const parsed = JSON.parse(r.stdout);
+      const bad = parsed.checks.filter((c: { ok: boolean }) => !c.ok).map((c: { id: string }) => c.id);
+      return { status: r.status, ok: parsed.ok, bad, checks: parsed.checks, stdout: r.stdout };
+    };
+
+    // HIGH #1: URL-bearing presentation/reference attrs & disallowed container tags (<defs>/<clipPath>)
+    for (const [label, attr] of [
+      ['clip-path-url', 'clip-path="url(https://evil.example/a#c)"'],
+      ['mask-url', 'mask="url(https://evil.example/a#m)"'],
+      ['filter-url', 'filter="url(https://evil.example/a#f)"'],
+      ['marker-start-url', 'marker-start="url(https://evil.example/a#mk)"'],
+      ['cursor-url', 'cursor="url(https://evil.example/a.cur), auto"'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" ${attr}/></svg>`,
+        [],
+        `logo-r2-h1-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+    const defsClipRejected = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><clipPath id="c"><rect x="10" y="10" width="80" height="80"/></clipPath></defs><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-defs-clip.svg',
+    );
+    expect(defsClipRejected.status).toBe(1);
+    expect(defsClipRejected.bad).toContain('logo_self_contained');
+
+    // HIGH #2 + MEDIUM #13: Entity-obfuscated URI schemes & <a> links (javascript, https, mailto, blob)
+    for (const [label, body] of [
+      [
+        'href-tab-js',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="java&#x09;script:alert(1)"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+      [
+        'href-lf-https',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="h&#x0a;ttps://evil.example/x"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+      [
+        'a-mailto',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="mailto:x@y.com"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+      [
+        'a-blob',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="blob:https://example.com/1234"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+    ] as const) {
+      const r = failedIds(body, [], `logo-r2-h2-${label}.svg`);
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+
+    // HIGH #3: ANY inline style attribute rejected (CSS escapes, inline transform, CSS comments)
+    for (const [label, styleVal] of [
+      ['css-escape-url', '\\75rl(https://evil.example/x)'],
+      ['css-escape-fill', 'fi\\6cl: #FFF'],
+      ['css-escape-opacity', 'op\\61city: 0.3'],
+      ['inline-transform', 'transform: scale(0.1)'],
+      ['css-comment-opacity', '/* c */ opacity: 0.3'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" style="${styleVal}"/></svg>`,
+        [],
+        `logo-r2-h3-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+
+    // HIGH #4: Hairline filled paths & scaled filled paths fail logo_micro_legibility
+    const hairlineBar = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#1A1C1E" d="M 10 10 H 90 V 11 H 10 Z"/></svg>`,
+      [],
+      'logo-r2-h4-bar.svg',
+    );
+    expect(hairlineBar.status).toBe(1);
+    expect(hairlineBar.bad).toContain('logo_micro_legibility');
+
+    const scaledTinyPath = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#1A1C1E" transform="translate(50 50) scale(0.01)" d="M -30 -30 H 30 V 30 H -30 Z"/></svg>`,
+      [],
+      'logo-r2-h4-scaled.svg',
+    );
+    expect(scaledTinyPath.status).toBe(1);
+    expect(scaledTinyPath.bad).toContain('logo_micro_legibility');
+
+    const hairlinePoly = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon fill="#1A1C1E" points="10,10 90,10 90,11 10,11"/></svg>`,
+      [],
+      'logo-r2-h4-poly.svg',
+    );
+    expect(hairlinePoly.status).toBe(1);
+    expect(hairlinePoly.bad).toContain('logo_micro_legibility');
+
+    // MEDIUM #6: Inherited color property with currentColor
+    for (const [label, body] of [
+      [
+        'svg-color-white',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" color="#FFFFFF"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></svg>`,
+      ],
+      [
+        'g-color-white',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g color="#FFFFFF"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></g></svg>`,
+      ],
+    ] as const) {
+      const r = failedIds(body, ['--surface', '#FFFFFF'], `logo-r2-m6-${label}.svg`);
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_contrast');
+    }
+    const plainCurrentColor = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></svg>`,
+      ['--surface', '#FFFFFF'],
+      'logo-r2-m6-plain.svg',
+    );
+    expect(plainCurrentColor.status, plainCurrentColor.stdout).toBe(0);
+
+    const badColorNone = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" color="none"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m6-color-none.svg',
+    );
+    expect(badColorNone.status).toBe(1);
+    expect(badColorNone.bad).toContain('logo_palette_restraint');
+
+    // MEDIUM #7: <tspan> inspected under --allow-draft-text, and <textPath> rejected outright
+    const tspanWhite = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" text-anchor="middle" font-size="28" fill="#1A1C1E">HEA<tspan fill="#FFFFFF">RTH</tspan></text>
+</svg>`,
+      ['--allow-draft-text', '--surface', '#FFFFFF'],
+      'logo-r2-m7-tspan-white.svg',
+    );
+    expect(tspanWhite.status).toBe(1);
+    expect(tspanWhite.bad).toContain('logo_contrast');
+
+    const tspanTranslucent = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" text-anchor="middle" font-size="28" fill="#1A1C1E">HEA<tspan opacity="0.5">RTH</tspan></text>
+</svg>`,
+      ['--allow-draft-text', '--surface', '#FFFFFF'],
+      'logo-r2-m7-tspan-op.svg',
+    );
+    expect(tspanTranslucent.status).toBe(1);
+    expect(tspanTranslucent.bad).toContain('logo_monochrome_safe');
+
+    const tspanValid = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" text-anchor="middle" font-size="28" fill="#1A1C1E">HEA<tspan fill="#B8422E">RTH</tspan></text>
+</svg>`,
+      ['--allow-draft-text', '--surface', '#FFFFFF'],
+      'logo-r2-m7-tspan-ok.svg',
+    );
+    expect(tspanValid.status, tspanValid.stdout).toBe(0);
+
+    const textPathRejected = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" font-size="24" fill="#1A1C1E"><textPath>HEARTH</textPath></text>
+</svg>`,
+      ['--allow-draft-text'],
+      'logo-r2-m7-textpath.svg',
+    );
+    expect(textPathRejected.status).toBe(1);
+    expect(textPathRejected.bad).toContain('logo_self_contained');
+
+    // MEDIUM #8: Unrounded WCAG contrast comparison (#959595 on #FFFFFF is ~2.995 < 3.0)
+    const borderlineContrast = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#959595"/></svg>`,
+      ['--surface', '#FFFFFF'],
+      'logo-r2-m8-959595.svg',
+    );
+    expect(borderlineContrast.status).toBe(1);
+    expect(borderlineContrast.bad).toContain('logo_contrast');
+
+    // MEDIUM #10 & round-4 HIGH #1: Non-SVG namespace child and ANY <metadata> (plain or carrying XHTML <img>) rejected
+    const foreignNsChild = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><xhtml:div xmlns:xhtml="http://www.w3.org/1999/xhtml"/><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m10-xhtml.svg',
+    );
+    expect(foreignNsChild.status).toBe(1);
+    expect(foreignNsChild.bad).toContain('logo_self_contained');
+
+    const evilMetadata = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata><script>alert(1)</script></metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m10-meta-script.svg',
+    );
+    expect(evilMetadata.status).toBe(1);
+    expect(evilMetadata.bad).toContain('logo_self_contained');
+
+    const evilMetadataUri = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata><dc:link xmlns:dc="http://purl.org/dc/elements/1.1/" ref="h&#x0a;ttps://evil.example/x"/></metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m10-meta-uri.svg',
+    );
+    expect(evilMetadataUri.status).toBe(1);
+    expect(evilMetadataUri.bad).toContain('logo_self_contained');
+
+    const evilMetadataXhtmlImg = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata><img xmlns="http://www.w3.org/1999/xhtml" srcset="//evil.example/t.png 1x"/></metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r4-meta-xhtml-img.svg',
+    );
+    expect(evilMetadataXhtmlImg.status).toBe(1);
+    expect(evilMetadataXhtmlImg.bad).toContain('logo_self_contained');
+
+    const plainMetadata = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata>Hearth Brand</metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r4-meta-plain.svg',
+    );
+    expect(plainMetadata.status).toBe(1);
+    expect(plainMetadata.bad).toContain('logo_self_contained');
+
+    // MEDIUM #11 & #12: display="none", visibility="hidden", mix-blend-mode="multiply" rejected
+    for (const [label, attr] of [
+      ['display-none', 'display="none"'],
+      ['visibility-hidden', 'visibility="hidden"'],
+      ['mix-blend-mode', 'mix-blend-mode="multiply"'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" ${attr}/></svg>`,
+        [],
+        `logo-r2-m11-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+
+    // LOW: <polygon> with > 400 vertices fails logo_complexity
+    const polyPts = Array.from({ length: 405 }, (_, i) => {
+      const ang = (i / 405) * Math.PI * 2;
+      const x = (50 + 30 * Math.cos(ang)).toFixed(2);
+      const y = (50 + 30 * Math.sin(ang)).toFixed(2);
+      return `${x},${y}`;
+    }).join(' ');
+    const densePoly = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="${polyPts}" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-low-poly-405.svg',
+    );
+    expect(densePoly.status).toBe(1);
+    expect(densePoly.bad).toContain('logo_complexity');
+
+    // Round-4 MEDIUM #2: 2-line stacked wordmark passes --allow-draft-text clearspace
+    const stackedWordmark = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <text x="50" y="42" text-anchor="middle" font-size="14" fill="#1A1C1E"><tspan x="50" dy="0">NORTH</tspan><tspan x="50" dy="18">FORGE</tspan></text>
+</svg>`,
+      ['--allow-draft-text'],
+      'logo-r4-stacked-wordmark.svg',
+    );
+    expect(stackedWordmark.status, stackedWordmark.stdout).toBe(0);
+
+    // Round-4 LOW #3: Non-finite length overflow fails logo_viewbox; non-finite transform composition fails logo_geometry
+    const overflowWidth = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1e308in" height="100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r4-overflow-width.svg',
+    );
+    expect(overflowWidth.status).toBe(1);
+    expect(overflowWidth.bad).toContain('logo_viewbox');
+
+    const overflowTransform = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" transform="scale(1e200) scale(1e200)"/></svg>`,
+      [],
+      'logo-r4-overflow-transform.svg',
+    );
+    expect(overflowTransform.status).toBe(1);
+    expect(overflowTransform.bad).toContain('logo_geometry');
+
+    // Round-4 LOW #4: Tiny draft <text> font-size or scaled-down draft <text> fails logo_micro_legibility under --allow-draft-text
+    const tinyFontDraft = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="50" y="50" text-anchor="middle" font-size="1" fill="#1A1C1E">HI</text></svg>`,
+      ['--allow-draft-text'],
+      'logo-r4-tiny-font.svg',
+    );
+    expect(tinyFontDraft.status).toBe(1);
+    expect(tinyFontDraft.bad).toContain('logo_micro_legibility');
+
+    const scaledDownDraft = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="50" y="50" text-anchor="middle" transform="scale(0.01)" font-size="16" fill="#1A1C1E">HI</text></svg>`,
+      ['--allow-draft-text'],
+      'logo-r4-scaled-text.svg',
+    );
+    expect(scaledDownDraft.status).toBe(1);
+    expect(scaledDownDraft.bad).toContain('logo_micro_legibility');
+  }, 60_000);
 });

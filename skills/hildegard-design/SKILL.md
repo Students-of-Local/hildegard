@@ -156,3 +156,43 @@ components:
     bg: "{colors.primary}"
 ```
 ````
+
+
+## Vector logos, brand marks, and favicon legibility
+
+When asked for a logo, icon mark, monogram, or brand lockup, build clean, flattened, self-contained vector SVG geometry (never raster-wrapped `<image>` tags and never live `<text>` in final delivery) and verify every file mechanically with `python3 scripts/check_design.py --logo logo.svg` (add `--surface "#FFFFFF"` or `--surface "#111111"` for target-surface WCAG contrast, or `--allow-draft-text` only for early draft lockups):
+
+1. **Construct real boolean geometry:** build marks from clean primitives and boolean operations (`skia-pathops` in Python or `paper.js` in JS; `vtracer` only when tracing rough sketches, then simplify). Never fake a hollow cutout by painting a white shape on top of a dark shape (it breaks dark mode); use a single `<path fill-rule="evenodd" d="..."/>` or boolean `difference` so the cutout is truly transparent.
+2. **Outline final wordmarks:** never ship live `<text>` nodes in final delivery logo SVGs (fonts silently substitute on other machines). Convert glyphs to `<path>` outlines (`opentype.js` or `fonttools`) before final signoff; use `--allow-draft-text` only while iterating on draft lockups (including pure wordmark drafts).
+3. **Strict flattened-logo contract, `viewBox`, clearspace, and 16 px micro-legibility:**
+   - Always declare `xmlns="http://www.w3.org/2000/svg"` and an explicit 4-number unitless `viewBox="0 0 W H"` (plus positive `width`/`height` matching the aspect ratio when specified).
+   - **Strict flattened SVG allowlist:** standalone SVG geometry and grouping tags only (`svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polygon`, `polyline`, `title`, `desc`; plus `text`/`tspan` only with `--allow-draft-text`) and direct presentation attributes only (`fill`, `stroke`, `stroke-width`, `transform`, `color`, etc.). Zero `style` attributes, zero `<style>`/`<use>`/`<defs>`/`<clipPath>`/`<mask>`/`<a>`/nested `<svg>`/SMIL/`<script>`/`<image>`/`<foreignObject>`/`<textPath>`/`<metadata>`, zero `href`/`src`/`on*`/`url(...)`/`display`/`visibility`/`mix-blend-mode`, zero `<?xml-stylesheet?>` or external/`data:` URIs, and zero non-SVG elements.
+   - **Transparent canvas only:** NEVER add a background `<rect>` filled with the surface color (`#FFFFFF` or `#111111`). Draw ONLY the mark's own high-contrast ink shapes.
+   - **Hard checker thresholds (`check_design.py --logo`):** `>= 4%` clearspace on all four sides of `viewBox`, strokes and features (including filled path/polygon/polyline widths) `>= min(W, H) / 32` (`>= 0.5 px` at `16 px` favicon), `1..64` shapes, and `<= 400` executed path commands and polygon/polyline vertices.
+   - **Recommended drafting margins:** aim for comfortable breathing room with `10%-15%` clearspace inset (keep every shape inside `15%..85%` of `W` and `H`, never touching `0`, `W`, or `H`) and `>= 8%` stroke width of `min(W, H)`. Remember: if `x` is `16` inside a `64` box, `width` must be `<= 32` (not `48`, because `16 + 48 = 64` hits the edge).
+4. **Flat opaque brand palette and WCAG contrast:**
+   - Use flat opaque fills/strokes only (zero gradients, drop-shadows, blur filters, `opacity` / `fill-opacity` / `stroke-opacity < 1`, or translucent alpha colors `0 < alpha < 1`) so the silhouette reads identically in 1-color monochrome.
+   - Cap brand inks to `1..3` distinct valid CSS colors (`fill="currentColor"` for universal monochrome marks; never unparsed keywords like `inherit`). Every explicit ink must hit `>= 3.0:1` WCAG contrast against the target surface (light `#FFFFFF` or dark `#111111`), set directly via `fill="..."` / `stroke="..."` attributes (never emit the surface color itself as a fill).
+5. **Optimize, raster-QA, and package:** clean output with `svgo` (preserving `viewBox`), raster-check at `16`, `32`, `64`, `256`, and `1024 px` on light, dark, and monochrome (`resvg` or headless Chromium), and deliver primary mark, monochrome inverse, horizontal/stacked lockups, and multi-size favicon/PNG exports (`sharp` / `favicons`).
+
+Minimal clean vector logo patterns (adapt `viewBox`, colors, and geometry to the brief; checker requires `>= 4%` clearspace, drafting targets `10%-15%`):
+
+```xml
+<!-- Solid + evenodd hollow cutout mark (light surface #FFFFFF) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <path fill="#1A1C1E" fill-rule="evenodd" d="M 16 16 H 84 V 84 H 16 Z M 34 34 H 66 V 66 H 34 Z"/>
+  <rect x="42" y="42" width="16" height="16" fill="#B8422E"/>
+</svg>
+```
+
+```xml
+<!-- Universal monochrome currentColor mark (works on light and dark) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <polygon points="32,10 54,52 10,52" fill="currentColor"/>
+</svg>
+```
+
+**Final SVG checklist before outputting (enforced by `check_design.py --logo` plus drafting targets):**
+- **Flattened and transparent:** strict SVG tag/attribute allowlist with direct `fill`/`stroke` presentation attributes only (zero `style` attributes, `<style>`, `<use>`, `<defs>`, `<a>`, nested `<svg>`, SMIL, `display`/`visibility`/`mix-blend-mode`, `opacity < 1`, or `url(...)`/`data:` URIs) and NEVER draw a background `<rect>` filled with the surface color (`#FFFFFF` on light or `#111111` on dark).
+- **Clearspace (hard floor `>= 4%`, drafting target `10%-15%`):** keep every shape inside `15%..85%` of `W` and `H` (e.g. `x = 20%` of `W`, `width = 60%` of `W`), and NEVER let any point, curve extremum, `cx + r`, `x + width`, or `y + height` breach the `4%` margin.
+- **Strokes and cutouts (hard floor `>= min(W, H) / 32`, drafting target `>= 8%`):** use `stroke-width` at least `8%` of `min(W, H)` and keep `cx + r + stroke-width/2` inside `85%` of `W`. For hollow cutouts, use one `<path fill-rule="evenodd" d="..."/>`, never a white overlay shape.
