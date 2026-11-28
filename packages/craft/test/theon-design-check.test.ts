@@ -2074,32 +2074,23 @@ export function CnArrays() {
       .map((f: { line: number }) => f.line);
     expect(m6RawLines).toEqual([6]);
 
-    // MEDIUM #7: data-class, <script> strings, and Vue :class do not trigger fake HTML unknown-class errors; Vue :class template literal triggers require-static-classes
-    const htmlSafety = join(dir, 'wl-r1-m7-safe.vue');
+    // MEDIUM #7: data-class and <script> strings do not trigger fake HTML unknown-class/inline-style errors
+    const htmlSafety = join(dir, 'wl-r1-m7-safe.html');
     writeFileSync(
       htmlSafety,
-      `<template>
-  <div class="card" data-class="foo" :class="active" v-bind:class="selected">Hello</div>
-</template>
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; }
+.card { background: var(--bg); color: var(--ink); }
+</style></head><body>
+  <div class="card" data-class="foo">Hello</div>
 <script>
 var s = 'class="bogus"';
 var bad = 'style="color:#ff0000"';
 </script>
-<style>
-:root { --bg: #fff; --ink: #111; }
-.card { background: var(--bg); color: var(--ink); }
-</style>`,
+</body></html>`,
     );
     const rM7Safe = runPy(['--web-lint', htmlSafety, '--json']);
     expect(rM7Safe.status, rM7Safe.stdout).toBe(0);
-
-    const vueDynClass = join(dir, 'wl-r1-m7-vue-dyn.vue');
-    writeFileSync(vueDynClass, `<template><div :class="\`bg-\${tone}-500\`">Hi</div></template>`);
-    const rM7Dyn = runPy(['--web-lint', vueDynClass, '--json']);
-    expect(rM7Dyn.status).toBe(1);
-    expect(JSON.parse(rM7Dyn.stdout).findings.map((f: { rule: string }) => f.rule)).toContain(
-      'require-static-classes',
-    );
 
     // MEDIUM #8: footer p { font-size: 11px; } must NOT override body { font-size: 16px; }
     const m8Html = join(dir, 'wl-r1-m8-body-prec.html');
@@ -2315,5 +2306,233 @@ h1 { font-size: clamp(24px, 4vw, max(36px, 2.5rem)); }
     );
     expect(l4TypeCheck.ok).toBe(true);
     expect(l4TypeCheck.value).toBe(2.5);
+  }, 60_000);
+
+  it('covers all round-2 --web-lint regression cases (color-mix, TS generic call signatures, slash modifiers, className predicates/object maps, no-preference motion, JSX focus-visible fix, HTML script/comment/prose order, Vue/Svelte drop, Tailwind HTML unknown classes)', () => {
+    // HIGH #1: token-only color-mix passes both --html and --web-lint; raw literal inside color-mix still fails
+    const colorMixOk = join(dir, 'wl-r2-h1-colormix-ok.html');
+    writeFileSync(
+      colorMixOk,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; --accent: #a63d28; }
+body { background: var(--bg); color: var(--ink); }
+.pill { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+</style></head><body><main><span class="pill">OK</span></main></body></html>`,
+    );
+    expect(runPy(['--html', colorMixOk, '--json']).status).toBe(0);
+    expect(runPy(['--web-lint', colorMixOk, '--json']).status).toBe(0);
+
+    const colorMixBad = join(dir, 'wl-r2-h1-colormix-bad.html');
+    writeFileSync(
+      colorMixBad,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; --accent: #a63d28; }
+body { background: var(--bg); color: var(--ink); }
+.pill { background: color-mix(in srgb, #ff0000 50%, transparent); }
+</style></head><body><main><span class="pill">Bad</span></main></body></html>`,
+    );
+    const rMixHtmlBad = runPy(['--html', colorMixBad, '--json']);
+    expect(rMixHtmlBad.status).toBe(1);
+    expect(
+      JSON.parse(rMixHtmlBad.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('css_tokens');
+    const rMixWlBad = runPy(['--web-lint', colorMixBad, '--json']);
+    expect(rMixWlBad.status).toBe(1);
+    expect(JSON.parse(rMixWlBad.stdout).findings.map((f: { rule: string }) => f.rule)).toContain(
+      'no-raw-colors',
+    );
+
+    // HIGH #2: TS generic call-signature type parameters do not desync the lexer or swallow subsequent JSX
+    const genericCallTsx = join(dir, 'wl-r2-h2-generic-call.tsx');
+    writeFileSync(
+      genericCallTsx,
+      `type Id = <T>(x: T) => T;
+type Pair = <T, U>(a: T, b: U) => [T, U];
+type Bounded = <T extends { id: string }>(x: T) => string;
+type Defaulted = <T = string>(x: T) => T;
+type ConstGeneric = <const T>(x: T) => T;
+export function GenericDemo(fn: <T>(x: T) => T) {
+  const cfg = {
+    renderItem: <T>(item: T) => <Button className="bg-red-500">{String(fn(item))}</Button>,
+  };
+  return cfg.renderItem('ok');
+}`,
+    );
+    const rR2H2 = runPy(['--web-lint', genericCallTsx, '--json']);
+    expect(rR2H2.status).toBe(1);
+    const r2h2Out = JSON.parse(rR2H2.stdout);
+    const r2h2Rules = new Set(r2h2Out.findings.map((f: { rule: string }) => f.rule));
+    expect(r2h2Rules).toContain('no-restyle');
+    expect(r2h2Rules).toContain('no-raw-colors');
+    expect(r2h2Rules).not.toContain('web-lint-unparsed');
+    const r2h2Btn = r2h2Out.findings.find(
+      (f: { rule: string; what: string }) => f.rule === 'no-restyle' && f.what.includes('<Button'),
+    );
+    expect(r2h2Btn?.line).toBe(8);
+
+    // MEDIUM #3: Tailwind slash opacity / line-height modifiers are caught
+    const slashModTsx = join(dir, 'wl-r2-m3-slash-mod.tsx');
+    writeFileSync(
+      slashModTsx,
+      `export function SlashMods() {
+  return <div className="bg-[#ff0000]/50 text-[15px]/6 bg-red-500/[0.5]">Hi</div>;
+}`,
+    );
+    const rR2M3 = runPy(['--web-lint', slashModTsx, '--json']);
+    expect(rR2M3.status).toBe(1);
+    const r2m3Out = JSON.parse(rR2M3.stdout);
+    const m3Raw = r2m3Out.findings.filter((f: { rule: string }) => f.rule === 'no-raw-colors');
+    const m3Arb = r2m3Out.findings.filter((f: { rule: string }) => f.rule === 'no-arbitrary-values');
+    expect(m3Raw.length).toBe(2);
+    expect(m3Arb.length).toBe(1);
+
+    // MEDIUM #4: className predicates & clsx/cn object-map values
+    const predOkTsx = join(dir, 'wl-r2-m4-pred-ok.tsx');
+    writeFileSync(
+      predOkTsx,
+      `export function Predicates({ items, isDisabled, isOpen, isPinned }: { items: string[]; isDisabled: () => boolean; isOpen: () => boolean; isPinned: () => boolean }) {
+  return (
+    <div>
+      <Button className={items.includes('border') ? 'flex' : 'grid'}>Act</Button>
+      <span className={clsx('flex', { 'opacity-50': isDisabled() })}>Muted</span>
+      <div className={(isOpen() || isPinned()) && 'mt-4'}>Box</div>
+    </div>
+  );
+}`,
+    );
+    const rR2M4Ok = runPy(['--web-lint', predOkTsx, '--json']);
+    expect(rR2M4Ok.status, rR2M4Ok.stdout).toBe(0);
+
+    const predBadTsx = join(dir, 'wl-r2-m4-pred-bad.tsx');
+    writeFileSync(
+      predBadTsx,
+      `export function PredicatesBad({ isDisabled }: { isDisabled: () => boolean }) {
+  return <span className={clsx('flex', { 'bg-red-500': isDisabled() })}>Bad</span>;
+}`,
+    );
+    const rR2M4Bad = runPy(['--web-lint', predBadTsx, '--json']);
+    expect(rR2M4Bad.status).toBe(1);
+    const r2m4BadRules = new Set(JSON.parse(rR2M4Bad.stdout).findings.map((f: { rule: string }) => f.rule));
+    expect(r2m4BadRules).toContain('no-raw-colors');
+    expect(r2m4BadRules).not.toContain('web-lint-unparsed');
+
+    // MEDIUM #5: motion wrapped inside @media (prefers-reduced-motion: no-preference) passes reduced-motion
+    const noPrefMotionCss = join(dir, 'wl-r2-m5-no-pref.css');
+    writeFileSync(
+      noPrefMotionCss,
+      `:root { --bg: #fff; --ink: #111; }
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .card { transition: transform 180ms ease-out; animation: fadeIn 200ms ease-out; }
+}`,
+    );
+    const rR2M5 = runPy(['--web-lint', noPrefMotionCss, '--json']);
+    expect(rR2M5.status, rR2M5.stdout).toBe(0);
+
+    // HIGH #6: raw <button> in a .tsx file reports a JSX/Tailwind focus-visible utility Fix (not raw CSS)
+    const jsxFocusBad = join(dir, 'wl-r2-h6-jsx-focus.tsx');
+    writeFileSync(
+      jsxFocusBad,
+      `export function RawBtnFix() {
+  return <button type="button">Save</button>;
+}`,
+    );
+    const rR2H6 = runPy(['--web-lint', jsxFocusBad, '--json']);
+    expect(rR2H6.status).toBe(1);
+    const h6Focus = JSON.parse(rR2H6.stdout).findings.find(
+      (f: { rule: string }) => f.rule === 'focus-visible',
+    );
+    expect(h6Focus).toBeTruthy();
+    expect(h6Focus.fix).toContain('focus-visible:');
+    expect(h6Focus.fix).not.toContain('a:focus-visible');
+
+    // MEDIUM #7: <!-- inside <script> does not hide subsequent markup; prose and <pre><code> text do not trigger false findings
+    const scriptCommentBad = join(dir, 'wl-r2-m7-script-comment.html');
+    writeFileSync(
+      scriptCommentBad,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; }
+.ok { color: var(--ink); }
+</style></head><body>
+<script>var marker = '<!--';</script>
+<div class="bogus-after-script" style="color: red">Real violation</div>
+<!-- later real comment -->
+</body></html>`,
+    );
+    const rR2M7Bad = runPy(['--web-lint', scriptCommentBad, '--json']);
+    expect(rR2M7Bad.status).toBe(1);
+    const m7BadRules = new Set(JSON.parse(rR2M7Bad.stdout).findings.map((f: { rule: string }) => f.rule));
+    expect(m7BadRules).toContain('no-unknown-classes');
+    expect(m7BadRules).toContain('no-inline-styles');
+
+    const proseCodeClean = join(dir, 'wl-r2-m7-prose-code.html');
+    writeFileSync(
+      proseCodeClean,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; }
+.doc { color: var(--ink); background: var(--bg); }
+</style></head><body>
+<article class="doc">
+  <p>Do not write class="fake" or style="color:red" in prose.</p>
+  <pre><code>class="fake" style="color:red"</code></pre>
+  <p>Inline <code>&lt;div class="also-fake" style="padding:9px"&gt;</code> example.</p>
+</article>
+</body></html>`,
+    );
+    const rR2M7Clean = runPy(['--web-lint', proseCodeClean, '--json']);
+    expect(rR2M7Clean.status, rR2M7Clean.stdout).toBe(0);
+
+    // SCOPE #8: .vue and .svelte are not scanned by WEB_LINT_EXTS
+    const vueSvelteDir = join(dir, 'wl-r2-s8-ignored');
+    mkdirSync(vueSvelteDir, { recursive: true });
+    writeFileSync(
+      join(vueSvelteDir, 'App.vue'),
+      `<template><div class="bg-red-500" style="color:red">Vue</div></template>`,
+    );
+    writeFileSync(
+      join(vueSvelteDir, 'Widget.svelte'),
+      `<div class="bg-red-500" style="color:red">Svelte</div>`,
+    );
+    const rR2S8 = runPy(['--web-lint', vueSvelteDir, '--json']);
+    expect(rR2S8.status).toBe(1);
+    const s8Out = JSON.parse(rR2S8.stdout);
+    expect(s8Out.checks[0]?.id).toBe('web_lint_files_scanned');
+    expect(s8Out.checks[0]?.ok).toBe(false);
+    expect(s8Out.checks[0]?.value).toBe(0);
+
+    // SCOPE #9: Tailwind-enabled HTML passes on-demand utilities without no-unknown-classes, while plain HTML still flags them
+    const twHtmlOk = join(dir, 'wl-r2-s9-tailwind-ok.html');
+    writeFileSync(
+      twHtmlOk,
+      `<!doctype html><html lang="en"><head>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+:root { --bg: #fff; --ink: #111; }
+body { background: var(--bg); color: var(--ink); }
+</style></head><body>
+<main class="ps-4 drop-shadow-sm"><ul class="list-disc"><li class="underline underline-offset-2 decoration-2">Item</li></ul></main>
+</body></html>`,
+    );
+    const rR2S9Ok = runPy(['--web-lint', twHtmlOk, '--json']);
+    expect(rR2S9Ok.status, rR2S9Ok.stdout).toBe(0);
+
+    const plainHtmlBad = join(dir, 'wl-r2-s9-plain-bad.html');
+    writeFileSync(
+      plainHtmlBad,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; }
+body { background: var(--bg); color: var(--ink); }
+</style></head><body>
+<main class="ps-4 drop-shadow-sm underline-offset-2">Plain HTML</main>
+</body></html>`,
+    );
+    const rR2S9Bad = runPy(['--web-lint', plainHtmlBad, '--json']);
+    expect(rR2S9Bad.status).toBe(1);
+    const s9Unknown = JSON.parse(rR2S9Bad.stdout).findings.filter(
+      (f: { rule: string }) => f.rule === 'no-unknown-classes',
+    );
+    expect(s9Unknown.length).toBe(3);
   }, 60_000);
 });
