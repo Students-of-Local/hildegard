@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -111,6 +111,113 @@ button { transition: all 0.3s ease; }
         .checks.filter((c: { ok: boolean }) => !c.ok)
         .map((c: { id: string }) => c.id),
     ).toContain('focus_visible');
+
+    // Hardening: url(#fade), content:"#123", body .carousel {overflow-x:hidden}, border-top-color/var(--t-all), and typographic symbols ✕ ✓ ★ ✦ ❧ must PASS
+    const edgeOk = join(dir, 'edge-ok.html');
+    writeFileSync(
+      edgeOk,
+      `<!doctype html>
+<html lang="en"><head><style>
+:root { --bg: #f6f1e7; --ink: #1e1b18; --t-all: 160ms; }
+html, body { overflow-x: clip; background: var(--bg); color: var(--ink); }
+body .carousel { overflow-x: hidden; }
+.badge::before { content: "#123"; filter: url(#fade); }
+button { transition: border-top-color var(--t-all) ease-out; }
+button:focus-visible { outline: 2px solid var(--ink); }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style></head>
+<body><div class="carousel"><span class="badge">✓ ★ ✦ ❧ ✕</span><button>Go</button></div></body></html>`,
+    );
+    const rEdgeOk = runPy(['--html', edgeOk, '--json']);
+    expect(rEdgeOk.status, rEdgeOk.stdout).toBe(0);
+
+    // Hardening: CSS nesting outer raw color, [data-theme="dark"] .card raw color, minified @media body overflow-x:hidden, and bare transition shorthand must FAIL
+    const nestedBad = join(dir, 'nested-bad.html');
+    writeFileSync(
+      nestedBad,
+      `<!doctype html>
+<html><head><style>
+:root { --bg: #fff; --ink: #111; }
+.card { color: #ff0000; &:hover { opacity: 0.8; } }
+[data-theme="dark"] .card { background: #222222; }
+@media(min-width:1px){body{overflow-x:hidden}}
+button { transition: 200ms ease-out; }
+button:focus-visible { outline: 2px solid var(--ink); }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style></head><body><div class="card"><button>Act</button></div></body></html>`,
+    );
+    const rNested = runPy(['--html', nestedBad, '--json']);
+    expect(rNested.status).toBe(1);
+    const nestedBadIds = JSON.parse(rNested.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(nestedBadIds).toContain('css_tokens');
+    expect(nestedBadIds).toContain('safe_overflow');
+    expect(nestedBadIds).toContain('no_transition_all');
+
+    // Round-1 #209 highs + mediums:
+    // 1. html[data-theme="dark"], :root[data-theme], minified @media/@layer {:root{--*}} must PASS css_tokens
+    const themeRootOk = join(dir, 'theme-root-ok.html');
+    writeFileSync(
+      themeRootOk,
+      `<!doctype html><html><head><style>
+@layer base{:root[data-theme]{--bg:#fff;--ink:#111}}
+@media(prefers-color-scheme:dark){html[data-theme="dark"]{--bg:#111;--ink:#eee}}
+html, body { overflow-x: clip; background: var(--bg); color: var(--ink); }
+.empty-ov { overflow-x: ; }
+</style></head><body><p>Clean</p></body></html>`,
+    );
+    expect(runPy(['--html', themeRootOk, '--json']).status).toBe(0);
+
+    // 2. .app [data-theme="dark"], nested :root { .card { color:#f00 } }, body{overflow-x:hidden!important}, transition: 200ms ease-out !important, and ⚠️/❤️ must FAIL
+    const r1Bad = join(dir, 'r1-bad.html');
+    writeFileSync(
+      r1Bad,
+      `<!doctype html><html><head><style>
+:root { --bg: #fff; --ink: #111; .card { color: #ff0000; } }
+.app [data-theme="dark"] { color: #00ff00; }
+body{overflow-x:hidden!important}
+button { transition: 200ms ease-out !important; }
+button:focus-visible { outline: 2px solid var(--ink); }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style></head><body><div class="app"><div data-theme="dark"><p>Warn \u26A0\uFE0F \u2764\uFE0F</p><button>Go</button></div></div></body></html>`,
+    );
+    const rR1Bad = runPy(['--html', r1Bad, '--json']);
+    expect(rR1Bad.status).toBe(1);
+    const r1BadIds = JSON.parse(rR1Bad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(r1BadIds).toContain('css_tokens');
+    expect(r1BadIds).toContain('safe_overflow');
+    expect(r1BadIds).toContain('no_transition_all');
+    expect(r1BadIds).toContain('no_slop_patterns');
+
+    // Round-2 #209 high (second-F1): grouping at-rules nested inside style rules
+    const r2NestedAtOk = join(dir, 'r2-nested-at-ok.html');
+    writeFileSync(
+      r2NestedAtOk,
+      `<!doctype html><html><head><style>
+:root { --bg: #fff; --ink: #111; @media (prefers-color-scheme: dark) { --bg: #111; --ink: #eee; } }
+.modal { body { overflow-x: hidden; } }
+body { background: var(--bg); color: var(--ink); }
+</style></head><body><p>Clean</p></body></html>`,
+    );
+    expect(runPy(['--html', r2NestedAtOk, '--json']).status).toBe(0);
+
+    const r2NestedAtBad = join(dir, 'r2-nested-at-bad.html');
+    writeFileSync(
+      r2NestedAtBad,
+      `<!doctype html><html><head><style>
+:root { --bg: #fff; --ink: #111; }
+body { @media (max-width: 768px) { overflow-x: hidden; } }
+</style></head><body><p>Bad</p></body></html>`,
+    );
+    const rR2Bad = runPy(['--html', r2NestedAtBad, '--json']);
+    expect(rR2Bad.status).toBe(1);
+    const r2BadIds = JSON.parse(rR2Bad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(r2BadIds).toContain('safe_overflow');
   });
 
   it('validates DESIGN.md YAML token blocks, unique keys, token refs, and safe @path references', () => {
@@ -204,6 +311,127 @@ See \`@../../etc/passwd\`, \`@/etc/shadow\`, \`@~/.ssh/id_rsa.pub\`, \`@..\\..\\
     expect(dupBad).toContain('external_refs_safe');
     const extCheck = dupOut.checks.find((c: { id: string }) => c.id === 'external_refs_safe');
     expect(extCheck.value.length).toBeGreaterThanOrEqual(6);
+
+    // Hardening: bad color in FIRST of two duplicate colors: blocks, invalid "#12345"/"notacolor", zero-indented omitted list, nested color-mix, extensionless symlink @secret, trailing period @secret., and @C:..\secret
+    const nestedMixMd = join(dir, 'NESTED-MIX.md');
+    writeFileSync(
+      nestedMixMd,
+      `---
+name: Mix System
+omitted:
+- spacing
+colors:
+  primary: "color-mix(in oklch, oklch(0.6 0.2 250) 70%, white)"
+  accent: "#B8422E"
+---
+`,
+    );
+    const rMix = runPy(['--design-md', nestedMixMd, '--json']);
+    expect(rMix.status, rMix.stdout).toBe(0);
+
+    const extSub = join(dir, 'design-sub');
+    mkdirSync(extSub, { recursive: true });
+    const outsideTarget = join(dir, 'outside-secret.txt');
+    writeFileSync(outsideTarget, 'top-secret');
+    if (process.platform !== 'win32') {
+      symlinkSync(outsideTarget, join(extSub, 'secret'));
+    }
+    const hardMd = join(extSub, 'HARD-DESIGN.md');
+    writeFileSync(
+      hardMd,
+      `---
+name: Hardened
+colors:
+  first_bad: "notacolor"
+  short_hex: "#12345"
+colors:
+  second_ok: "#123456"
+---
+
+Check \`@C:..\\secret\`${process.platform !== 'win32' ? ' and see @secret.' : ''}.
+`,
+    );
+    const rHard = runPy(['--design-md', hardMd, '--json']);
+    expect(rHard.status).toBe(1);
+    const hardOut = JSON.parse(rHard.stdout);
+    const hardBad = hardOut.checks.filter((c: { ok: boolean }) => !c.ok).map((c: { id: string }) => c.id);
+    expect(hardBad).toContain('unique_top_keys');
+    expect(hardBad).toContain('valid_color_tokens');
+    expect(hardBad).toContain('external_refs_safe');
+    const badColorVals = hardOut.checks.find((c: { id: string }) => c.id === 'valid_color_tokens').value;
+    expect(badColorVals.some((v: string) => v.includes('notacolor'))).toBe(true);
+    expect(badColorVals.some((v: string) => v.includes('#12345'))).toBe(true);
+
+    // Round-1 #209 highs: YAML block lists of mappings must not crash, and @.., @./.., @.\.. must fail external_refs_safe
+    const listMapMd = join(dir, 'LIST-MAP-DESIGN.md');
+    writeFileSync(
+      listMapMd,
+      `---
+name: List Map System
+omitted:
+- section: spacing
+  reason: static
+fonts:
+  - family: Inter
+    weight: 400
+colors:
+  primary: "#1A1C1E"
+---
+`,
+    );
+    const rListMap = runPy(['--design-md', listMapMd, '--json']);
+    expect(rListMap.status, rListMap.stdout).toBe(0);
+
+    const dotTravMd = join(dir, 'DOT-TRAV-DESIGN.md');
+    writeFileSync(
+      dotTravMd,
+      `---
+name: Dot Trav
+colors:
+  primary: "#1A1C1E"
+---
+
+Bad refs: \`@..\`, \`@./..\`, and \`@.\\..\`.
+`,
+    );
+    const rDotTrav = runPy(['--design-md', dotTravMd, '--json']);
+    expect(rDotTrav.status).toBe(1);
+    const dotOut = JSON.parse(rDotTrav.stdout);
+    const dotExt = dotOut.checks.find((c: { id: string }) => c.id === 'external_refs_safe');
+    expect(dotExt.ok).toBe(false);
+    expect(dotExt.value.length).toBe(3);
+
+    // Round-2 #209 high (second-F2): quoted list-item keys and mapping under omitted must not raise TypeError or drop values
+    const r2YamlMapMd = join(dir, 'R2-YAML-MAP.md');
+    writeFileSync(
+      r2YamlMapMd,
+      `---
+name: Quoted And Omitted Map
+fonts:
+  - "family": Inter
+    weight: 400
+omitted:
+  colors: monochrome
+---
+`,
+    );
+    const rR2YamlMap = runPy(['--design-md', r2YamlMapMd, '--json']);
+    expect(rR2YamlMap.status, rR2YamlMap.stdout).toBe(0);
+
+    const r2YamlOmittedListMd = join(dir, 'R2-YAML-OMITTED-LIST.md');
+    writeFileSync(
+      r2YamlOmittedListMd,
+      `---
+name: Quoted Omitted List
+omitted:
+  - "section": colors
+    reason: monochrome
+  - note: extra
+---
+`,
+    );
+    const rR2YamlOmittedList = runPy(['--design-md', r2YamlOmittedListMd, '--json']);
+    expect(rR2YamlOmittedList.status, rR2YamlOmittedList.stdout).toBe(0);
   });
 
   it('validates isometric mechanical illustration contracts and rejects sparse/unmounted/floating-line specs', () => {
@@ -331,6 +559,38 @@ See \`@../../etc/passwd\`, \`@/etc/shadow\`, \`@~/.ssh/id_rsa.pub\`, \`@..\\..\\
           .checks.filter((c: { ok: boolean }) => !c.ok)
           .map((c: { id: string }) => c.id),
       ).toContain('part_density');
+    }
+
+    // Hardening: missing lit_count must FAIL four_tone_ramp; missing/malformed/directory --iso --json must emit JSON without traceback
+    const noLitIso = join(dir, 'iso-no-lit.json');
+    writeFileSync(
+      noLitIso,
+      JSON.stringify({
+        tier: 'figure',
+        azimuth_deg: 45,
+        elevation_deg: 30,
+        tones: { lo: '#111', mid: '#555', hi: '#aaa', lit: '#fff' },
+        parts: [{ group: 'b', host: 'ground', count: 44 }],
+        depth_sorted: true,
+      }),
+    );
+    const rNoLit = runPy(['--iso', noLitIso, '--pre-render', '--json']);
+    expect(rNoLit.status).toBe(1);
+    expect(
+      JSON.parse(rNoLit.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('four_tone_ramp');
+
+    const malformedIso = join(dir, 'iso-malformed.json');
+    writeFileSync(malformedIso, '{bad json');
+    const nonUtf8Iso = join(dir, 'iso-nonutf8.json');
+    writeFileSync(nonUtf8Iso, Buffer.from([0xff, 0xfe, 0x00, 0x80]));
+    for (const badPath of [join(dir, 'does-not-exist.json'), dir, malformedIso, nonUtf8Iso]) {
+      const rErr = runPy(['--iso', badPath, '--json']);
+      expect(rErr.status).toBe(1);
+      expect(rErr.stderr).not.toContain('Traceback');
+      expect(JSON.parse(rErr.stdout).ok).toBe(false);
     }
   });
 });
