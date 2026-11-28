@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -111,6 +111,49 @@ button { transition: all 0.3s ease; }
         .checks.filter((c: { ok: boolean }) => !c.ok)
         .map((c: { id: string }) => c.id),
     ).toContain('focus_visible');
+
+    // Hardening: url(#fade), content:"#123", body .carousel {overflow-x:hidden}, border-top-color/var(--t-all), and typographic symbols ✕ ✓ ★ ✦ ❧ must PASS
+    const edgeOk = join(dir, 'edge-ok.html');
+    writeFileSync(
+      edgeOk,
+      `<!doctype html>
+<html lang="en"><head><style>
+:root { --bg: #f6f1e7; --ink: #1e1b18; --t-all: 160ms; }
+html, body { overflow-x: clip; background: var(--bg); color: var(--ink); }
+body .carousel { overflow-x: hidden; }
+.badge::before { content: "#123"; filter: url(#fade); }
+button { transition: border-top-color var(--t-all) ease-out; }
+button:focus-visible { outline: 2px solid var(--ink); }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style></head>
+<body><div class="carousel"><span class="badge">✓ ★ ✦ ❧ ✕</span><button>Go</button></div></body></html>`,
+    );
+    const rEdgeOk = runPy(['--html', edgeOk, '--json']);
+    expect(rEdgeOk.status, rEdgeOk.stdout).toBe(0);
+
+    // Hardening: CSS nesting outer raw color, [data-theme="dark"] .card raw color, minified @media body overflow-x:hidden, and bare transition shorthand must FAIL
+    const nestedBad = join(dir, 'nested-bad.html');
+    writeFileSync(
+      nestedBad,
+      `<!doctype html>
+<html><head><style>
+:root { --bg: #fff; --ink: #111; }
+.card { color: #ff0000; &:hover { opacity: 0.8; } }
+[data-theme="dark"] .card { background: #222222; }
+@media(min-width:1px){body{overflow-x:hidden}}
+button { transition: 200ms ease-out; }
+button:focus-visible { outline: 2px solid var(--ink); }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+</style></head><body><div class="card"><button>Act</button></div></body></html>`,
+    );
+    const rNested = runPy(['--html', nestedBad, '--json']);
+    expect(rNested.status).toBe(1);
+    const nestedBadIds = JSON.parse(rNested.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(nestedBadIds).toContain('css_tokens');
+    expect(nestedBadIds).toContain('safe_overflow');
+    expect(nestedBadIds).toContain('no_transition_all');
   });
 
   it('validates DESIGN.md YAML token blocks, unique keys, token refs, and safe @path references', () => {
@@ -204,6 +247,56 @@ See \`@../../etc/passwd\`, \`@/etc/shadow\`, \`@~/.ssh/id_rsa.pub\`, \`@..\\..\\
     expect(dupBad).toContain('external_refs_safe');
     const extCheck = dupOut.checks.find((c: { id: string }) => c.id === 'external_refs_safe');
     expect(extCheck.value.length).toBeGreaterThanOrEqual(6);
+
+    // Hardening: bad color in FIRST of two duplicate colors: blocks, invalid "#12345"/"notacolor", zero-indented omitted list, nested color-mix, extensionless symlink @secret, trailing period @secret., and @C:..\secret
+    const nestedMixMd = join(dir, 'NESTED-MIX.md');
+    writeFileSync(
+      nestedMixMd,
+      `---
+name: Mix System
+omitted:
+- spacing
+colors:
+  primary: "color-mix(in oklch, oklch(0.6 0.2 250) 70%, white)"
+  accent: "#B8422E"
+---
+`,
+    );
+    const rMix = runPy(['--design-md', nestedMixMd, '--json']);
+    expect(rMix.status, rMix.stdout).toBe(0);
+
+    const extSub = join(dir, 'design-sub');
+    mkdirSync(extSub, { recursive: true });
+    const outsideTarget = join(dir, 'outside-secret.txt');
+    writeFileSync(outsideTarget, 'top-secret');
+    if (process.platform !== 'win32') {
+      symlinkSync(outsideTarget, join(extSub, 'secret'));
+    }
+    const hardMd = join(extSub, 'HARD-DESIGN.md');
+    writeFileSync(
+      hardMd,
+      `---
+name: Hardened
+colors:
+  first_bad: "notacolor"
+  short_hex: "#12345"
+colors:
+  second_ok: "#123456"
+---
+
+Check \`@C:..\\secret\`${process.platform !== 'win32' ? ' and see @secret.' : ''}.
+`,
+    );
+    const rHard = runPy(['--design-md', hardMd, '--json']);
+    expect(rHard.status).toBe(1);
+    const hardOut = JSON.parse(rHard.stdout);
+    const hardBad = hardOut.checks.filter((c: { ok: boolean }) => !c.ok).map((c: { id: string }) => c.id);
+    expect(hardBad).toContain('unique_top_keys');
+    expect(hardBad).toContain('valid_color_tokens');
+    expect(hardBad).toContain('external_refs_safe');
+    const badColorVals = hardOut.checks.find((c: { id: string }) => c.id === 'valid_color_tokens').value;
+    expect(badColorVals.some((v: string) => v.includes('notacolor'))).toBe(true);
+    expect(badColorVals.some((v: string) => v.includes('#12345'))).toBe(true);
   });
 
   it('validates isometric mechanical illustration contracts and rejects sparse/unmounted/floating-line specs', () => {
@@ -331,6 +424,36 @@ See \`@../../etc/passwd\`, \`@/etc/shadow\`, \`@~/.ssh/id_rsa.pub\`, \`@..\\..\\
           .checks.filter((c: { ok: boolean }) => !c.ok)
           .map((c: { id: string }) => c.id),
       ).toContain('part_density');
+    }
+
+    // Hardening: missing lit_count must FAIL four_tone_ramp; missing/malformed/directory --iso --json must emit JSON without traceback
+    const noLitIso = join(dir, 'iso-no-lit.json');
+    writeFileSync(
+      noLitIso,
+      JSON.stringify({
+        tier: 'figure',
+        azimuth_deg: 45,
+        elevation_deg: 30,
+        tones: { lo: '#111', mid: '#555', hi: '#aaa', lit: '#fff' },
+        parts: [{ group: 'b', host: 'ground', count: 44 }],
+        depth_sorted: true,
+      }),
+    );
+    const rNoLit = runPy(['--iso', noLitIso, '--pre-render', '--json']);
+    expect(rNoLit.status).toBe(1);
+    expect(
+      JSON.parse(rNoLit.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('four_tone_ramp');
+
+    const malformedIso = join(dir, 'iso-malformed.json');
+    writeFileSync(malformedIso, '{bad json');
+    for (const badPath of [join(dir, 'does-not-exist.json'), dir, malformedIso]) {
+      const rErr = runPy(['--iso', badPath, '--json']);
+      expect(rErr.status).toBe(1);
+      expect(rErr.stderr).not.toContain('Traceback');
+      expect(JSON.parse(rErr.stdout).ok).toBe(false);
     }
   });
 });

@@ -24,12 +24,11 @@ WEB_EXTS = HTML_EXTS | CSS_EXTS
 CSS_COMMENT_RE = re.compile(r"/\*[\s\S]*?\*/")
 STYLE_TAG_RE = re.compile(r"<style\b[^>]*>([\s\S]*?)</style>", re.I)
 INLINE_STYLE_RE = re.compile(r'\bstyle\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', re.I)
-TRANSITION_ALL_RE = re.compile(r"\btransition(?:-property)?\s*:\s*[^;{}]*\ball\b", re.I)
-LAYOUT_ANIM_RE = re.compile(r"\btransition(?:-property)?\s*:\s*[^;{}]*\b(width|height|top|left)\b", re.I)
 VW_100_RE = re.compile(r"(?:width|min-width|max-width)\s*:\s*100vw\b", re.I)
-OVERFLOW_HIDDEN_ROOT_RE = re.compile(r"(?:^|[}\s,])(?:html|body)[^{]*\{[^}]*overflow-x\s*:\s*hidden\b", re.I | re.S)
 HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-RGB_COLOR_RE = re.compile(r"\b(?:rgba?|hsla?|oklch)\s*\(", re.I)
+RGB_COLOR_RE = re.compile(r"\b(?:rgba?|hsla?|oklch|oklab)\s*\(", re.I)
+URL_FUNC_RE = re.compile(r"\burl\s*\([^)]*\)", re.I)
+QUOTED_STR_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
 PURPLE_BLUE_GRAD_RE = re.compile(
     r"linear-gradient\([^)]*(?:#(?:[5-9a-d][0-9a-f][0-5][0-9a-f][a-f][0-9a-f]|6366f1|7c3aed|8b5cf6|a855f7)|purple|violet|indigo)[^)]*(?:#(?:[0-4][0-9a-f][5-9a-f][0-9a-f][c-f][0-9a-f]|3b82f6|2563eb|06b6d4)|blue|cyan)",
     re.I,
@@ -42,13 +41,38 @@ HAS_MOTION_RE = re.compile(r"@keyframes\b|\b(?:transition|animation)\s*:", re.I)
 YAML_FENCE_RE = re.compile(r"```yaml\s*\n([\s\S]*?)```", re.I)
 TOKEN_REF_RE = re.compile(r"\{([a-zA-Z0-9_.-]+)\}")
 EXT_REF_RE = re.compile(r"(?<![A-Za-z0-9_.+-])@([^\s`\"'()\[\]<>#,;]+)")
-CSS_COLOR_VAL_RE = re.compile(
-    r"^(?:#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?|hwb|oklch|oklab|lch|lab|color-mix)\([^)]+\)|transparent|[a-zA-Z]+|\{[a-zA-Z0-9_.-]+\})$"
-)
+CSS_AT_RULES = {"media", "font-face", "import", "keyframes", "layer", "supports", "charset", "property", "container", "scope", "starting-style", "page"}
+HEX_STRICT_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+COLOR_FUNC_PREFIX_RE = re.compile(r"^(?:rgba?|hsla?|hwb|oklch|oklab|lch|lab|color-mix)\(", re.I)
+CSS_NAMED_COLORS = {
+    "transparent", "currentcolor", "black", "white", "silver", "gray", "grey", "maroon", "red", "purple",
+    "fuchsia", "magenta", "green", "lime", "olive", "yellow", "navy", "blue", "teal", "aqua", "cyan",
+    "orange", "aliceblue", "antiquewhite", "aquamarine", "azure", "beige", "bisque", "blanchedalmond",
+    "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse", "chocolate", "coral", "cornflowerblue",
+    "cornsilk", "crimson", "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey",
+    "darkkhaki", "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon",
+    "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise", "darkviolet",
+    "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen",
+    "gainsboro", "ghostwhite", "gold", "goldenrod", "greenyellow", "honeydew", "hotpink", "indianred",
+    "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue",
+    "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink",
+    "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey", "lightsteelblue",
+    "lightyellow", "limegreen", "linen", "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple",
+    "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise", "mediumvioletred",
+    "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "oldlace", "olivedrab", "orangered",
+    "orchid", "palegoldenrod", "palegreen", "paleturquoise", "palevioletred", "papayawhip", "peachpuff",
+    "peru", "pink", "plum", "powderblue", "rebeccapurple", "rosybrown", "royalblue", "saddlebrown", "salmon",
+    "sandybrown", "seagreen", "seashell", "sienna", "skyblue", "slateblue", "slategray", "slategrey", "snow",
+    "springgreen", "steelblue", "tan", "thistle", "tomato", "turquoise", "violet", "wheat", "whitesmoke",
+    "yellowgreen",
+}
+TIMING_KEYWORDS = {"ease", "ease-in", "ease-out", "ease-in-out", "linear", "step-start", "step-end", "allow-discrete", "normal"}
+LAYOUT_PROPS = {"width", "height", "top", "left"}
 METADATA_KEYS = {"version", "name", "description", "omitted"}
 ISO_KNOWN_KEYS = {"tier", "azimuth_deg", "elevation_deg", "tones", "lit_count", "parts", "depth_sorted", "floating_line_ends", "closeup_4x_checked", "themes_checked"}
 ISO_TIER_MIN = {"figure": 40, "hero": 80, "epic": 150}
 ISO_ROOT_HOSTS = {"ground", "base", "bench", "floor", "stand"}
+EMOJI_EXTRA_CPS = {0x26A1, 0x2705, 0x2728, 0x274C}
 
 
 def _chk(cid, ok, value, limit, detail):
@@ -58,21 +82,45 @@ def _chk(cid, ok, value, limit, detail):
 def _has_emoji(text):
     for ch in text:
         cp = ord(ch)
-        if (0x1F300 <= cp <= 0x1FAFF) or (0x2600 <= cp <= 0x27BF):
+        if (0x1F300 <= cp <= 0x1FAFF) or cp in EMOJI_EXTRA_CPS:
             return True
     return False
 
 
+def _is_valid_css_color(val):
+    s = val.strip()
+    if re.fullmatch(r"\{[a-zA-Z0-9_.-]+\}", s):
+        return True
+    if HEX_STRICT_RE.match(s):
+        return True
+    if s.lower() in CSS_NAMED_COLORS:
+        return True
+    if COLOR_FUNC_PREFIX_RE.match(s) and s.endswith(")"):
+        depth = 0
+        for idx, ch in enumerate(s):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth < 0 or (depth == 0 and idx != len(s) - 1):
+                    return False
+        return depth == 0
+    return False
+
+
 def _strip_token_blocks(css):
-    """Return CSS with :root, [data-theme...], and @font-face blocks removed for literal-token checks."""
+    """Return CSS with pure :root, [data-theme=...], and @font-face blocks removed (preserving scoped descendant rules)."""
     out = []
     i, n = 0, len(css)
     while i < n:
-        m = re.search(r"(?::root\b|\[data-theme[^\]]*\]|@font-face\b)[^{]*\{", css[i:], re.I)
+        m = re.search(r"(?:^|[}\s,])(?::root|\[data-theme[^\]]*\]|@font-face)\s*\{", css[i:], re.I)
         if not m:
             out.append(css[i:])
             break
-        out.append(css[i : i + m.start()])
+        # Keep leading separator char if matched
+        lead = css[i + m.start()]
+        keep_sep = 1 if lead in ("}", ",", " ", "\t", "\n", "\r") else 0
+        out.append(css[i : i + m.start() + keep_sep])
         j = i + m.end()
         depth = 1
         while j < n and depth > 0:
@@ -85,18 +133,77 @@ def _strip_token_blocks(css):
     return "".join(out)
 
 
-def _declaration_values(css):
-    """Extract (property, value) pairs strictly inside innermost { ... } declaration bodies (never selectors)."""
-    vals = []
-    for body in re.findall(r"\{([^{}]*)\}", css):
-        for decl in body.split(";"):
-            if ":" not in decl:
-                continue
-            prop, val = decl.split(":", 1)
-            prop = prop.strip().lower()
-            if prop and re.fullmatch(r"[a-z-]+", prop):
-                vals.append((prop, val.strip()))
-    return vals
+def _iter_declarations(css):
+    """Yield (selector_stack_top, prop, val) for declarations at any CSS nesting depth (never selectors)."""
+    sel_stack = []
+    buf = []
+    in_sq = in_dq = False
+    i, n = 0, len(css)
+    while i < n:
+        ch = css[i]
+        if ch == "\\" and (in_sq or in_dq) and i + 1 < n:
+            buf.append(ch)
+            buf.append(css[i + 1])
+            i += 2
+            continue
+        if ch == "'" and not in_dq:
+            in_sq = not in_sq
+            buf.append(ch)
+        elif ch == '"' and not in_sq:
+            in_dq = not in_dq
+            buf.append(ch)
+        elif not in_sq and not in_dq and ch == "{":
+            sel = "".join(buf).strip()
+            sel_stack.append(sel)
+            buf = []
+        elif not in_sq and not in_dq and ch in (";", "}"):
+            seg = "".join(buf).strip()
+            buf = []
+            if sel_stack and ":" in seg and not seg.startswith("@"):
+                prop, val = seg.split(":", 1)
+                prop = prop.strip().lower()
+                if prop and re.fullmatch(r"[a-z-]+", prop):
+                    yield sel_stack[-1], prop, val.strip()
+            if ch == "}" and sel_stack:
+                sel_stack.pop()
+        else:
+            buf.append(ch)
+        i += 1
+
+
+def _is_bad_transition(prop, val):
+    """Return (transition_all_hit, layout_prop_hit) for transition / transition-property declarations."""
+    t_all = False
+    l_prop = False
+    # Strip var(...) and cubic-bezier(...) / steps(...) parens so tokens like var(--t-all) never false-match
+    cleaned = re.sub(r"\b(?:var|cubic-bezier|steps)\s*\([^)]*\)", " ", val, flags=re.I)
+    for item in cleaned.split(","):
+        s = item.strip().lower()
+        if not s or s == "none":
+            continue
+        tokens = [tok for tok in re.split(r"\s+", s) if tok]
+        if prop == "transition-property":
+            for tok in tokens:
+                if tok == "all":
+                    t_all = True
+                elif tok in LAYOUT_PROPS:
+                    l_prop = True
+            continue
+        # transition shorthand: inspect non-time, non-easing property tokens
+        prop_tokens = [
+            tok
+            for tok in tokens
+            if tok not in TIMING_KEYWORDS and not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)m?s", tok)
+        ]
+        if not prop_tokens:
+            # Bare timing shorthand (e.g. `transition: 200ms ease-out`) implicitly transitions `all`
+            t_all = True
+        for tok in prop_tokens:
+            if tok == "all":
+                t_all = True
+            elif tok in LAYOUT_PROPS:
+                l_prop = True
+    return t_all, l_prop
 
 
 def check_html_path(target):
@@ -140,24 +247,38 @@ def check_html_path(target):
     checks = [_chk("html_files_scanned", True, len(files), ">= 1 .html/.css file", "HTML/CSS files audited")]
 
     if css_blob.strip():
-        has_root_tokens = bool(re.search(r"(?::root|\[data-theme[^\]]*\])[^{]*\{[^}]*--[a-zA-Z0-9_-]+\s*:", css_blob, re.S))
-        decls = _declaration_values(non_token_css)
-        raw_colors = [c for _, v in decls for c in (HEX_COLOR_RE.findall(v) + RGB_COLOR_RE.findall(v))]
-        raw_fonts = [
-            v
-            for prop, v in decls
-            if prop == "font-family" and "var(" not in v and v.lower() not in ("inherit", "initial", "unset")
-        ]
+        has_root_tokens = bool(re.search(r"(?:^|[}\s,])(?::root|\[data-theme[^\]]*\])\s*\{[^}]*--[a-zA-Z0-9_-]+\s*:", css_blob, re.S))
+        decls = list(_iter_declarations(non_token_css))
+        raw_colors = []
+        raw_fonts = []
+        for _, prop, v in decls:
+            if prop != "content":
+                scrubbed = QUOTED_STR_RE.sub(" ", URL_FUNC_RE.sub(" ", v))
+                raw_colors.extend(HEX_COLOR_RE.findall(scrubbed))
+                raw_colors.extend(RGB_COLOR_RE.findall(scrubbed))
+            if prop == "font-family" and "var(" not in v and v.lower() not in ("inherit", "initial", "unset"):
+                raw_fonts.append(v)
         token_ok = has_root_tokens and not raw_colors and not raw_fonts
         detail_val = "clean" if token_ok else {"has_root_tokens": has_root_tokens, "raw_colors": raw_colors[:5], "raw_fonts": raw_fonts[:5]}
         checks.append(_chk("css_tokens", token_ok, detail_val, "all colors and fonts via :root custom properties", "declare tokens in :root and reference them with var(--*)"))
 
-        trans_all = bool(TRANSITION_ALL_RE.search(css_blob))
-        layout_anim = bool(LAYOUT_ANIM_RE.search(css_blob))
+        all_decls = list(_iter_declarations(css_blob))
+        trans_all = False
+        layout_anim = False
+        ov_hidden = False
+        for sel, prop, v in all_decls:
+            if prop in ("transition", "transition-property"):
+                ta, lp = _is_bad_transition(prop, v)
+                trans_all = trans_all or ta
+                layout_anim = layout_anim or lp
+            if prop == "overflow-x" and v.lower().split()[0] == "hidden":
+                parts = [p.strip().lower() for p in sel.split(",")]
+                if any(p in ("html", "body") for p in parts):
+                    ov_hidden = True
+
         checks.append(_chk("no_transition_all", not trans_all and not layout_anim, "clean" if (not trans_all and not layout_anim) else {"transition_all": trans_all, "layout_prop": layout_anim}, "no transition:all or width/height/top/left animation", "animate transform/opacity only, never transition: all"))
 
         vw_bad = bool(VW_100_RE.search(css_blob))
-        ov_hidden = bool(OVERFLOW_HIDDEN_ROOT_RE.search(css_blob))
         checks.append(_chk("safe_overflow", not vw_bad and not ov_hidden, "clean" if (not vw_bad and not ov_hidden) else {"100vw": vw_bad, "overflow_x_hidden": ov_hidden}, "no 100vw width or html/body overflow-x: hidden (use clip)", "use overflow-x: clip and avoid 100vw scrollbar overflow"))
 
         if HAS_MOTION_RE.search(css_blob):
@@ -198,26 +319,36 @@ def _strip_yaml_comment(raw):
 
 
 def _parse_simple_yaml(block):
-    """Minimal stdlib YAML subset parser for DESIGN.md token blocks; returns (root, duplicate_top_keys)."""
+    """Minimal stdlib YAML subset parser; returns (root, duplicate_top_keys, all_color_maps)."""
     root = {}
     dup_top = []
-    stack = [(-1, root)]
+    color_maps = []
+    stack = [(-1, root, None)]  # (indent, container, key_in_parent)
     for raw in block.splitlines():
         line = _strip_yaml_comment(raw)
         if not line.strip():
             continue
         indent = len(line) - len(line.lstrip(" "))
         stripped = line.strip()
-        while len(stack) > 1 and indent <= stack[-1][0]:
-            stack.pop()
-        parent = stack[-1][1]
         if stripped.startswith("- "):
+            # Support both 0-indented (same indent as parent key) and indented block lists
+            while len(stack) > 1 and indent < stack[-1][0]:
+                stack.pop()
+            _, container, k_in_parent = stack[-1]
+            if isinstance(container, dict) and container == {} and len(stack) > 1 and k_in_parent is not None:
+                lst = []
+                stack[-2][1][k_in_parent] = lst
+                stack[-1] = (stack[-1][0], lst, k_in_parent)
+                container = lst
             item = stripped[2:].strip().strip("\"'")
             if item.startswith("section:"):
                 item = item.split(":", 1)[1].strip().strip("\"'")
-            if isinstance(parent, list):
-                parent.append(item)
+            if isinstance(container, list):
+                container.append(item)
             continue
+        while len(stack) > 1 and indent <= stack[-1][0]:
+            stack.pop()
+        parent = stack[-1][1]
         if ":" not in stripped:
             continue
         key, rest = stripped.split(":", 1)
@@ -229,14 +360,16 @@ def _parse_simple_yaml(block):
             dup_top.append(key)
         if val == "":
             child = [] if key == "omitted" else {}
+            if parent is root and key == "colors":
+                color_maps.append(child)
             parent[key] = child
-            stack.append((indent, child))
+            stack.append((indent, child, key))
         else:
             if val.startswith("[") and val.endswith("]"):
                 parent[key] = [x.strip().strip("\"'") for x in val[1:-1].split(",") if x.strip()]
             else:
                 parent[key] = val.strip("\"'")
-    return root, dup_top
+    return root, dup_top, color_maps
 
 
 def _flatten_tokens(obj, prefix=""):
@@ -300,10 +433,9 @@ def check_design_md(path):
     dup_keys = []
     all_color_maps = []
     for blk in blocks:
-        parsed, block_dups = _parse_simple_yaml(blk)
+        parsed, block_dups, blk_colors = _parse_simple_yaml(blk)
         dup_keys.extend(block_dups)
-        if isinstance(parsed.get("colors"), dict):
-            all_color_maps.append(parsed["colors"])
+        all_color_maps.extend(blk_colors)
         for k, v in parsed.items():
             if k in merged:
                 dup_keys.append(k)
@@ -323,34 +455,45 @@ def check_design_md(path):
     bad_colors = []
     for cmap in all_color_maps:
         for k, v in _flatten_tokens(cmap, "colors").items():
-            if isinstance(v, str) and not CSS_COLOR_VAL_RE.match(v.strip()):
+            if isinstance(v, str) and not _is_valid_css_color(v):
                 bad_colors.append(f"{k}={v}")
     checks.append(_chk("valid_color_tokens", not bad_colors, bad_colors or "valid", "[]", "color tokens use valid CSS color syntax or token references"))
 
     broken_refs = []
+    for cmap in all_color_maps:
+        for k, v in _flatten_tokens(cmap, "colors").items():
+            if isinstance(v, str):
+                for rm in TOKEN_REF_RE.finditer(v):
+                    ref = rm.group(1)
+                    resolved_val, kind, terminal = _resolve_token_ref(k, ref, flat)
+                    if resolved_val is None:
+                        broken_refs.append(f"{k}->{{{ref}}}({kind})")
+                    elif kind != "scalar" or not terminal.startswith("colors."):
+                        broken_refs.append(f"{k}->{{{ref}}}(non-color)")
     for k, v in flat.items():
+        if k.startswith("colors."):
+            continue
         if isinstance(v, str):
             for rm in TOKEN_REF_RE.finditer(v):
                 ref = rm.group(1)
-                resolved_val, kind, terminal = _resolve_token_ref(k, ref, flat)
+                resolved_val, kind, _ = _resolve_token_ref(k, ref, flat)
                 if resolved_val is None:
                     broken_refs.append(f"{k}->{{{ref}}}({kind})")
-                elif k.startswith("colors.") and (kind != "scalar" or not terminal.startswith("colors.")):
-                    broken_refs.append(f"{k}->{{{ref}}}(non-color)")
     checks.append(_chk("token_refs_valid", not broken_refs, broken_refs or "valid", "[]", "every {path.to.token} reference resolves to a non-cyclic token"))
 
     base_dir = os.path.realpath(os.path.dirname(os.path.abspath(path)))
     unsafe_ext = []
     for em in EXT_REF_RE.finditer(text):
-        raw_ref = em.group(1)
+        raw_ref = em.group(1).rstrip(".,;:!?")
+        if not raw_ref or raw_ref.lower() in CSS_AT_RULES:
+            continue
         norm = raw_ref.replace("\\", "/")
-        if norm.startswith("/") or norm.startswith("~") or re.match(r"^[A-Za-z]:/", norm) or ".." in norm.split("/"):
+        if norm.startswith("/") or norm.startswith("~") or re.match(r"^[A-Za-z]:", norm) or ".." in norm.split("/"):
             unsafe_ext.append(raw_ref)
             continue
-        if "/" in norm or "." in norm:
-            resolved = os.path.realpath(os.path.join(base_dir, norm))
-            if not (resolved == base_dir or resolved.startswith(base_dir + os.sep)):
-                unsafe_ext.append(raw_ref)
+        resolved = os.path.realpath(os.path.join(base_dir, norm))
+        if not (resolved == base_dir or resolved.startswith(base_dir + os.sep)):
+            unsafe_ext.append(raw_ref)
     checks.append(_chk("external_refs_safe", not unsafe_ext, unsafe_ext or "safe", "[]", "external @path references stay inside the DESIGN.md directory"))
 
     ok = all(c["ok"] for c in checks)
@@ -381,7 +524,7 @@ def check_iso_spec(spec, pre_render=False):
         and all(isinstance(tones[k], str) and bool(tones[k].strip()) for k in req_tones)
         and len({tones[k].strip().lower() for k in req_tones}) == 4
     )
-    lit_count = spec.get("lit_count", 1)
+    lit_count = spec.get("lit_count")
     lit_ok = isinstance(lit_count, int) and not isinstance(lit_count, bool) and lit_count == 1
     checks.append(_chk("four_tone_ramp", tones_ok and lit_ok, {"tones": sorted(tones.keys()) if isinstance(tones, dict) else tones, "lit_count": lit_count}, "4 distinct tones (lo/mid/hi/lit) + lit_count == 1", "four-tone directional shading with one lit focal accent"))
 
@@ -443,6 +586,17 @@ def check_iso_spec(spec, pre_render=False):
     return {"ok": ok, "checks": checks}
 
 
+def check_iso_file(path, pre_render=False):
+    if not os.path.isfile(path):
+        return {"ok": False, "checks": [_chk("iso_file_exists", False, path, "existing JSON file", "iso spec path does not exist or is not a file")]}
+    try:
+        with open(path, encoding="utf-8") as f:
+            spec = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"ok": False, "checks": [_chk("iso_json_valid", False, str(exc), "valid JSON", "iso spec must be valid JSON")]}
+    return check_iso_spec(spec, pre_render=pre_render)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--html", help="HTML/CSS file or directory to audit against anti-slop Floor rules")
@@ -459,7 +613,7 @@ def main():
     elif a.design_md:
         res = check_design_md(a.design_md)
     else:
-        res = check_iso_spec(json.load(open(a.iso, encoding="utf-8")), pre_render=a.pre_render)
+        res = check_iso_file(a.iso, pre_render=a.pre_render)
 
     if a.json:
         print(json.dumps(res, indent=2))
