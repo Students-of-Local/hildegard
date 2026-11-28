@@ -20,7 +20,8 @@ This skill is all you need to clean a voice, put music under it, build a spot an
 1. **Clean a voice recording** (hum, hiss, rumble, quiet passages, loudness): `python3 -B <folder>/scripts/clean_voice.py voice_raw.wav out.wav --lufs -16 --peak -1.5`, or paste **Recipe A**.
 2. **Music under speech** (announcement, sermon, voice-over): `python3 -B <folder>/scripts/duck_mix.py voice.wav music.wav out.wav --voice-start 4 --fade-in 3 --tail 4 --fade-out 4`, or paste **Recipe B**. The music drops 16 dB under the voice and rises in pauses.
 3. **A radio spot** (lines in order, a bed, a sting, an exact length): `python3 -B <folder>/scripts/spot.py out.wav --music music.wav --sting sting.wav --lines line1.wav line2.wav line3.wav --total 15`, or paste **Recipe C**.
-4. **Cut clips into a reel with titles and music**: the **hildegard-video-edit** skill, if you have it.
+4. **3D spatial scene or frame-clocked demo mix** (binaural azimuth/distance, camera cuts, focus margin, quiet windows): `python3 -B <folder>/scripts/spatial_mix.py spec.json out.wav` (section **Spatial and demo audio** below).
+5. **Cut clips into a reel with titles and music**: the **hildegard-video-edit** skill, if you have it.
 
 Pasting: copy the recipe into your one script, edit the first lines (file names, times, target), run it on the real files, then run the check below. Recipes A to C write a WAV; the file names in them are the ones the brief gave.
 
@@ -267,6 +268,71 @@ Every shot has a sound even if nothing "happens": a room tone, wind, distant tra
 Change the ambience exactly on the cut when the place changes; overlap it a few frames (a J or L cut) to carry the
 viewer across.
 
+## Spatial and demo audio
+
+For listener-relative 3D scenes, camera-cut continuity, focus-preserving mixes, locked stems, and frame-clocked demo cues,
+use `python3 -B <folder>/scripts/spatial_mix.py spec.json out.wav --json` (needs Python 3 + NumPy, install with
+`python3 -m pip install numpy`, and FFmpeg for two-pass EBU R128 loudness; never assumes FFmpeg `sofalizer`).
+
+- **Coordinate frame (right-handed metres):** `+X` is right, `-X` is left, `+Y` is up, `-Z` is forward, `+Z` is behind.
+  Default listener sits at `"pos": [0, 0, 0]`, `"forward": [0, 0, -1]`, `"up": [0, 1, 0]`. A source 2 m right and 1 m in front
+  is `"pos": [2.0, 0.0, -1.0]`; a source 1.5 m left and 1 m in front is `"pos": [-1.5, 0.0, -1.0]`.
+- **Binaural cues and mono safety:** `spatial_mix.py` applies analytical Woodworth ITD, head-shadow ILD, inverse-distance
+  attenuation (`ref_distance`, `rolloff`), HF air absorption, `obstruction` (`0.0` to `1.0`), and radial Doppler (`vel`),
+  while keeping stereo-to-mono correlation at least `+0.2`.
+- **Camera cuts:** list pose jumps in `"camera_cuts": [{"t": 1.0, "listener": {"pos": [0, 0, 0], "forward": [0, 0, 1], "up": [0, 1, 0]}}]`
+  with `"camera_cut_fade_ms"` set to `6.0` (always `<= 8.0` ms) so cuts never click.
+- **Focus margin and locked stems:** tag speech/lead with `"role": "focus"` and competing layers with `"role": "bed"`.
+  Set `"focus_margin_db": 8.0` so the focus stem stays at least 6 dB above the bed across fullband and the 300-3400 Hz phone band.
+  Set `"locked": true` on a stem that must pass through untouched.
+- **Demo cues and quiet windows:** set `"fps"` (`30` or `60`), put UI/action impulses in `"cues"` with `"frame"` and `"group"`,
+  and set `"gesture_dedupe_ms"` (`100` to `120`) so rapid double-taps collapse to one click. List protected silences in
+  `"quiet_windows": [[t0, t1]]` so peaks stay under `-45 dBFS`.
+- **Loudness target:** set `"target_lufs": -16` (speech/podcast) or `-14` (film) and `"peak_dbtp": -1.0`. Omit `"target_lufs"`
+  only when preserving raw distance/obstruction attenuation.
+
+Exact `spatial_mix.py` JSON shape (include only the keys the brief asks for):
+
+```json
+{
+  "duration_s": 2.0,
+  "sample_rate": 48000,
+  "fps": 30,
+  "listener": { "pos": [0, 0, 0], "forward": [0, 0, -1], "up": [0, 1, 0] },
+  "camera_cut_fade_ms": 6.0,
+  "camera_cuts": [{ "t": 1.0, "listener": { "pos": [0, 0, 0], "forward": [0, 0, 1], "up": [0, 1, 0] } }],
+  "focus_margin_db": 8.0,
+  "gesture_dedupe_ms": 120,
+  "quiet_windows": [[1.0, 1.4]],
+  "target_lufs": -16,
+  "peak_dbtp": -1.0,
+  "sources": [
+    {
+      "role": "focus",
+      "spatial": false,
+      "locked": false,
+      "signal": { "kind": "voice", "gain": 0.4 }
+    },
+    {
+      "role": "bed",
+      "spatial": true,
+      "pos": [2.0, 0.0, -1.0],
+      "vel": [0.0, 0.0, 0.0],
+      "ref_distance": 1.0,
+      "rolloff": 1.0,
+      "obstruction": 0.0,
+      "signal": { "kind": "tone", "freq_hz": 440, "gain": 0.35 }
+    }
+  ],
+  "cues": [
+    { "frame": 15, "group": "ui", "signal": { "kind": "click", "gain": 0.45 } }
+  ]
+}
+```
+
+Valid `signal.kind` values are `"tone"`, `"voice"`, `"bed"`, `"noise"`, `"click"`, and `"file"` (with `"path"`).
+Check any finished spatial render with `python3 -B <folder>/scripts/spatial_mix.py --check out.wav --spec spec.json`.
+
 ## Mix and master
 
 - Speech is the reference: everything else sits under it.
@@ -279,4 +345,5 @@ viewer across.
 ## Deliver
 
 Listen through once, start to end, before you say it's done. Tell your user what is in the mix, its loudness, and
-where any sound came from (generated, their files, a library and its license).
+where any sound came from (generated, their files, a library and its license). Report measured checks (loudness, true peak,
+L/R azimuth, ITD, mono correlation, quiet windows) and state plainly that personalized HRTF perception requires human ears.

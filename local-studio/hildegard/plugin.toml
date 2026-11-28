@@ -94,3 +94,8 @@ skill = "hildegard-music"
 name = "motion"
 description = "Title cards, promos and kinetic type drawn in code, from a template"
 skill = "hildegard-motion"
+
+[[commands]]
+name = "game"
+description = "Interactive 3D scenes, browser games, VFX and HRTF audio, contract-checked"
+skill = "hildegard-game"
