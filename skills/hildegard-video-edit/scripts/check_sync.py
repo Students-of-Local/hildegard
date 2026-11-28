@@ -33,7 +33,12 @@ KNOWN_CAMERA_KEYS = {
     "timing",
     "framing",
     "seams",
+    "principles",
+    "logo_sting",
+    "review_passes",
 }
+HEX_PALETTE_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+LOGO_STING_ACTS = ("object", "transformation", "lockup")
 BEZIER_RE = re.compile(
     r"^cubic-bezier\(\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,"
     r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\)$"
@@ -400,6 +405,176 @@ def _check_seams_block(sm):
     return checks
 
 
+def _finite_num(val):
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        f = float(val)
+        return f if math.isfinite(f) else None
+    return None
+
+
+def _strict_int(val):
+    return val if isinstance(val, int) and not isinstance(val, bool) else None
+
+
+def _check_principles_block(p):
+    if not isinstance(p, dict) or not p:
+        return [_chk("principles_config", False, p, "non-empty object", "principles block must declare 12-rules brief invariants")]
+    checks = []
+    if "straight_ahead" in p or "pose_to_pose" in p:
+        sa = p.get("straight_ahead")
+        pp = p.get("pose_to_pose")
+        sa_ok = sa is None or (isinstance(sa, list) and all(isinstance(x, str) and x.strip() for x in sa))
+        pp_ok = pp is None or (isinstance(pp, list) and all(isinstance(x, str) and x.strip() for x in pp))
+        overlap = []
+        if sa_ok and pp_ok and sa is not None and pp is not None:
+            sa_set = {x.strip().lower() for x in sa}
+            pp_set = {x.strip().lower() for x in pp}
+            overlap = sorted(sa_set & pp_set)
+            split_ok = bool(sa_set) and bool(pp_set) and not overlap
+        else:
+            split_ok = False
+        checks.append(
+            _chk(
+                "sim_vs_keyframe_split",
+                split_ok,
+                {"overlap": overlap, "straight_ahead": sa, "pose_to_pose": pp} if not split_ok else "disjoint",
+                "non-empty disjoint straight_ahead and pose_to_pose lists",
+                "separate straight-ahead physics simulation from pose-to-pose keyframing",
+            )
+        )
+    if "planted_foot_lock" in p:
+        checks.append(_chk("planted_foot_lock", p["planted_foot_lock"] is True, p["planted_foot_lock"], True, "stance feet stay locked to ground while carrying weight"))
+    if "stride_speed_check" in p:
+        sc = p["stride_speed_check"]
+        if not isinstance(sc, dict):
+            checks.append(_chk("planted_foot_math", False, sc, "object with stride/duty/period_s/travel_speed", "stride_speed_check must be an object"))
+        else:
+            stride = _finite_num(sc.get("stride"))
+            duty = _finite_num(sc.get("duty"))
+            period = _finite_num(sc.get("period_s"))
+            scale = _finite_num(sc.get("scale", 1.0))
+            speed = _finite_num(sc.get("travel_speed"))
+            if None in (stride, duty, period, scale, speed) or stride <= 0.0 or period <= 0.0 or scale <= 0.0 or not (0.1 < duty < 0.95):
+                checks.append(_chk("planted_foot_math", False, sc, "travel_speed == (stride / (duty * period_s)) * scale", "valid positive stride, duty in (0.1,0.95), period_s, scale, travel_speed required"))
+            else:
+                want = (stride / (duty * period)) * scale
+                err = abs(speed - want)
+                checks.append(_chk("planted_foot_math", err <= 1e-3 * max(1.0, abs(want)), round(speed, 4), round(want, 4), "travel_speed matches (stride / (duty * period_s)) * scale so feet never slide"))
+    if "anticipation_ms" in p:
+        am = _finite_num(p["anticipation_ms"])
+        checks.append(_chk("anticipation_windup", am is not None and 40.0 <= am <= 400.0, am if am is not None else p["anticipation_ms"], "40..400 ms", "wind-up anticipation before impact"))
+    if "arc_motion" in p:
+        checks.append(_chk("curved_arcs", p["arc_motion"] is True, p["arc_motion"], True, "hero paths follow curved arcs rather than raw linear segments"))
+    if "stagger_ms" in p:
+        sm = _finite_num(p["stagger_ms"])
+        checks.append(_chk("ui_stagger_ms", sm is not None and 25.0 <= sm <= 80.0, sm if sm is not None else p["stagger_ms"], "25..80 ms (40 ms default)", "directional stagger between sibling UI elements"))
+    if "overshoot_settle" in p:
+        checks.append(_chk("overshoot_settle", p["overshoot_settle"] is True, p["overshoot_settle"], True, "elements overshoot slightly and settle instead of hard-stopping"))
+    if "staging_active_count" in p:
+        sac = _strict_int(p["staging_active_count"])
+        checks.append(_chk("staging_restraint", sac is not None and 1 <= sac <= 3, sac if sac is not None else p["staging_active_count"], "1..3 moving focal elements", "staging restraint: keep 1-3 active focal movers; stop two things when busy"))
+    if "palette_colors" in p:
+        pal = p["palette_colors"]
+        if isinstance(pal, list) and all(isinstance(c, str) and HEX_PALETTE_RE.match(c.strip()) for c in pal):
+            uniq = {c.strip().lower() for c in pal}
+            pal_ok = 2 <= len(pal) <= 3 and len(uniq) == len(pal)
+        else:
+            pal_ok = False
+        checks.append(_chk("style_palette_restraint", pal_ok, pal, "2..3 distinct hex colors", "explicit 2-3 color style palette avoids generic defaults"))
+    if not checks:
+        checks.append(_chk("principles_config", False, p, "at least one principles field", "principles block contained no verifiable fields"))
+    return checks
+
+
+def _check_logo_sting_block(ls):
+    if not isinstance(ls, dict) or not ls:
+        return [_chk("logo_sting_config", False, ls, "non-empty object", "logo_sting block must declare 3-act structure and duration")]
+    checks = []
+    dur = _finite_num(ls.get("duration_s"))
+    checks.append(_chk("logo_sting_duration", dur is not None and 0.0 < dur <= 30.0, dur if dur is not None else ls.get("duration_s"), "(0, 30] s", "logo sting completes under 30 s"))
+    acts = ls.get("acts")
+    acts_ok = False
+    if isinstance(acts, list) and len(acts) == 3:
+        kinds = []
+        act_durs = []
+        valid_items = True
+        for item in acts:
+            if isinstance(item, str):
+                kinds.append(item.strip().lower())
+            elif isinstance(item, dict):
+                k = item.get("kind")
+                if not isinstance(k, str):
+                    valid_items = False
+                    break
+                kinds.append(k.strip().lower())
+                if "duration_s" in item:
+                    ad = _finite_num(item["duration_s"])
+                    if ad is None or ad <= 0.0:
+                        valid_items = False
+                        break
+                    act_durs.append(ad)
+            else:
+                valid_items = False
+                break
+        if valid_items and tuple(kinds) == LOGO_STING_ACTS:
+            if act_durs:
+                acts_ok = len(act_durs) == 3 and (dur is None or abs(sum(act_durs) - dur) <= 1e-3)
+            else:
+                acts_ok = True
+    checks.append(_chk("logo_sting_3act", acts_ok, acts, "['object', 'transformation', 'lockup']", "3-act logo sting follows object -> transformation -> lockup"))
+    if "lockup_hold_s" in ls:
+        lh = _finite_num(ls["lockup_hold_s"])
+        lh_ok = lh is not None and lh >= 1.0 and (dur is None or lh <= dur)
+        checks.append(_chk("logo_sting_lockup_hold", lh_ok, lh if lh is not None else ls["lockup_hold_s"], ">= 1.0 s", "final lockup holds cleanly for at least 1 s"))
+    return checks
+
+
+def _check_review_passes_block(rp):
+    if not isinstance(rp, dict) or not rp:
+        return [_chk("review_passes_config", False, rp, "non-empty object", "review_passes block must declare macro sheet, micro strip, and 3 isolated passes")]
+    checks = []
+    ms = rp.get("macro_sheet")
+    if isinstance(ms, dict):
+        cols = _strict_int(ms.get("cols"))
+        rows = _strict_int(ms.get("rows"))
+        fps = _finite_num(ms.get("fps"))
+        ms_ok = cols == 4 and rows == 3 and fps is not None and 0.0 < fps <= 1.0
+    else:
+        ms_ok = False
+    checks.append(_chk("macro_contact_sheet", ms_ok, ms, "4x3 grid at <= 1 fps (1 fps for <= 12 s)", "4x3 macro contact sheet checks pacing and staging"))
+
+    micro = rp.get("micro_strip")
+    if isinstance(micro, dict):
+        win = _finite_num(micro.get("window_s"))
+        micro_ok = win is not None and 0.1 <= win <= 0.6 and micro.get("every_frame") is True
+    else:
+        micro_ok = False
+    checks.append(_chk("micro_hero_strip", micro_ok, micro, "every_frame=true over 0.1..0.6 s hero beat", "every-frame micro-strip inspects the critical 0.5 s hero beat"))
+
+    passes = rp.get("passes")
+    passes_ok = False
+    if isinstance(passes, list) and len(passes) == 3:
+        focuses = []
+        all_single = True
+        for item in passes:
+            if not isinstance(item, dict):
+                all_single = False
+                break
+            foc = item.get("focus")
+            if not (isinstance(foc, str) and foc.strip()):
+                all_single = False
+                break
+            if item.get("single_issue_only") is not True:
+                all_single = False
+                break
+            focuses.append(foc.strip().lower())
+        passes_ok = all_single and len(set(focuses)) == 3
+    checks.append(_chk("isolated_review_passes", passes_ok, passes, "3 distinct single_issue_only passes (e.g. weight, overlap, staging)", "three isolated single-question review passes never mix fixes"))
+
+    checks.append(_chk("frame1_mute_phone", rp.get("frame1_mute_phone_checked") is True, rp.get("frame1_mute_phone_checked"), True, "frame 1 verified muted and legible at phone size"))
+    return checks
+
+
 def check_camera_spec(spec):
     if not isinstance(spec, dict):
         return {"ok": False, "checks": [_chk("spec_object", False, type(spec).__name__, "JSON object", "camera spec must be a JSON object")]}
@@ -411,8 +586,9 @@ def check_camera_spec(spec):
     # 1. Deterministic seed + contact-sheet frame count
     seed = spec.get("seed")
     checks.append(_chk("deterministic_seed", isinstance(seed, int) and not isinstance(seed, bool), seed, "integer seed", "per-part procedural drawing requires explicit seed"))
-    sheet_n = int(spec.get("contact_sheet_frames", 8))
-    checks.append(_chk("contact_sheet_frames", 8 <= sheet_n <= 16, sheet_n, "8..16 frames", "pre-render visual verification sheet"))
+    sheet_raw = spec.get("contact_sheet_frames", 8)
+    sheet_n = _strict_int(sheet_raw)
+    checks.append(_chk("contact_sheet_frames", sheet_n is not None and 8 <= sheet_n <= 16, sheet_raw, "8..16 frames", "pre-render visual verification sheet"))
 
     # 2. Log-space zoom uniformity & clamped frame bounds
     if "zoom" in spec:
@@ -457,7 +633,7 @@ def check_camera_spec(spec):
             max_frame_err = max(max_frame_err, abs(want_f - got_f))
         checks.append(_chk("beat_frame_math", max_frame_err == 0, int(max_frame_err), 0, "frames computed from round(t * fps) without cumulative drift"))
 
-    # 5. Optional Motion QA / timing / framing / seam contracts
+    # 5. Optional Motion QA / timing / framing / seam / 12-rules contracts
     if "motion" in spec:
         checks.extend(_check_motion_block(spec["motion"]))
     if "timing" in spec:
@@ -466,9 +642,24 @@ def check_camera_spec(spec):
         checks.extend(_check_framing_block(spec["framing"]))
     if "seams" in spec:
         checks.extend(_check_seams_block(spec["seams"]))
+    if "principles" in spec:
+        checks.extend(_check_principles_block(spec["principles"]))
+    if "logo_sting" in spec:
+        checks.extend(_check_logo_sting_block(spec["logo_sting"]))
+    if "review_passes" in spec:
+        checks.extend(_check_review_passes_block(spec["review_passes"]))
 
     ok = bool(checks) and all(c["ok"] for c in checks)
     return {"ok": ok, "checks": checks}
+
+
+def check_camera_file(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            spec = json.load(f)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return {"ok": False, "checks": [_chk("camera_json_valid", False, str(exc), "valid JSON file", "camera spec must be a readable UTF-8 JSON file")]}
+    return check_camera_spec(spec)
 
 
 def main():
@@ -489,7 +680,7 @@ def main():
     if not (a.video or a.camera):
         ap.error("provide --video FILE.mp4 or --camera CAMERA.json")
     if a.camera:
-        res = check_camera_spec(json.load(open(a.camera, encoding="utf-8")))
+        res = check_camera_file(a.camera)
     else:
         res = check_video_sync(
             a.video,

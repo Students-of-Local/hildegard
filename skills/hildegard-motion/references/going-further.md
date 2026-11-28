@@ -105,6 +105,24 @@ percentile of the contrast ratios of the pixels in the rect (`motion.contrast_ra
 Pin what you load: fonts from the pinned list in `motion.FONT_PINS` (or a file you have the right to use), libraries from a
 local file or a pinned CDN URL, never an unpinned `latest`. No network at render time once everything is cached.
 
+## Generator-based vector motion (Motion Canvas, MIT)
+
+When you need TypeScript/Canvas programmatic explainers or voiceover-synced vector graphics under a pure MIT license (no >3-person commercial seat cap, unlike Remotion), use `@motion-canvas/core` + `@motion-canvas/2d` generators:
+
+```ts
+import { makeScene2D, Rect } from '@motion-canvas/2d';
+import { all, createRef, waitUntil } from '@motion-canvas/core';
+
+export default makeScene2D(function* (view) {
+  const card = createRef<Rect>();
+  view.add(<Rect ref={card} width={320} height={180} radius={16} fill="#14161a" opacity={0} />);
+  yield* waitUntil('card-in');
+  yield* all(card().opacity(1, 0.45), card().y(-24, 0.45));
+});
+```
+
+Hold rendered exports to the exact same bars above and verify with `python3 scripts/check_sync.py --video out.mp4 --max-freeze 0.5 --post-aac-lufs -14 --post-aac-peak -2.0`.
+
 ## Before you deliver anything made this way
 
 Hash the frames twice and compare. Make the contact sheet and look at it. Run `ffprobe` on the output and confirm the

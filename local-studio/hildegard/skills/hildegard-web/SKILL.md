@@ -173,3 +173,46 @@ render is a regression.
 - A dark pattern: a pre-ticked box, a hidden cost, a cancel that's harder than the sign-up, a fake countdown.
 - Someone else's brand, or a page that passes itself off as a real company your user isn't.
 - A login or payment form that sends anywhere but your user's own, real service.
+
+
+## Tactile anime UI VFX controls (sakuga)
+
+When asked for expressive anime-style ("sakuga") UI controls (buttons, toggles, sliders, checkboxes, radios, inputs, tabs, progress bars, ratings, toasts, tooltips), keep the real control semantic and plain at rest, and validate the contract with `python3 -B <folder>/scripts/check_design.py --sakuga control.json --pre-render` before rendering and `python3 -B <folder>/scripts/check_design.py --sakuga control.json` after frame-strip signoff:
+
+- **Semantic control and rest state (`control`, `plain_at_rest`, `immediate_state_change`):** wrap a real native control (`button`, `toggle`, `switch`, `slider`, `checkbox`, `radio`, `input`, `tabs`, `progress`, `rating`, `toast`, `tooltip`). Keep it plain at rest with zero idle clutter (`"plain_at_rest": true`), and update state immediately (`"immediate_state_change": true`) so drawn effects only decorate and never obscure readable labels.
+- **Four reaction beats (`beats`):** script the reaction in exact order `anticipation`, `hit`, `follow_through`, `settle`. Give each beat 1 to 2 effects (`settle` may have 0 to 2) and at most one `"sfx_word"` across the entire reaction, placed strictly on `"hit"`.
+- **Single shared canvas and clock (`shared_clock_canvas`):** draw all effects on one shared overlay `<canvas>` driven by one shared clock queue (`later(ms, fn)`, never raw `setTimeout`) so stepped frame sheets are deterministic.
+- **Visual rules (`visual_rules`):** two flat tones plus an ink outline with no gradients or blur (`"flat_two_tone_outline": true`), effects exit by shrinking or thinning rather than fading opacity (`"exit_by_shrink_not_fade": true`), hand-driven controls move on springs (`"spring_driven": true`), `prefers-reduced-motion` disables drawn VFX while keeping functional state changes (`"reduced_motion_keeps_state": true`), and `"volume_preserving_squash"` keeps `scale_x * scale_y` within `[0.85, 1.15]` (for example `scale_x: 1.25, scale_y: 0.8` or `scale_x: 0.8, scale_y: 1.25`).
+- **Host CSS variable theming (`css_vars`):** expose 2 to 8 `--*` CSS custom properties with valid CSS colors (for example `--sk-ink`, `--sk-card`, `--sk-acc`) so host `:root` rules win cleanly.
+- **Post-render verification (`verification`):** omit when running `--pre-render`; for full signoff include `>= 4` strictly increasing `"frame_strip_times_s"`, `"widths_px"` covering phone (`<= 390`) and desktop (`>= 1024`), `"horizontal_overflow": false`, and `"keyboard_checked": true`.
+
+Exact `check_design.py --sakuga` JSON shape (use ONLY these top-level keys; adapt `control`, `beats`, `volume_preserving_squash`, and `verification` to the brief):
+
+```json
+{
+  "control": "button",
+  "plain_at_rest": true,
+  "immediate_state_change": true,
+  "beats": [
+    { "name": "anticipation", "effects": ["press_squash"] },
+    { "name": "hit", "effects": ["impact_burst", "invert_frame"], "sfx_word": "DON!" },
+    { "name": "follow_through", "effects": ["smoke_puffs"] },
+    { "name": "settle", "effects": ["spring_settle"] }
+  ],
+  "shared_clock_canvas": true,
+  "visual_rules": {
+    "flat_two_tone_outline": true,
+    "exit_by_shrink_not_fade": true,
+    "spring_driven": true,
+    "reduced_motion_keeps_state": true,
+    "volume_preserving_squash": { "scale_x": 1.25, "scale_y": 0.8 }
+  },
+  "css_vars": { "--sk-ink": "#1a1a1f", "--sk-card": "#ffffff", "--sk-acc": "#e84a7f" },
+  "verification": {
+    "frame_strip_times_s": [0, 0.05, 0.12, 0.25, 0.45, 0.8],
+    "widths_px": [390, 1440],
+    "horizontal_overflow": false,
+    "keyboard_checked": true
+  }
+}
+```

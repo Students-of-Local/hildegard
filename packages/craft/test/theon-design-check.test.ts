@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -588,6 +588,211 @@ omitted:
     writeFileSync(nonUtf8Iso, Buffer.from([0xff, 0xfe, 0x00, 0x80]));
     for (const badPath of [join(dir, 'does-not-exist.json'), dir, malformedIso, nonUtf8Iso]) {
       const rErr = runPy(['--iso', badPath, '--json']);
+      expect(rErr.status).toBe(1);
+      expect(rErr.stderr).not.toContain('Traceback');
+      expect(JSON.parse(rErr.stdout).ok).toBe(false);
+    }
+  });
+
+  it('validates animated line-art SVG ink contracts (--ink-anim) including planted-foot gait math and --pre-render', () => {
+    const goodInk = join(dir, 'ink-ok.json');
+    writeFileSync(
+      goodInk,
+      JSON.stringify({
+        open_stroke_limbs: true,
+        curved_lines: true,
+        gait: {
+          kind: 'walk',
+          stride: 36,
+          duty: 0.6,
+          period_s: 1.0,
+          scale: 0.5,
+          travel_speed: 30.0,
+          free_sine_walk: false,
+        },
+        skeleton_first_cloth: true,
+        card_fixed_bg: true,
+        palette_tokens: { ink: 'currentColor', paper_class: '.pp' },
+        debug_stepping: { query_flag: '?debug', step_fn: 'window.__step', dt_s: 0.016667 },
+        zoomed_strip_checked: true,
+        day_cycle_checked: true,
+      }),
+    );
+    const rOk = runPy(['--ink-anim', goodInk, '--json']);
+    expect(rOk.status, rOk.stdout).toBe(0);
+
+    // Pre-render mode passes without zoomed_strip_checked; full mode rejects it
+    const preInk = join(dir, 'ink-prerender.json');
+    writeFileSync(
+      preInk,
+      JSON.stringify({
+        open_stroke_limbs: true,
+        curved_lines: true,
+        gait: {
+          kind: 'run',
+          stride: 32,
+          duty: 0.4,
+          period_s: 0.5,
+          scale: 1.0,
+          travel_speed: 160.0,
+          free_sine_walk: false,
+        },
+        skeleton_first_cloth: true,
+        card_fixed_bg: true,
+        palette_tokens: { ink: 'currentColor', paper_class: '.pp' },
+        debug_stepping: { query_flag: '?debug', step_fn: 'window.__step', dt_s: 0.016667 },
+      }),
+    );
+    expect(runPy(['--ink-anim', preInk, '--pre-render', '--json']).status).toBe(0);
+    expect(runPy(['--ink-anim', preInk, '--json']).status).toBe(1);
+
+    // Skating travel_speed, free_sine_walk=true, wrong run duty >= 0.5, and bad debug dt_s must fail
+    const badInk = join(dir, 'ink-bad.json');
+    writeFileSync(
+      badInk,
+      JSON.stringify({
+        open_stroke_limbs: false,
+        curved_lines: false,
+        gait: {
+          kind: 'run',
+          stride: 32,
+          duty: 0.6,
+          period_s: 0.5,
+          scale: 1.0,
+          travel_speed: 999.0,
+          free_sine_walk: true,
+        },
+        skeleton_first_cloth: false,
+        card_fixed_bg: false,
+        palette_tokens: { ink: '#000', paper_class: 'pp' },
+        debug_stepping: { query_flag: 'debug', step_fn: '', dt_s: 0.1 },
+        zoomed_strip_checked: false,
+        extra_key: 1,
+      }),
+    );
+    const rBad = runPy(['--ink-anim', badInk, '--json']);
+    expect(rBad.status).toBe(1);
+    const badIds = JSON.parse(rBad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(badIds).toContain('unknown_keys');
+    expect(badIds).toContain('open_stroke_limbs');
+    expect(badIds).toContain('curved_lines');
+    expect(badIds).toContain('planted_foot_gait');
+    expect(badIds).toContain('no_free_sine_walk');
+    expect(badIds).toContain('skeleton_first_cloth');
+    expect(badIds).toContain('card_fixed_bg');
+    expect(badIds).toContain('ink_paper_tokens');
+    expect(badIds).toContain('deterministic_debug_step');
+    expect(badIds).toContain('zoomed_strip_checked');
+
+    // Missing/malformed/non-UTF-8/dir --ink-anim returns JSON without traceback
+    const nonUtf8 = join(dir, 'ink-nonutf8.json');
+    writeFileSync(nonUtf8, Buffer.from([0xff, 0xfe]));
+    for (const p of [join(dir, 'nope-ink.json'), dir, nonUtf8]) {
+      const rErr = runPy(['--ink-anim', p, '--json']);
+      expect(rErr.status).toBe(1);
+      expect(rErr.stderr).not.toContain('Traceback');
+      expect(JSON.parse(rErr.stdout).ok).toBe(false);
+    }
+  });
+
+  it('validates sakuga tactile UI VFX contracts (--sakuga) including 4 beats, volume squash, and --pre-render', () => {
+    const goodSak = join(dir, 'sakuga-ok.json');
+    writeFileSync(
+      goodSak,
+      JSON.stringify({
+        control: 'button',
+        plain_at_rest: true,
+        immediate_state_change: true,
+        beats: [
+          { name: 'anticipation', effects: ['press_squash'] },
+          { name: 'hit', effects: ['impact_burst', 'invert_frame'], sfx_word: 'DON!' },
+          { name: 'follow_through', effects: ['smoke_puffs'] },
+          { name: 'settle', effects: ['spring_settle'] },
+        ],
+        shared_clock_canvas: true,
+        visual_rules: {
+          flat_two_tone_outline: true,
+          exit_by_shrink_not_fade: true,
+          spring_driven: true,
+          reduced_motion_keeps_state: true,
+          volume_preserving_squash: { scale_x: 1.25, scale_y: 0.8 },
+        },
+        css_vars: { '--sk-ink': '#1a1a1f', '--sk-card': '#ffffff', '--sk-acc': '#e84a7f' },
+        verification: {
+          frame_strip_times_s: [0, 0.05, 0.12, 0.25, 0.45, 0.8],
+          widths_px: [390, 1440],
+          horizontal_overflow: false,
+          keyboard_checked: true,
+        },
+      }),
+    );
+    const rOk = runPy(['--sakuga', goodSak, '--json']);
+    expect(rOk.status, rOk.stdout).toBe(0);
+
+    // Pre-render skips verification; full mode rejects missing verification
+    const preSak = join(dir, 'sakuga-prerender.json');
+    const prePayload = JSON.parse(readFileSync(goodSak, 'utf8'));
+    delete prePayload.verification;
+    writeFileSync(preSak, JSON.stringify(prePayload));
+    expect(runPy(['--sakuga', preSak, '--pre-render', '--json']).status).toBe(0);
+    expect(runPy(['--sakuga', preSak, '--json']).status).toBe(1);
+
+    // Bad squash area (1.5*1.5), sfx on wrong beat, >2 effects per beat, token ref in css_vars, and missing phone width must fail
+    const badSak = join(dir, 'sakuga-bad.json');
+    writeFileSync(
+      badSak,
+      JSON.stringify({
+        control: 'carousel',
+        plain_at_rest: false,
+        immediate_state_change: false,
+        beats: [
+          { name: 'anticipation', effects: ['a', 'b', 'c'], sfx_word: 'WHOOSH' },
+          { name: 'hit', effects: ['burst'], sfx_word: 'DON!' },
+          { name: 'follow_through', effects: [] },
+          { name: 'settle', effects: [] },
+        ],
+        shared_clock_canvas: false,
+        visual_rules: {
+          flat_two_tone_outline: false,
+          exit_by_shrink_not_fade: false,
+          spring_driven: false,
+          reduced_motion_keeps_state: false,
+          volume_preserving_squash: { scale_x: 1.5, scale_y: 1.5 },
+        },
+        css_vars: { '--sk-ink': '{colors.ink}', '--sk-acc': 'notacolor' },
+        verification: {
+          frame_strip_times_s: [0, 0.2, 0.1],
+          widths_px: [1440],
+          horizontal_overflow: true,
+          keyboard_checked: false,
+        },
+      }),
+    );
+    const rBad = runPy(['--sakuga', badSak, '--json']);
+    expect(rBad.status).toBe(1);
+    const badIds = JSON.parse(rBad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(badIds).toContain('semantic_control');
+    expect(badIds).toContain('plain_at_rest');
+    expect(badIds).toContain('immediate_state_change');
+    expect(badIds).toContain('sakuga_beats');
+    expect(badIds).toContain('sakuga_sfx_on_hit');
+    expect(badIds).toContain('shared_clock_canvas');
+    expect(badIds).toContain('volume_preserving_squash');
+    expect(badIds).toContain('css_var_theming');
+    expect(badIds).toContain('stepped_frame_strip');
+    expect(badIds).toContain('responsive_widths');
+    expect(badIds).toContain('no_horizontal_overflow');
+    expect(badIds).toContain('keyboard_checked');
+
+    // Missing/malformed/non-UTF-8/dir --sakuga returns JSON without traceback
+    const nonUtf8Sak = join(dir, 'sak-nonutf8.json');
+    writeFileSync(nonUtf8Sak, Buffer.from([0xff, 0xfe]));
+    for (const p of [join(dir, 'nope-sak.json'), dir, nonUtf8Sak]) {
+      const rErr = runPy(['--sakuga', p, '--json']);
       expect(rErr.status).toBe(1);
       expect(rErr.stderr).not.toContain('Traceback');
       expect(JSON.parse(rErr.stdout).ok).toBe(false);
