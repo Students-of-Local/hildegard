@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Deterministic anti-slop HTML/CSS linter, DESIGN.md schema checker, and art/VFX contract checker.
+"""Deterministic anti-slop HTML/CSS linter, DESIGN.md schema checker, art/VFX contract checker, and SVG logo checker.
 
   python3 -B check_design.py --html FILE_OR_DIR [--json]
   python3 -B check_design.py --design-md DESIGN.md [--json]
   python3 -B check_design.py --iso ISO.json [--pre-render] [--json]
   python3 -B check_design.py --ink-anim INK.json [--pre-render] [--json]
   python3 -B check_design.py --sakuga SAKUGA.json [--pre-render] [--json]
+  python3 -B check_design.py --logo LOGO.svg [--allow-draft-text] [--surface #FFFFFF] [--json]
 
 Pure Python 3 stdlib (zero external dependencies).
 """
@@ -17,6 +18,7 @@ import math
 import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 
 SKIP_DIRS = {"node_modules", ".git", "__pycache__", "dist", "build"}
 HTML_EXTS = {".html", ".htm"}
@@ -870,6 +872,457 @@ def check_sakuga_file(path, pre_render=False):
     return check_sakuga_spec(spec, pre_render=pre_render)
 
 
+LOGO_SHAPE_TAGS = {"path", "circle", "ellipse", "rect", "polygon", "polyline", "line"}
+LOGO_FORBIDDEN_TAGS = {"script", "foreignobject", "link", "iframe", "embed", "object", "image"}
+LOGO_TEXT_TAGS = {"text", "tspan", "textpath"}
+LOGO_EFFECT_TAGS = {"filter", "fegaussianblur", "fedropshadow", "lineargradient", "radialgradient"}
+LOGO_NAMED_RGB = {
+    "black": (0, 0, 0),
+    "white": (255, 255, 255),
+    "red": (255, 0, 0),
+    "green": (0, 128, 0),
+    "blue": (0, 0, 255),
+    "navy": (0, 0, 128),
+    "teal": (0, 128, 128),
+    "maroon": (128, 0, 0),
+    "olive": (128, 128, 0),
+    "purple": (128, 0, 128),
+    "gray": (128, 128, 128),
+    "grey": (128, 128, 128),
+    "silver": (192, 192, 192),
+    "orange": (255, 165, 0),
+    "gold": (255, 215, 0),
+    "crimson": (220, 20, 60),
+    "indigo": (75, 0, 130),
+    "ivory": (255, 255, 240),
+    "beige": (245, 245, 220),
+    "linen": (250, 240, 230),
+    "coral": (255, 127, 80),
+}
+SVG_PATH_TOKEN_RE = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+SVG_TRANSFORM_RE = re.compile(r"(translate|scale|rotate)\s*\(([^)]*)\)", re.I)
+
+
+def _local_tag(tag):
+    if not isinstance(tag, str):
+        return ""
+    if "}" in tag:
+        tag = tag.rsplit("}", 1)[1]
+    return tag.strip().lower()
+
+
+def _parse_svg_len(val):
+    if not isinstance(val, str):
+        return None
+    s = val.strip().lower()
+    if s.endswith("px"):
+        s = s[:-2].strip()
+    try:
+        v = float(s)
+        return v if math.isfinite(v) else None
+    except ValueError:
+        return None
+
+
+def _parse_rgb_color(val):
+    """Parse #rgb, #rrggbb, rgb(...), or common named color to (r, g, b) tuple; None if none/transparent/unparsed."""
+    if not isinstance(val, str):
+        return None
+    s = val.strip().lower()
+    if s in ("", "none", "transparent", "inherit", "initial", "unset"):
+        return None
+    if s == "currentcolor":
+        return "currentColor"
+    if s in LOGO_NAMED_RGB:
+        return LOGO_NAMED_RGB[s]
+    m3 = re.fullmatch(r"#([0-9a-f]{3})", s)
+    if m3:
+        h = m3.group(1)
+        return (int(h[0] * 2, 16), int(h[1] * 2, 16), int(h[2] * 2, 16))
+    m6 = re.fullmatch(r"#([0-9a-f]{6})", s)
+    if m6:
+        h = m6.group(1)
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    mrgb = re.fullmatch(r"rgb\(\s*([^,]+),\s*([^,]+),\s*([^,)]+)\)", s)
+    if mrgb:
+        out = []
+        for g in mrgb.groups():
+            g = g.strip()
+            try:
+                if g.endswith("%"):
+                    v = float(g[:-1]) * 2.55
+                else:
+                    v = float(g)
+            except ValueError:
+                return None
+            if not math.isfinite(v):
+                return None
+            out.append(max(0, min(255, int(round(v)))))
+        return tuple(out)
+    return None
+
+
+def _rel_luminance(rgb):
+    def ch(c):
+        s = c / 255.0
+        return s / 12.92 if s <= 0.03928 else ((s + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * ch(rgb[0]) + 0.7152 * ch(rgb[1]) + 0.0722 * ch(rgb[2])
+
+
+def _contrast_ratio(rgb1, rgb2):
+    l1, l2 = _rel_luminance(rgb1), _rel_luminance(rgb2)
+    hi, lo = (l1, l2) if l1 >= l2 else (l2, l1)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _parse_inline_style_map(el):
+    out = {}
+    st = el.attrib.get("style", "")
+    if st:
+        for seg in st.split(";"):
+            if ":" in seg:
+                k, v = seg.split(":", 1)
+                out[k.strip().lower()] = v.strip()
+    return out
+
+
+def _apply_transforms(pts, tf_chain):
+    """Apply list of (kind, nums) transforms right-to-left (SVG order) to (x, y) points."""
+    out = list(pts)
+    for kind, nums in reversed(tf_chain):
+        if kind == "translate" and len(nums) >= 1:
+            tx = nums[0]
+            ty = nums[1] if len(nums) >= 2 else 0.0
+            out = [(x + tx, y + ty) for x, y in out]
+        elif kind == "scale" and len(nums) >= 1:
+            sx = nums[0]
+            sy = nums[1] if len(nums) >= 2 else sx
+            out = [(x * sx, y * sy) for x, y in out]
+        elif kind == "rotate" and len(nums) >= 1:
+            ang = math.radians(nums[0])
+            cx = nums[1] if len(nums) >= 3 else 0.0
+            cy = nums[2] if len(nums) >= 3 else 0.0
+            ca, sa = math.cos(ang), math.sin(ang)
+            out = [((x - cx) * ca - (y - cy) * sa + cx, (x - cx) * sa + (y - cy) * ca + cy) for x, y in out]
+    return out
+
+
+def _parse_transform_list(attr):
+    if not attr:
+        return []
+    out = []
+    for m in SVG_TRANSFORM_RE.finditer(attr):
+        kind = m.group(1).lower()
+        nums = [float(x) for x in re.findall(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", m.group(2))]
+        if nums and all(math.isfinite(x) for x in nums):
+            out.append((kind, nums))
+    return out
+
+
+def _path_points_and_cmds(d):
+    """Return (points, cmd_count) from SVG path data d (handles all absolute and relative commands)."""
+    tokens = SVG_PATH_TOKEN_RE.findall(d or "")
+    pts = []
+    cmds = 0
+    cx = cy = sx = sy = 0.0
+    cmd = None
+    i = 0
+    n = len(tokens)
+
+    def next_f():
+        nonlocal i
+        if i >= n or tokens[i].isalpha():
+            return None
+        v = float(tokens[i])
+        i += 1
+        return v
+
+    while i < n:
+        tok = tokens[i]
+        if tok.isalpha():
+            cmd = tok
+            cmds += 1
+            i += 1
+            if cmd in ("Z", "z"):
+                cx, cy = sx, sy
+                continue
+        if cmd is None:
+            i += 1
+            continue
+        if cmd in ("M", "m", "L", "l", "T", "t"):
+            x, y = next_f(), next_f()
+            if x is None or y is None:
+                break
+            cx, cy = (cx + x, cy + y) if cmd.islower() else (x, y)
+            if cmd in ("M", "m"):
+                sx, sy = cx, cy
+                cmd = "l" if cmd == "m" else "L"
+            pts.append((cx, cy))
+        elif cmd in ("H", "h"):
+            x = next_f()
+            if x is None:
+                break
+            cx = cx + x if cmd == "h" else x
+            pts.append((cx, cy))
+        elif cmd in ("V", "v"):
+            y = next_f()
+            if y is None:
+                break
+            cy = cy + y if cmd == "v" else y
+            pts.append((cx, cy))
+        elif cmd in ("C", "c"):
+            vals = [next_f() for _ in range(6)]
+            if any(v is None for v in vals):
+                break
+            if cmd == "c":
+                p1, p2, p3 = (cx + vals[0], cy + vals[1]), (cx + vals[2], cy + vals[3]), (cx + vals[4], cy + vals[5])
+            else:
+                p1, p2, p3 = (vals[0], vals[1]), (vals[2], vals[3]), (vals[4], vals[5])
+            pts.extend([p1, p2, p3])
+            cx, cy = p3
+        elif cmd in ("S", "s", "Q", "q"):
+            vals = [next_f() for _ in range(4)]
+            if any(v is None for v in vals):
+                break
+            if cmd.islower():
+                p1, p2 = (cx + vals[0], cy + vals[1]), (cx + vals[2], cy + vals[3])
+            else:
+                p1, p2 = (vals[0], vals[1]), (vals[2], vals[3])
+            pts.extend([p1, p2])
+            cx, cy = p2
+        elif cmd in ("A", "a"):
+            vals = [next_f() for _ in range(7)]
+            if any(v is None for v in vals):
+                break
+            nx, ny = (cx + vals[5], cy + vals[6]) if cmd == "a" else (vals[5], vals[6])
+            pts.append((nx, ny))
+            cx, cy = nx, ny
+        else:
+            i += 1
+    return pts, cmds
+
+
+def check_logo_svg(path, allow_draft_text=False, surface=None):
+    if not os.path.isfile(path):
+        return {"ok": False, "checks": [_chk("logo_file_exists", False, path, "existing SVG file", "logo SVG path does not exist or is not a file")]}
+    try:
+        raw = open(path, encoding="utf-8").read()
+    except (OSError, UnicodeDecodeError) as exc:
+        return {"ok": False, "checks": [_chk("logo_svg_valid", False, str(exc), "readable UTF-8 SVG", "logo SVG must be readable UTF-8")]}
+    if re.search(r"<!\s*ENTITY\b|<!\s*DOCTYPE\b[^>]*\b(?:SYSTEM|PUBLIC)\b", raw, re.I):
+        return {"ok": False, "checks": [_chk("logo_svg_valid", False, "XML entity/DTD declaration", "plain SVG without <!ENTITY> or external DTD", "reject XML entity and external DTD declarations in logo SVG")]}
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        return {"ok": False, "checks": [_chk("logo_svg_valid", False, str(exc), "valid XML/SVG", "logo SVG must parse cleanly as XML")]}
+    if _local_tag(root.tag) != "svg":
+        return {"ok": False, "checks": [_chk("logo_svg_valid", False, _local_tag(root.tag), "svg", "root element must be <svg>")]}
+
+    checks = [_chk("logo_svg_valid", True, "valid", "valid <svg>", "SVG parsed cleanly")]
+
+    # 1. Explicit clean viewBox and width/height aspect match
+    vb_raw = root.attrib.get("viewBox", "").strip()
+    vb_nums = [_parse_svg_len(t) for t in re.split(r"[\s,]+", vb_raw) if t] if vb_raw else []
+    vb_ok = len(vb_nums) == 4 and all(v is not None for v in vb_nums) and vb_nums[2] > 0.0 and vb_nums[3] > 0.0
+    if vb_ok:
+        vb_x, vb_y, vb_w, vb_h = vb_nums
+        w_attr = _parse_svg_len(root.attrib.get("width", ""))
+        h_attr = _parse_svg_len(root.attrib.get("height", ""))
+        if w_attr is not None and h_attr is not None:
+            if w_attr <= 0.0 or h_attr <= 0.0:
+                vb_ok = False
+            else:
+                ar_vb = vb_w / vb_h
+                ar_wh = w_attr / h_attr
+                if abs(ar_wh - ar_vb) / max(ar_vb, 1e-9) > 0.05:
+                    vb_ok = False
+    else:
+        vb_x, vb_y, vb_w, vb_h = 0.0, 0.0, 100.0, 100.0
+    checks.append(_chk("logo_viewbox", vb_ok, vb_raw or "missing", "4-number viewBox with positive dimensions matching width/height ratio", "explicit viewBox required so logo scales cleanly"))
+
+    # Walk tree with inherited fill/stroke/stroke-width and transform chain
+    security_hits = []
+    text_hits = 0
+    effect_hits = []
+    shape_count = 0
+    path_cmd_total = 0
+    thin_features = []
+    bbox = [float("inf"), float("inf"), float("-inf"), float("-inf")]
+    colors_seen = set()
+    has_current_color = False
+    vb_short = min(vb_w, vb_h)
+    min_feature = vb_short / 32.0
+
+    def walk(el, inh_fill, inh_stroke, inh_sw, tf_chain, in_non_render=False):
+        nonlocal text_hits, shape_count, path_cmd_total, has_current_color
+        tag = _local_tag(el.tag)
+        if tag in LOGO_FORBIDDEN_TAGS:
+            security_hits.append(f"<{tag}>")
+        if tag in LOGO_TEXT_TAGS and not in_non_render:
+            text_hits += 1
+        if tag in LOGO_EFFECT_TAGS:
+            effect_hits.append(f"<{tag}>")
+        if tag == "style" and el.text:
+            if re.search(r"@import\b|url\s*\(\s*['\"]?(?:https?:|//|javascript:|data:)", el.text, re.I):
+                security_hits.append("external-style-ref")
+
+        style_map = _parse_inline_style_map(el)
+        for k, v in el.attrib.items():
+            kl = _local_tag(k)
+            vl = (v or "").strip()
+            if kl.startswith("on"):
+                security_hits.append(f"attr:{kl}")
+            if kl in ("href", "src") and re.match(r"^(?:javascript:|https?:|//|file:|data:text/html)", vl, re.I):
+                security_hits.append(f"{kl}:{vl[:24]}")
+            if kl == "filter" and vl.lower() not in ("", "none"):
+                effect_hits.append(f"filter:{vl}")
+        if "filter" in style_map and style_map["filter"].lower() != "none":
+            effect_hits.append(f"style-filter:{style_map['filter']}")
+        if "style" in el.attrib and re.search(r"url\s*\(\s*['\"]?(?:https?:|//|javascript:)", el.attrib["style"], re.I):
+            security_hits.append("style-external-url")
+
+        cur_fill = style_map.get("fill", el.attrib.get("fill", inh_fill))
+        cur_stroke = style_map.get("stroke", el.attrib.get("stroke", inh_stroke))
+        cur_sw_raw = style_map.get("stroke-width", el.attrib.get("stroke-width", inh_sw))
+        cur_tf = tf_chain + _parse_transform_list(el.attrib.get("transform", ""))
+        next_non_render = in_non_render or (tag in ("defs", "clippath", "mask", "symbol", "title", "desc", "metadata"))
+
+        if tag in LOGO_SHAPE_TAGS and not next_non_render:
+            shape_count += 1
+            for prop_val in (cur_fill, cur_stroke):
+                if isinstance(prop_val, str) and prop_val.strip().lower().startswith("url("):
+                    effect_hits.append(f"paint:{prop_val.strip()}")
+                parsed_c = _parse_rgb_color(prop_val)
+                if parsed_c == "currentColor":
+                    has_current_color = True
+                elif isinstance(parsed_c, tuple):
+                    colors_seen.add(parsed_c)
+
+            tf_scale_x = tf_scale_y = 1.0
+            for tk, tnums in cur_tf:
+                if tk == "scale" and tnums:
+                    tf_scale_x *= abs(tnums[0])
+                    tf_scale_y *= abs(tnums[1] if len(tnums) >= 2 else tnums[0])
+            eff_scale_min = min(tf_scale_x, tf_scale_y)
+            eff_scale_max = max(tf_scale_x, tf_scale_y)
+
+            stroke_active = isinstance(cur_stroke, str) and cur_stroke.strip().lower() not in ("", "none", "transparent")
+            sw_val = _parse_svg_len(cur_sw_raw) if cur_sw_raw is not None else 1.0
+            if sw_val is None:
+                sw_val = 1.0
+            eff_sw = sw_val * eff_scale_min
+            if stroke_active and eff_sw < min_feature - 1e-6:
+                thin_features.append(f"{tag}:stroke-width={round(eff_sw, 3)}<{round(min_feature, 3)}")
+            pad = (sw_val * eff_scale_max / 2.0) if stroke_active else 0.0
+
+            pts = []
+            if tag == "rect":
+                x = _parse_svg_len(el.attrib.get("x", "0")) or 0.0
+                y = _parse_svg_len(el.attrib.get("y", "0")) or 0.0
+                w = _parse_svg_len(el.attrib.get("width", "0")) or 0.0
+                h = _parse_svg_len(el.attrib.get("height", "0")) or 0.0
+                if w * tf_scale_x < min_feature - 1e-6 or h * tf_scale_y < min_feature - 1e-6:
+                    thin_features.append(f"rect:{round(w * tf_scale_x, 2)}x{round(h * tf_scale_y, 2)}<{round(min_feature, 2)}")
+                pts = [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]
+            elif tag == "circle":
+                cx = _parse_svg_len(el.attrib.get("cx", "0")) or 0.0
+                cy = _parse_svg_len(el.attrib.get("cy", "0")) or 0.0
+                r = _parse_svg_len(el.attrib.get("r", "0")) or 0.0
+                if 2.0 * r * eff_scale_min < min_feature - 1e-6:
+                    thin_features.append(f"circle:d={round(2 * r * eff_scale_min, 2)}<{round(min_feature, 2)}")
+                pts = [(cx - r, cy - r), (cx + r, cy + r)]
+            elif tag == "ellipse":
+                cx = _parse_svg_len(el.attrib.get("cx", "0")) or 0.0
+                cy = _parse_svg_len(el.attrib.get("cy", "0")) or 0.0
+                rx = _parse_svg_len(el.attrib.get("rx", "0")) or 0.0
+                ry = _parse_svg_len(el.attrib.get("ry", "0")) or 0.0
+                if 2.0 * rx * tf_scale_x < min_feature - 1e-6 or 2.0 * ry * tf_scale_y < min_feature - 1e-6:
+                    thin_features.append(f"ellipse:{round(2 * rx * tf_scale_x, 2)}x{round(2 * ry * tf_scale_y, 2)}<{round(min_feature, 2)}")
+                pts = [(cx - rx, cy - ry), (cx + rx, cy + ry)]
+            elif tag == "line":
+                x1 = _parse_svg_len(el.attrib.get("x1", "0")) or 0.0
+                y1 = _parse_svg_len(el.attrib.get("y1", "0")) or 0.0
+                x2 = _parse_svg_len(el.attrib.get("x2", "0")) or 0.0
+                y2 = _parse_svg_len(el.attrib.get("y2", "0")) or 0.0
+                pts = [(x1, y1), (x2, y2)]
+            elif tag in ("polygon", "polyline"):
+                nums = [float(x) for x in re.findall(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", el.attrib.get("points", ""))]
+                pts = [(nums[k], nums[k + 1]) for k in range(0, len(nums) - 1, 2)]
+            elif tag == "path":
+                ppts, cmds = _path_points_and_cmds(el.attrib.get("d", ""))
+                path_cmd_total += cmds
+                pts = ppts
+
+            if pts:
+                tpts = _apply_transforms(pts, cur_tf)
+                for px, py in tpts:
+                    bbox[0] = min(bbox[0], px - pad)
+                    bbox[1] = min(bbox[1], py - pad)
+                    bbox[2] = max(bbox[2], px + pad)
+                    bbox[3] = max(bbox[3], py + pad)
+
+        for child in list(el):
+            walk(child, cur_fill, cur_stroke, cur_sw_raw, cur_tf, next_non_render)
+
+    walk(root, "black", "none", None, [], False)
+
+    checks.append(_chk("logo_self_contained", not security_hits, security_hits or "clean", "[]", "zero <script>, event handlers, <image>, <foreignObject>, or external URLs"))
+    text_ok = allow_draft_text or text_hits == 0
+    checks.append(_chk("logo_outlined_text", text_ok, text_hits if not text_ok else "outlined", "0 <text> nodes (or --allow-draft-text)", "convert wordmark glyphs to <path> outlines so logos never font-substitute"))
+    comp_ok = (1 <= shape_count <= 64) and (path_cmd_total <= 400)
+    checks.append(_chk("logo_complexity", comp_ok, {"shapes": shape_count, "path_cmds": path_cmd_total}, "1..64 shapes and <= 400 path commands", "clean vector geometry without bloated auto-trace soup"))
+    checks.append(_chk("logo_micro_legibility", not thin_features, thin_features or "legible", f"strokes/features >= {round(min_feature, 3)} (>= 0.5px at 16px favicon)", "features survive 16px favicon downscale without vanishing"))
+
+    if bbox[0] <= bbox[2] and bbox[1] <= bbox[3]:
+        mx, my = 0.04 * vb_w, 0.04 * vb_h
+        cs_ok = (
+            bbox[0] >= vb_x + mx - 1e-6
+            and bbox[1] >= vb_y + my - 1e-6
+            and bbox[2] <= vb_x + vb_w - mx + 1e-6
+            and bbox[3] <= vb_y + vb_h - my + 1e-6
+        )
+        cs_val = [round(v, 2) for v in bbox]
+    else:
+        cs_ok = False
+        cs_val = "empty"
+    checks.append(_chk("logo_clearspace", cs_ok, cs_val, f"within [{round(vb_x + 0.04*vb_w, 2)}, {round(vb_y + 0.04*vb_h, 2)}]..[{round(vb_x + 0.96*vb_w, 2)}, {round(vb_y + 0.96*vb_h, 2)}]", "keep >= 4% clearspace inside viewBox with zero clipped edges"))
+
+    checks.append(_chk("logo_monochrome_safe", not effect_hits, effect_hits or "flat", "[]", "flat solid shapes without gradients, blur, or drop-shadow filters"))
+
+    total_inks = len(colors_seen) + (1 if has_current_color else 0)
+    pal_ok = 1 <= total_inks <= 3
+    checks.append(_chk("logo_palette_restraint", pal_ok, total_inks, "1..3 distinct brand colors", "cap logo palette to at most 3 distinct flat brand inks"))
+
+    if surface is not None:
+        surf_rgb = _parse_rgb_color(surface)
+        if not isinstance(surf_rgb, tuple):
+            contrast_ok = False
+            contrast_val = f"invalid surface {surface}"
+        elif not colors_seen and has_current_color:
+            contrast_ok = True
+            contrast_val = "currentColor"
+        else:
+            ratios = [round(_contrast_ratio(c, surf_rgb), 2) for c in colors_seen]
+            contrast_ok = bool(ratios) and all(r >= 3.0 for r in ratios)
+            contrast_val = {"surface": surface, "min_ratio": min(ratios) if ratios else 0.0}
+    else:
+        if not colors_seen and has_current_color:
+            contrast_ok = True
+            contrast_val = "currentColor"
+        else:
+            light_ok = bool(colors_seen) and all(_contrast_ratio(c, (255, 255, 255)) >= 3.0 for c in colors_seen)
+            dark_ok = bool(colors_seen) and all(_contrast_ratio(c, (17, 17, 17)) >= 3.0 for c in colors_seen)
+            contrast_ok = light_ok or dark_ok
+            min_l = round(min((_contrast_ratio(c, (255, 255, 255)) for c in colors_seen), default=0.0), 2)
+            min_d = round(min((_contrast_ratio(c, (17, 17, 17)) for c in colors_seen), default=0.0), 2)
+            contrast_val = {"min_on_light": min_l, "min_on_dark": min_d}
+    checks.append(_chk("logo_contrast", contrast_ok, contrast_val, ">= 3.0:1 WCAG graphical contrast on light or dark surface (no fake white-fill cutouts)", "all logo inks meet >= 3:1 contrast on their target surface"))
+
+    ok = bool(checks) and all(c["ok"] for c in checks)
+    return {"ok": ok, "checks": checks}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--html", help="HTML/CSS file or directory to audit against anti-slop Floor rules")
@@ -877,13 +1330,16 @@ def main():
     ap.add_argument("--iso", help="Isometric technical illustration contract JSON to verify")
     ap.add_argument("--ink-anim", help="Line-art SVG ink animation contract JSON to verify")
     ap.add_argument("--sakuga", help="Sakuga tactile UI VFX control contract JSON to verify")
+    ap.add_argument("--logo", help="Vector logo SVG file to validate against studio logo invariants")
+    ap.add_argument("--allow-draft-text", action="store_true", help="For --logo: allow live <text> elements during early draft lockups")
+    ap.add_argument("--surface", default=None, help="For --logo: target background color (e.g. #FFFFFF or #111111) for WCAG >= 3:1 contrast check")
     ap.add_argument("--pre-render", action="store_true", help="For --iso/--ink-anim/--sakuga: validate pre-render plan without requiring post-render audit flags")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
-    modes = (a.html, a.design_md, a.iso, a.ink_anim, a.sakuga)
+    modes = (a.html, a.design_md, a.iso, a.ink_anim, a.sakuga, a.logo)
     if sum(bool(x) for x in modes) != 1:
-        ap.error("provide exactly one of --html, --design-md, --iso, --ink-anim, or --sakuga")
+        ap.error("provide exactly one of --html, --design-md, --iso, --ink-anim, --sakuga, or --logo")
     if a.html:
         res = check_html_path(a.html)
     elif a.design_md:
@@ -892,8 +1348,10 @@ def main():
         res = check_iso_file(a.iso, pre_render=a.pre_render)
     elif a.ink_anim:
         res = check_ink_anim_file(a.ink_anim, pre_render=a.pre_render)
-    else:
+    elif a.sakuga:
         res = check_sakuga_file(a.sakuga, pre_render=a.pre_render)
+    else:
+        res = check_logo_svg(a.logo, allow_draft_text=a.allow_draft_text, surface=a.surface)
 
     if a.json:
         print(json.dumps(res, indent=2))

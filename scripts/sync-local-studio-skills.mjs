@@ -265,6 +265,7 @@ export const EDITS = [
     'hildegard-design/SKILL.md': [
       'python3 scripts/check_design.py --html design.html',
       'python3 scripts/check_design.py --design-md design.md',
+      'python3 scripts/check_design.py --logo logo.svg',
     ],
     'hildegard-film/SKILL.md': [
       'python3 scripts/review_media.py',

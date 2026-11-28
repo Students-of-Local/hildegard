@@ -798,4 +798,122 @@ omitted:
       expect(JSON.parse(rErr.stdout).ok).toBe(false);
     }
   });
+
+  it('validates vector logo SVGs (--logo) for viewBox, security, outlined text, clearspace, 16px legibility, flat monochrome, and WCAG contrast', () => {
+    // 1. Clean light-surface evenodd mark + non-rendered <defs><clipPath> must PASS
+    const goodLight = join(dir, 'logo-light.svg');
+    writeFileSync(
+      goodLight,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs><clipPath id="c"><rect x="0" y="0" width="100" height="100"/></clipPath></defs>
+  <path fill="#1A1C1E" fill-rule="evenodd" d="M 16 16 H 84 V 84 H 16 Z M 34 34 H 66 V 66 H 34 Z"/>
+  <rect x="42" y="42" width="16" height="16" fill="#B8422E"/>
+</svg>`,
+    );
+    expect(runPy(['--logo', goodLight, '--surface', '#FFFFFF', '--json']).status).toBe(0);
+    expect(runPy(['--logo', goodLight, '--json']).status).toBe(0);
+
+    // 2. Clean dark-surface inverse mark + universal currentColor mark must PASS
+    const goodDark = join(dir, 'logo-dark.svg');
+    writeFileSync(
+      goodDark,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="12" y="12" width="40" height="40" fill="#F6F1E7"/>
+  <circle cx="32" cy="32" r="10" fill="#F2B84B"/>
+</svg>`,
+    );
+    expect(runPy(['--logo', goodDark, '--surface', '#111111', '--json']).status).toBe(0);
+    expect(runPy(['--logo', goodDark, '--surface', '#FFFFFF', '--json']).status).toBe(1);
+
+    const goodMono = join(dir, 'logo-mono.svg');
+    writeFileSync(
+      goodMono,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <polygon points="32,10 54,52 10,52" fill="currentColor"/>
+</svg>`,
+    );
+    expect(runPy(['--logo', goodMono, '--surface', '#FFFFFF', '--json']).status).toBe(0);
+    expect(runPy(['--logo', goodMono, '--surface', '#111111', '--json']).status).toBe(0);
+
+    // 3. Live <text> rejected by default, allowed with --allow-draft-text
+    const draftSvg = join(dir, 'logo-draft.svg');
+    writeFileSync(
+      draftSvg,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <rect x="16" y="16" width="48" height="48" fill="#1A1C1E"/>
+  <text x="80" y="50" fill="#1A1C1E">HEARTH</text>
+</svg>`,
+    );
+    const rDraftFail = runPy(['--logo', draftSvg, '--json']);
+    expect(rDraftFail.status).toBe(1);
+    expect(
+      JSON.parse(rDraftFail.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('logo_outlined_text');
+    expect(runPy(['--logo', draftSvg, '--allow-draft-text', '--json']).status).toBe(0);
+
+    // 4. Fake white-fill cutout hack (#1A1C1E + #FFFFFF) must FAIL logo_contrast on both light and dark
+    const fakeCutout = join(dir, 'logo-fake-cutout.svg');
+    writeFileSync(
+      fakeCutout,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <circle cx="50" cy="50" r="34" fill="#1A1C1E"/>
+  <circle cx="50" cy="50" r="14" fill="#FFFFFF"/>
+</svg>`,
+    );
+    const rCut = runPy(['--logo', fakeCutout, '--json']);
+    expect(rCut.status).toBe(1);
+    expect(
+      JSON.parse(rCut.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('logo_contrast');
+
+    // 5. Security, aspect mismatch, hairline stroke, edge clip, gradient/filter, >3 inks, and >64 shapes must FAIL
+    const badSvg = join(dir, 'logo-bad.svg');
+    const manyRects = Array.from(
+      { length: 65 },
+      (_, i) => `<rect x="20" y="${20 + (i % 5)}" width="10" height="10" fill="#1A1C1E"/>`,
+    ).join('');
+    writeFileSync(
+      badSvg,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="100" onload="alert(1)">
+  <defs><linearGradient id="g"/><filter id="f"><feGaussianBlur stdDeviation="2"/></filter></defs>
+  <script>alert(1)</script>
+  <image href="https://example.com/x.png" width="20" height="20"/>
+  <rect x="0" y="0" width="100" height="100" fill="url(#g)" filter="url(#f)" stroke="#111111" stroke-width="1"/>
+  <circle cx="30" cy="30" r="10" fill="#B8422E"/>
+  <circle cx="50" cy="50" r="10" fill="#14532D"/>
+  <circle cx="70" cy="70" r="10" fill="#1E3A8A"/>
+  ${manyRects}
+</svg>`,
+    );
+    const rBad = runPy(['--logo', badSvg, '--json']);
+    expect(rBad.status).toBe(1);
+    const badIds = JSON.parse(rBad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(badIds).toContain('logo_viewbox');
+    expect(badIds).toContain('logo_self_contained');
+    expect(badIds).toContain('logo_complexity');
+    expect(badIds).toContain('logo_micro_legibility');
+    expect(badIds).toContain('logo_clearspace');
+    expect(badIds).toContain('logo_monochrome_safe');
+    expect(badIds).toContain('logo_palette_restraint');
+
+    // 6. XML entity bomb, malformed XML, non-UTF-8, missing file, and directory must emit clean JSON without traceback
+    const xxeSvg = join(dir, 'logo-xxe.svg');
+    writeFileSync(xxeSvg, '<!DOCTYPE svg [<!ENTITY x "boom">]><svg viewBox="0 0 10 10"/>');
+    const badXml = join(dir, 'logo-malformed.svg');
+    writeFileSync(badXml, '<svg><unclosed></svg>');
+    const nonUtf8 = join(dir, 'logo-nonutf8.svg');
+    writeFileSync(nonUtf8, Buffer.from([0xff, 0xfe, 0x00]));
+    for (const p of [xxeSvg, badXml, nonUtf8, join(dir, 'missing-logo.svg'), dir]) {
+      const rErr = runPy(['--logo', p, '--json']);
+      expect(rErr.status).toBe(1);
+      expect(rErr.stderr).not.toContain('Traceback');
+      expect(JSON.parse(rErr.stdout).ok).toBe(false);
+    }
+  });
 });
