@@ -800,12 +800,14 @@ omitted:
   });
 
   it('validates vector logo SVGs (--logo) for viewBox, security, outlined text, clearspace, 16px legibility, flat monochrome, and WCAG contrast', () => {
-    // 1. Clean light-surface evenodd mark + non-rendered <defs><clipPath> must PASS
+    // 1. Clean light-surface evenodd mark + benign <title>/<desc>/<metadata> must PASS
     const goodLight = join(dir, 'logo-light.svg');
     writeFileSync(
       goodLight,
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
-  <defs><clipPath id="c"><rect x="0" y="0" width="100" height="100"/></clipPath></defs>
+  <title>Hearth</title>
+  <desc>Clean geometric brand mark</desc>
+  <metadata><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description>Hearth Brand</rdf:Description></rdf:RDF></metadata>
   <path fill="#1A1C1E" fill-rule="evenodd" d="M 16 16 H 84 V 84 H 16 Z M 34 34 H 66 V 66 H 34 Z"/>
   <rect x="42" y="42" width="16" height="16" fill="#B8422E"/>
 </svg>`,
@@ -1301,5 +1303,240 @@ omitted:
       expect(r.status, label).toBe(1);
       expect(r.bad, label).toContain('logo_viewbox');
     }
-  });
+  }, 15_000);
+
+  it('enforces strict SVG tag/namespace/attribute allowlist and round-2 logo hardening regressions', () => {
+    const failedIds = (svgText: string, extraArgs: string[] = [], name = 'r2-case.svg') => {
+      const p = join(dir, name);
+      writeFileSync(p, svgText);
+      const r = runPy(['--logo', p, ...extraArgs, '--json']);
+      const parsed = JSON.parse(r.stdout);
+      const bad = parsed.checks.filter((c: { ok: boolean }) => !c.ok).map((c: { id: string }) => c.id);
+      return { status: r.status, ok: parsed.ok, bad, checks: parsed.checks, stdout: r.stdout };
+    };
+
+    // HIGH #1: URL-bearing presentation/reference attrs & disallowed container tags (<defs>/<clipPath>)
+    for (const [label, attr] of [
+      ['clip-path-url', 'clip-path="url(https://evil.example/a#c)"'],
+      ['mask-url', 'mask="url(https://evil.example/a#m)"'],
+      ['filter-url', 'filter="url(https://evil.example/a#f)"'],
+      ['marker-start-url', 'marker-start="url(https://evil.example/a#mk)"'],
+      ['cursor-url', 'cursor="url(https://evil.example/a.cur), auto"'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" ${attr}/></svg>`,
+        [],
+        `logo-r2-h1-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+    const defsClipRejected = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><clipPath id="c"><rect x="10" y="10" width="80" height="80"/></clipPath></defs><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-defs-clip.svg',
+    );
+    expect(defsClipRejected.status).toBe(1);
+    expect(defsClipRejected.bad).toContain('logo_self_contained');
+
+    // HIGH #2 + MEDIUM #13: Entity-obfuscated URI schemes & <a> links (javascript, https, mailto, blob)
+    for (const [label, body] of [
+      [
+        'href-tab-js',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="java&#x09;script:alert(1)"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+      [
+        'href-lf-https',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="h&#x0a;ttps://evil.example/x"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+      [
+        'a-mailto',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="mailto:x@y.com"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+      [
+        'a-blob',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><a href="blob:https://example.com/1234"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></a></svg>`,
+      ],
+    ] as const) {
+      const r = failedIds(body, [], `logo-r2-h2-${label}.svg`);
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+
+    // HIGH #3: ANY inline style attribute rejected (CSS escapes, inline transform, CSS comments)
+    for (const [label, styleVal] of [
+      ['css-escape-url', '\\75rl(https://evil.example/x)'],
+      ['css-escape-fill', 'fi\\6cl: #FFF'],
+      ['css-escape-opacity', 'op\\61city: 0.3'],
+      ['inline-transform', 'transform: scale(0.1)'],
+      ['css-comment-opacity', '/* c */ opacity: 0.3'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" style="${styleVal}"/></svg>`,
+        [],
+        `logo-r2-h3-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+
+    // HIGH #4: Hairline filled paths & scaled filled paths fail logo_micro_legibility
+    const hairlineBar = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#1A1C1E" d="M 10 10 H 90 V 11 H 10 Z"/></svg>`,
+      [],
+      'logo-r2-h4-bar.svg',
+    );
+    expect(hairlineBar.status).toBe(1);
+    expect(hairlineBar.bad).toContain('logo_micro_legibility');
+
+    const scaledTinyPath = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path fill="#1A1C1E" transform="translate(50 50) scale(0.01)" d="M -30 -30 H 30 V 30 H -30 Z"/></svg>`,
+      [],
+      'logo-r2-h4-scaled.svg',
+    );
+    expect(scaledTinyPath.status).toBe(1);
+    expect(scaledTinyPath.bad).toContain('logo_micro_legibility');
+
+    const hairlinePoly = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon fill="#1A1C1E" points="10,10 90,10 90,11 10,11"/></svg>`,
+      [],
+      'logo-r2-h4-poly.svg',
+    );
+    expect(hairlinePoly.status).toBe(1);
+    expect(hairlinePoly.bad).toContain('logo_micro_legibility');
+
+    // MEDIUM #6: Inherited color property with currentColor
+    for (const [label, body] of [
+      [
+        'svg-color-white',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" color="#FFFFFF"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></svg>`,
+      ],
+      [
+        'g-color-white',
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g color="#FFFFFF"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></g></svg>`,
+      ],
+    ] as const) {
+      const r = failedIds(body, ['--surface', '#FFFFFF'], `logo-r2-m6-${label}.svg`);
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_contrast');
+    }
+    const plainCurrentColor = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="currentColor"/></svg>`,
+      ['--surface', '#FFFFFF'],
+      'logo-r2-m6-plain.svg',
+    );
+    expect(plainCurrentColor.status, plainCurrentColor.stdout).toBe(0);
+
+    const badColorNone = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" color="none"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m6-color-none.svg',
+    );
+    expect(badColorNone.status).toBe(1);
+    expect(badColorNone.bad).toContain('logo_palette_restraint');
+
+    // MEDIUM #7: <tspan> inspected under --allow-draft-text, and <textPath> rejected outright
+    const tspanWhite = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" text-anchor="middle" font-size="28" fill="#1A1C1E">HEA<tspan fill="#FFFFFF">RTH</tspan></text>
+</svg>`,
+      ['--allow-draft-text', '--surface', '#FFFFFF'],
+      'logo-r2-m7-tspan-white.svg',
+    );
+    expect(tspanWhite.status).toBe(1);
+    expect(tspanWhite.bad).toContain('logo_contrast');
+
+    const tspanTranslucent = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" text-anchor="middle" font-size="28" fill="#1A1C1E">HEA<tspan opacity="0.5">RTH</tspan></text>
+</svg>`,
+      ['--allow-draft-text', '--surface', '#FFFFFF'],
+      'logo-r2-m7-tspan-op.svg',
+    );
+    expect(tspanTranslucent.status).toBe(1);
+    expect(tspanTranslucent.bad).toContain('logo_monochrome_safe');
+
+    const tspanValid = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" text-anchor="middle" font-size="28" fill="#1A1C1E">HEA<tspan fill="#B8422E">RTH</tspan></text>
+</svg>`,
+      ['--allow-draft-text', '--surface', '#FFFFFF'],
+      'logo-r2-m7-tspan-ok.svg',
+    );
+    expect(tspanValid.status, tspanValid.stdout).toBe(0);
+
+    const textPathRejected = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80">
+  <text x="120" y="52" font-size="24" fill="#1A1C1E"><textPath>HEARTH</textPath></text>
+</svg>`,
+      ['--allow-draft-text'],
+      'logo-r2-m7-textpath.svg',
+    );
+    expect(textPathRejected.status).toBe(1);
+    expect(textPathRejected.bad).toContain('logo_self_contained');
+
+    // MEDIUM #8: Unrounded WCAG contrast comparison (#959595 on #FFFFFF is ~2.995 < 3.0)
+    const borderlineContrast = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#959595"/></svg>`,
+      ['--surface', '#FFFFFF'],
+      'logo-r2-m8-959595.svg',
+    );
+    expect(borderlineContrast.status).toBe(1);
+    expect(borderlineContrast.bad).toContain('logo_contrast');
+
+    // MEDIUM #10: Non-SVG namespace child rejected outside <metadata>; malicious <metadata> child rejected; benign <metadata> allowed
+    const foreignNsChild = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><xhtml:div xmlns:xhtml="http://www.w3.org/1999/xhtml"/><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m10-xhtml.svg',
+    );
+    expect(foreignNsChild.status).toBe(1);
+    expect(foreignNsChild.bad).toContain('logo_self_contained');
+
+    const evilMetadata = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata><script>alert(1)</script></metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m10-meta-script.svg',
+    );
+    expect(evilMetadata.status).toBe(1);
+    expect(evilMetadata.bad).toContain('logo_self_contained');
+
+    const evilMetadataUri = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><metadata><dc:link xmlns:dc="http://purl.org/dc/elements/1.1/" ref="h&#x0a;ttps://evil.example/x"/></metadata><rect x="20" y="20" width="60" height="60" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-m10-meta-uri.svg',
+    );
+    expect(evilMetadataUri.status).toBe(1);
+    expect(evilMetadataUri.bad).toContain('logo_self_contained');
+
+    // MEDIUM #11 & #12: display="none", visibility="hidden", mix-blend-mode="multiply" rejected
+    for (const [label, attr] of [
+      ['display-none', 'display="none"'],
+      ['visibility-hidden', 'visibility="hidden"'],
+      ['mix-blend-mode', 'mix-blend-mode="multiply"'],
+    ] as const) {
+      const r = failedIds(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="20" y="20" width="60" height="60" fill="#1A1C1E" ${attr}/></svg>`,
+        [],
+        `logo-r2-m11-${label}.svg`,
+      );
+      expect(r.status, label).toBe(1);
+      expect(r.bad, label).toContain('logo_self_contained');
+    }
+
+    // LOW: <polygon> with > 400 vertices fails logo_complexity
+    const polyPts = Array.from({ length: 405 }, (_, i) => {
+      const ang = (i / 405) * Math.PI * 2;
+      const x = (50 + 30 * Math.cos(ang)).toFixed(2);
+      const y = (50 + 30 * Math.sin(ang)).toFixed(2);
+      return `${x},${y}`;
+    }).join(' ');
+    const densePoly = failedIds(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><polygon points="${polyPts}" fill="#1A1C1E"/></svg>`,
+      [],
+      'logo-r2-low-poly-405.svg',
+    );
+    expect(densePoly.status).toBe(1);
+    expect(densePoly.bad).toContain('logo_complexity');
+  }, 15_000);
 });

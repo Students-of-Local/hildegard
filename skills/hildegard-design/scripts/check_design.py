@@ -873,15 +873,56 @@ def check_sakuga_file(path, pre_render=False):
     return check_sakuga_spec(spec, pre_render=pre_render)
 
 
-LOGO_SHAPE_TAGS = {"path", "circle", "ellipse", "rect", "polygon", "polyline", "line"}
-LOGO_SMIL_TAGS = {"animate", "set", "animatetransform", "animatemotion", "animatecolor"}
-LOGO_FORBIDDEN_TAGS = {
-    "script", "foreignobject", "link", "iframe", "embed", "object", "image",
-    "style", "use",
-} | LOGO_SMIL_TAGS
-LOGO_TEXT_TAGS = {"text", "tspan", "textpath"}
-LOGO_EFFECT_TAGS = {"filter", "fegaussianblur", "fedropshadow", "lineargradient", "radialgradient"}
-SVG_NS_TAG = "{http://www.w3.org/2000/svg}svg"
+SVG_NS = "http://www.w3.org/2000/svg"
+XML_NS = "http://www.w3.org/XML/1998/namespace"
+SVG_NS_TAG = f"{{{SVG_NS}}}svg"
+
+LOGO_SHAPE_TAGS = frozenset({"path", "circle", "ellipse", "rect", "polygon", "polyline", "line"})
+LOGO_ALWAYS_ALLOWED_TAGS = frozenset({
+    "svg", "g", "path", "rect", "circle", "ellipse", "line",
+    "polygon", "polyline", "title", "desc", "metadata",
+})
+LOGO_DRAFT_TEXT_TAGS = frozenset({"text", "tspan"})
+LOGO_EFFECT_TAGS = frozenset({
+    "filter", "fegaussianblur", "fedropshadow", "lineargradient", "radialgradient",
+})
+LOGO_NON_RENDER_TAGS = frozenset({
+    "defs", "clippath", "mask", "symbol", "pattern", "marker",
+    "filter", "lineargradient", "radialgradient", "title", "desc",
+    "metadata", "script", "style", "foreignobject",
+})
+LOGO_METADATA_FORBIDDEN_TAGS = frozenset({
+    "script", "foreignobject", "image", "iframe", "embed", "object", "style",
+})
+LOGO_SHARED_ATTRS = frozenset({
+    "id", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
+    "stroke-miterlimit", "fill-rule", "clip-rule", "transform", "color",
+    "opacity", "fill-opacity", "stroke-opacity",
+})
+LOGO_TAG_ATTRS = {
+    "svg": LOGO_SHARED_ATTRS | frozenset({
+        "viewBox", "width", "height", "version", "preserveAspectRatio", "role", "aria-label",
+    }),
+    "g": LOGO_SHARED_ATTRS,
+    "path": LOGO_SHARED_ATTRS | frozenset({"d"}),
+    "rect": LOGO_SHARED_ATTRS | frozenset({"x", "y", "width", "height", "rx", "ry"}),
+    "circle": LOGO_SHARED_ATTRS | frozenset({"cx", "cy", "r"}),
+    "ellipse": LOGO_SHARED_ATTRS | frozenset({"cx", "cy", "rx", "ry"}),
+    "line": LOGO_SHARED_ATTRS | frozenset({"x1", "y1", "x2", "y2"}),
+    "polygon": LOGO_SHARED_ATTRS | frozenset({"points"}),
+    "polyline": LOGO_SHARED_ATTRS | frozenset({"points"}),
+    "text": LOGO_SHARED_ATTRS | frozenset({
+        "x", "y", "dx", "dy", "font-family", "font-size", "font-weight",
+        "letter-spacing", "text-anchor", "dominant-baseline",
+    }),
+    "tspan": LOGO_SHARED_ATTRS | frozenset({
+        "x", "y", "dx", "dy", "font-family", "font-size", "font-weight",
+        "letter-spacing", "text-anchor", "dominant-baseline",
+    }),
+    "title": frozenset({"id"}),
+    "desc": frozenset({"id"}),
+    "metadata": frozenset({"id"}),
+}
 
 # Packed 24-bit sRGB values for every named color in CSS_NAMED_COLORS (grouped by family)
 LOGO_NAMED_HEX = {
@@ -946,18 +987,28 @@ SVG_LEN_UNIT_PX = {
 SVG_TF_ITEM_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)\s*\(([^)]*)\)")
 SVG_TF_SEP_RE = re.compile(r"[\s,]*")
 SVG_XML_STYLESHEET_RE = re.compile(r"<\?\s*xml-stylesheet\b", re.I)
-SVG_DATA_URI_RE = re.compile(r"(?:^|[\s(,:'\"])data\s*:", re.I)
-SVG_EXT_SCHEME_RE = re.compile(r"^(?:javascript:|https?:|//|file:|data:)", re.I)
-SVG_STYLE_URL_RE = re.compile(r"\burl\s*\(", re.I)
+SVG_CONTROL_WS_RE = re.compile(r"[\x00-\x20]+")
+SVG_FORBIDDEN_URI_RE = re.compile(
+    r"(?:url\(|javascript:|vbscript:|data:|https?:|blob:|ftp:|mailto:|file:)",
+    re.I,
+)
 SVG_MAT_IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 
 
-def _local_tag(tag):
-    if not isinstance(tag, str):
-        return ""
-    if "}" in tag:
-        tag = tag.rsplit("}", 1)[1]
-    return tag.strip().lower()
+def _split_ns_name(name):
+    if not isinstance(name, str):
+        return "", ""
+    if name.startswith("{") and "}" in name:
+        ns, local = name[1:].split("}", 1)
+        return ns, local
+    return "", name
+
+
+def _has_forbidden_uri_or_url(val):
+    if not isinstance(val, str) or not val:
+        return False
+    compact = SVG_CONTROL_WS_RE.sub("", val)
+    return bool(SVG_FORBIDDEN_URI_RE.search(compact))
 
 
 def _parse_plain_float(val):
@@ -1178,17 +1229,6 @@ def _contrast_ratio(rgb1, rgb2):
     l1, l2 = _rel_luminance(rgb1), _rel_luminance(rgb2)
     hi, lo = (l1, l2) if l1 >= l2 else (l2, l1)
     return (hi + 0.05) / (lo + 0.05)
-
-
-def _parse_inline_style_map(el):
-    out = {}
-    st = el.attrib.get("style", "")
-    if st:
-        for seg in st.split(";"):
-            if ":" in seg:
-                k, v = seg.split(":", 1)
-                out[k.strip().lower()] = v.strip()
-    return out
 
 
 def _mat_mul(m1, m2):
@@ -1738,12 +1778,8 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
     vb_diag = math.hypot(vb_w, vb_h) / math.sqrt(2.0)
     min_feature = vb_short / 32.0
 
-    def read_len_attr(el, tag, name, default, ref_len, style_map=None, non_negative=False):
-        raw_v = None
-        if style_map is not None and name in style_map:
-            raw_v = style_map[name]
-        elif name in el.attrib:
-            raw_v = el.attrib[name]
+    def read_len_attr(el, tag, name, default, ref_len, non_negative=False):
+        raw_v = el.attrib.get(name)
         if raw_v is None:
             return default
         parsed = _parse_svg_len(raw_v, ref_len=ref_len)
@@ -1752,13 +1788,16 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
             return None
         return parsed
 
-    def inspect_paint(tag, prop_name, prop_val):
+    def inspect_paint(tag, prop_name, prop_val, cur_color):
         nonlocal has_current_color
         kind, parsed = _parse_logo_paint(prop_val)
         if kind == "none":
             return kind
         if kind == "currentColor":
-            has_current_color = True
+            if cur_color is not None:
+                colors_seen.add(cur_color)
+            else:
+                has_current_color = True
             return kind
         if kind == "rgb":
             colors_seen.add(parsed)
@@ -1770,53 +1809,122 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
         low = (prop_val or "").strip().lower()
         if low.startswith("url("):
             effect_hits.append(f"paint:{prop_val.strip()}")
-            if SVG_DATA_URI_RE.search(prop_val) or re.search(r"url\s*\(\s*['\"]?(?:https?:|//|javascript:|file:)", prop_val, re.I):
-                security_hits.append(f"paint-url:{prop_val.strip()[:28]}")
+            security_hits.append(f"paint-url:{prop_val.strip()[:28]}")
         else:
             invalid_paints.append(f"{tag}:{prop_name}={prop_val}")
         return kind
 
-    def walk(el, inh_fill, inh_stroke, inh_sw, inh_op, inh_fop, inh_sop, parent_mat, in_non_render=False, is_root=False):
+    def walk(
+        el,
+        inh_fill,
+        inh_stroke,
+        inh_sw,
+        inh_color,
+        inh_op,
+        inh_fop,
+        inh_sop,
+        inh_fs,
+        inh_anchor,
+        inh_baseline,
+        parent_mat,
+        in_non_render=False,
+        in_metadata=False,
+        is_root=False,
+        parent_text_xy=None,
+    ):
         nonlocal text_hits, shape_count, path_cmd_total
-        tag = _local_tag(el.tag)
-        if tag == "svg" and not is_root:
-            security_hits.append("nested:<svg>")
-        if tag in LOGO_FORBIDDEN_TAGS:
-            security_hits.append(f"<{tag}>")
-        if tag in LOGO_TEXT_TAGS and not in_non_render:
-            text_hits += 1
-        if tag in LOGO_EFFECT_TAGS:
-            effect_hits.append(f"<{tag}>")
+        el_ns, local = _split_ns_name(el.tag)
+        local_low = local.lower()
 
-        style_map = _parse_inline_style_map(el)
+        if in_metadata:
+            if local_low in LOGO_METADATA_FORBIDDEN_TAGS:
+                security_hits.append(f"metadata:tag:<{local}>")
+            for k, v in el.attrib.items():
+                _, alocal = _split_ns_name(k)
+                alocal_low = alocal.lower()
+                if alocal_low.startswith("on"):
+                    security_hits.append(f"metadata:attr:{alocal}")
+                if alocal_low in ("href", "src"):
+                    security_hits.append(f"metadata:attr:{alocal}")
+                if _has_forbidden_uri_or_url(v):
+                    security_hits.append(f"metadata:uri:{alocal}")
+            for child in list(el):
+                walk(
+                    child, inh_fill, inh_stroke, inh_sw, inh_color, inh_op, inh_fop, inh_sop,
+                    inh_fs, inh_anchor, inh_baseline, parent_mat, True, True, False, None,
+                )
+            return
+
+        in_svg_ns = el_ns == SVG_NS
+        tag = local
+        if not in_svg_ns:
+            security_hits.append(f"non-svg-ns:{el.tag}")
+        else:
+            if tag == "svg":
+                if not is_root:
+                    security_hits.append("nested:<svg>")
+            elif tag in LOGO_ALWAYS_ALLOWED_TAGS:
+                pass
+            elif tag in LOGO_DRAFT_TEXT_TAGS:
+                if not allow_draft_text and not in_non_render:
+                    text_hits += 1
+            elif local_low in LOGO_EFFECT_TAGS or local_low.startswith("fe"):
+                effect_hits.append(f"<{tag}>")
+            else:
+                security_hits.append(f"disallowed-tag:<{tag}>")
+
+        allowed_attrs = LOGO_TAG_ATTRS.get(tag, frozenset()) if in_svg_ns else frozenset()
         for k, v in el.attrib.items():
-            kl = _local_tag(k)
+            ans, alocal = _split_ns_name(k)
+            alocal_low = alocal.lower()
             vl = (v or "").strip()
-            if kl.startswith("on"):
-                security_hits.append(f"attr:{kl}")
-            if kl in ("href", "src") and SVG_EXT_SCHEME_RE.match(vl):
-                security_hits.append(f"{kl}:{vl[:24]}")
-            elif SVG_DATA_URI_RE.search(vl):
-                security_hits.append(f"data-uri:{kl}")
-            if kl == "filter" and vl.lower() not in ("", "none"):
-                effect_hits.append(f"filter:{vl}")
-        if "filter" in style_map and style_map["filter"].lower() != "none":
-            effect_hits.append(f"style-filter:{style_map['filter']}")
-        if "style" in el.attrib and SVG_STYLE_URL_RE.search(el.attrib["style"]):
-            security_hits.append("style-url")
+            if ans != "":
+                if not (ans == XML_NS and alocal == "space" and in_svg_ns and tag in LOGO_DRAFT_TEXT_TAGS):
+                    security_hits.append(f"{tag}:disallowed-attr:{k}")
+            elif alocal not in allowed_attrs:
+                security_hits.append(f"{tag}:disallowed-attr:{alocal}")
+            if alocal_low == "filter" and vl.lower() not in ("", "none"):
+                effect_hits.append(f"{tag}:filter:{vl}")
+            if _has_forbidden_uri_or_url(v):
+                security_hits.append(f"{tag}:forbidden-uri:{alocal}")
 
-        cur_fill = style_map.get("fill", el.attrib.get("fill", inh_fill))
-        cur_stroke = style_map.get("stroke", el.attrib.get("stroke", inh_stroke))
-        cur_sw_raw = style_map.get("stroke-width", el.attrib.get("stroke-width", inh_sw))
+        if in_svg_ns and tag == "metadata":
+            for child in list(el):
+                walk(
+                    child, inh_fill, inh_stroke, inh_sw, inh_color, inh_op, inh_fop, inh_sop,
+                    inh_fs, inh_anchor, inh_baseline, parent_mat, True, True, False, None,
+                )
+            return
 
-        next_non_render = in_non_render or (tag in ("defs", "clippath", "mask", "symbol", "title", "desc", "metadata"))
+        cur_fill = el.attrib.get("fill", inh_fill)
+        cur_stroke = el.attrib.get("stroke", inh_stroke)
+        cur_sw_raw = el.attrib.get("stroke-width", inh_sw)
+
+        next_non_render = in_non_render or (not in_svg_ns) or (local_low in LOGO_NON_RENDER_TAGS)
+
+        cur_color = inh_color
+        if not next_non_render and "color" in el.attrib:
+            c_raw = el.attrib["color"]
+            c_kind, c_parsed = _parse_logo_paint(c_raw)
+            if c_kind == "rgb":
+                cur_color = c_parsed
+            elif c_kind == "currentColor":
+                cur_color = inh_color
+            elif c_kind == "translucent":
+                effect_hits.append(f"{tag}:color-translucent({c_parsed})")
+            else:
+                low = (c_raw or "").strip().lower()
+                if low.startswith("url("):
+                    effect_hits.append(f"color:{c_raw.strip()}")
+                else:
+                    invalid_paints.append(f"{tag}:color={c_raw}")
 
         # Strict opacity tracking (opacity multiplies; fill-opacity/stroke-opacity inherit)
         cur_op = inh_op
         cur_fop = inh_fop
         cur_sop = inh_sop
         if not next_non_render:
-            op_raw = style_map.get("opacity", el.attrib.get("opacity"))
+            op_raw = el.attrib.get("opacity")
             if op_raw is not None:
                 op_val = _parse_opacity_val(op_raw)
                 if op_val is None or op_val < 1.0 - 1e-9:
@@ -1824,7 +1932,7 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                     cur_op = 0.0 if op_val is None else cur_op * op_val
                 else:
                     cur_op *= op_val
-            fop_raw = style_map.get("fill-opacity", el.attrib.get("fill-opacity"))
+            fop_raw = el.attrib.get("fill-opacity")
             if fop_raw is not None:
                 fop_val = _parse_opacity_val(fop_raw)
                 if fop_val is None or fop_val < 1.0 - 1e-9:
@@ -1832,7 +1940,7 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                     cur_fop = 0.0 if fop_val is None else fop_val
                 else:
                     cur_fop = fop_val
-            sop_raw = style_map.get("stroke-opacity", el.attrib.get("stroke-opacity"))
+            sop_raw = el.attrib.get("stroke-opacity")
             if sop_raw is not None:
                 sop_val = _parse_opacity_val(sop_raw)
                 if sop_val is None or sop_val < 1.0 - 1e-9:
@@ -1846,8 +1954,18 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
             geometry_errors.append(f"{tag}:{tf_err}")
         cur_mat = _mat_mul(parent_mat, tf_mat)
 
-        if not next_non_render and (tag in LOGO_SHAPE_TAGS or (allow_draft_text and tag == "text")):
-            shape_count += 1
+        cur_fs = inh_fs
+        cur_anchor = el.attrib.get("text-anchor", inh_anchor).strip().lower() if "text-anchor" in el.attrib else inh_anchor
+        cur_baseline = el.attrib.get("dominant-baseline", inh_baseline).strip().lower() if "dominant-baseline" in el.attrib else inh_baseline
+        next_text_xy = parent_text_xy
+
+        is_rendered_shape = in_svg_ns and tag in LOGO_SHAPE_TAGS
+        is_rendered_text = in_svg_ns and allow_draft_text and tag == "text"
+        is_rendered_tspan = in_svg_ns and allow_draft_text and tag == "tspan"
+
+        if not next_non_render and (is_rendered_shape or is_rendered_text or is_rendered_tspan):
+            if not is_rendered_tspan:
+                shape_count += 1
             if cur_op < 1.0 - 1e-9:
                 effect_hits.append(f"{tag}:inherited-opacity={round(cur_op, 3)}")
             if tag != "line" and cur_fop < 1.0 - 1e-9:
@@ -1856,12 +1974,14 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                 effect_hits.append(f"{tag}:inherited-stroke-opacity={round(cur_sop, 3)}")
 
             if tag == "line":
-                stroke_kind = inspect_paint(tag, "stroke", cur_stroke)
+                fill_kind = "none"
+                stroke_kind = inspect_paint(tag, "stroke", cur_stroke, cur_color)
             else:
-                inspect_paint(tag, "fill", cur_fill)
-                stroke_kind = inspect_paint(tag, "stroke", cur_stroke)
+                fill_kind = inspect_paint(tag, "fill", cur_fill, cur_color)
+                stroke_kind = inspect_paint(tag, "stroke", cur_stroke, cur_color)
 
             eff_scale_min, eff_scale_max = _mat_linear_scales(cur_mat)
+            fill_active = fill_kind != "none"
             stroke_active = stroke_kind != "none"
             if cur_sw_raw is None:
                 sw_val = 1.0
@@ -1881,6 +2001,10 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                 y = read_len_attr(el, tag, "y", 0.0, vb_h)
                 w = read_len_attr(el, tag, "width", 0.0, vb_w, non_negative=True)
                 h = read_len_attr(el, tag, "height", 0.0, vb_h, non_negative=True)
+                if "rx" in el.attrib:
+                    read_len_attr(el, tag, "rx", 0.0, vb_w, non_negative=True)
+                if "ry" in el.attrib:
+                    read_len_attr(el, tag, "ry", 0.0, vb_h, non_negative=True)
                 if None not in (x, y, w, h):
                     a, b, c, d, _, _ = cur_mat
                     rw = w * math.hypot(a, b)
@@ -1933,39 +2057,84 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                 if perr:
                     geometry_errors.append(f"{tag}:{perr}")
                 else:
+                    path_cmd_total += len(ppts)
                     tpts = [_mat_apply(cur_mat, px, py) for px, py in ppts]
+                    if tpts:
+                        bw = max(p[0] for p in tpts) - min(p[0] for p in tpts)
+                        bh = max(p[1] for p in tpts) - min(p[1] for p in tpts)
+                    else:
+                        bw = bh = 0.0
+                    if fill_active:
+                        eff_dim = min(bw, bh) + (eff_sw if stroke_active else 0.0)
+                        if eff_dim < min_feature - 1e-6:
+                            thin_features.append(f"{tag}:bbox={round(bw, 2)}x{round(bh, 2)}<{round(min_feature, 2)}")
+                    elif stroke_active:
+                        if max(bw, bh) + eff_sw < min_feature - 1e-6:
+                            thin_features.append(f"{tag}:span={round(max(bw, bh) + eff_sw, 2)}<{round(min_feature, 2)}")
             elif tag == "path":
                 ppts, cmds, perr = _path_transformed_points_and_cmds(el.attrib.get("d", ""), cur_mat)
                 path_cmd_total += cmds
                 if perr:
                     geometry_errors.append(perr)
-                tpts = ppts
-            elif tag == "text":
-                # Conservative bbox estimate for --allow-draft-text pure wordmark drafts
-                tx_raw = el.attrib.get("x", "").strip().split()
-                ty_raw = el.attrib.get("y", "").strip().split()
-                tx = _parse_svg_len(tx_raw[0], ref_len=vb_w) if tx_raw else 0.0
-                ty = _parse_svg_len(ty_raw[0], ref_len=vb_h) if ty_raw else 0.0
-                if tx is None:
-                    geometry_errors.append(f"text:x={el.attrib.get('x')}")
-                if ty is None:
-                    geometry_errors.append(f"text:y={el.attrib.get('y')}")
-                fs_val = read_len_attr(el, tag, "font-size", 16.0, vb_diag, style_map=style_map, non_negative=True)
-                if None not in (tx, ty, fs_val) and fs_val > 0.0:
+                else:
+                    tpts = ppts
+                    if tpts:
+                        bw = max(p[0] for p in tpts) - min(p[0] for p in tpts)
+                        bh = max(p[1] for p in tpts) - min(p[1] for p in tpts)
+                    else:
+                        bw = bh = 0.0
+                    if fill_active:
+                        eff_dim = min(bw, bh) + (eff_sw if stroke_active else 0.0)
+                        if eff_dim < min_feature - 1e-6:
+                            thin_features.append(f"path:bbox={round(bw, 2)}x{round(bh, 2)}<{round(min_feature, 2)}")
+                    elif stroke_active:
+                        if max(bw, bh) + eff_sw < min_feature - 1e-6:
+                            thin_features.append(f"path:span={round(max(bw, bh) + eff_sw, 2)}<{round(min_feature, 2)}")
+            elif tag in ("text", "tspan"):
+                # Conservative bbox estimate for --allow-draft-text pure wordmark drafts and <tspan> overrides
+                has_x = "x" in el.attrib and bool(el.attrib["x"].strip())
+                has_y = "y" in el.attrib and bool(el.attrib["y"].strip())
+                tx = parent_text_xy[0] if (tag == "tspan" and parent_text_xy is not None) else 0.0
+                ty = parent_text_xy[1] if (tag == "tspan" and parent_text_xy is not None) else 0.0
+                if has_x:
+                    tx_tokens = el.attrib["x"].strip().split()
+                    parsed_xs = [_parse_svg_len(tok, ref_len=vb_w) for tok in tx_tokens]
+                    if any(v is None for v in parsed_xs):
+                        geometry_errors.append(f"{tag}:x={el.attrib.get('x')}")
+                        tx = None
+                    else:
+                        tx = parsed_xs[0]
+                if has_y:
+                    ty_tokens = el.attrib["y"].strip().split()
+                    parsed_ys = [_parse_svg_len(tok, ref_len=vb_h) for tok in ty_tokens]
+                    if any(v is None for v in parsed_ys):
+                        geometry_errors.append(f"{tag}:y={el.attrib.get('y')}")
+                        ty = None
+                    else:
+                        ty = parsed_ys[0]
+                for d_attr, d_ref in (("dx", vb_w), ("dy", vb_h)):
+                    if d_attr in el.attrib and el.attrib[d_attr].strip():
+                        d_tokens = el.attrib[d_attr].strip().split()
+                        if any(_parse_svg_len(tok, ref_len=d_ref) is None for tok in d_tokens):
+                            geometry_errors.append(f"{tag}:{d_attr}={el.attrib.get(d_attr)}")
+                fs_val = read_len_attr(el, tag, "font-size", inh_fs, vb_diag, non_negative=True)
+                if fs_val is not None:
+                    cur_fs = fs_val
+                if tx is not None and ty is not None:
+                    next_text_xy = (tx, ty)
+                if (tag == "text" or has_x or has_y) and None not in (tx, ty, fs_val) and fs_val > 0.0:
                     txt_content = "".join(el.itertext()).strip()
                     n_chars = max(1, len(txt_content))
                     est_w = n_chars * 0.55 * fs_val
-                    anchor = style_map.get("text-anchor", el.attrib.get("text-anchor", "start")).strip().lower()
-                    if anchor == "middle":
+                    if cur_anchor == "middle":
                         x0, x1 = tx - 0.5 * est_w, tx + 0.5 * est_w
-                    elif anchor == "end":
+                    elif cur_anchor == "end":
                         x0, x1 = tx - est_w, tx
                     else:
                         x0, x1 = tx, tx + est_w
-                    baseline = style_map.get("dominant-baseline", el.attrib.get("dominant-baseline", "auto")).strip().lower()
-                    if baseline in ("middle", "central"):
+                    if cur_baseline in ("middle", "central"):
                         y0, y1 = ty - 0.45 * fs_val, ty + 0.45 * fs_val
-                    elif baseline in ("hanging", "text-before-edge", "text-top"):
+                    elif cur_baseline in ("hanging", "text-before-edge", "text-top"):
                         y0, y1 = ty, ty + 0.95 * fs_val
                     else:
                         y0, y1 = ty - 0.75 * fs_val, ty + 0.2 * fs_val
@@ -1983,16 +2152,19 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
                 bbox[3] = max(bbox[3], py + pad)
 
         for child in list(el):
-            walk(child, cur_fill, cur_stroke, cur_sw_raw, cur_op, cur_fop, cur_sop, cur_mat, next_non_render, False)
+            walk(
+                child, cur_fill, cur_stroke, cur_sw_raw, cur_color, cur_op, cur_fop, cur_sop,
+                cur_fs, cur_anchor, cur_baseline, cur_mat, next_non_render, False, False, next_text_xy,
+            )
 
-    walk(root, "black", "none", None, 1.0, 1.0, 1.0, SVG_MAT_IDENTITY, False, True)
+    walk(root, "black", "none", None, None, 1.0, 1.0, 1.0, 16.0, "start", "auto", SVG_MAT_IDENTITY, False, False, True, None)
 
-    checks.append(_chk("logo_self_contained", not security_hits, security_hits or "clean", "[]", "zero <script>, <style>, <use>, nested <svg>, SMIL, event handlers, <image>, <foreignObject>, <?xml-stylesheet?>, data: URIs, or external/style URLs"))
+    checks.append(_chk("logo_self_contained", not security_hits, security_hits or "clean", "[]", "strict SVG tag/namespace/attribute allowlist: zero style attributes, disallowed tags, event handlers, url(...) references, external/data URIs, or non-SVG elements outside <metadata>"))
     checks.append(_chk("logo_geometry", not geometry_errors, geometry_errors or "valid", "[]", "valid SVG path syntax, transforms, points, and length attributes"))
     text_ok = allow_draft_text or text_hits == 0
     checks.append(_chk("logo_outlined_text", text_ok, text_hits if not text_ok else "outlined", "0 <text> nodes (or --allow-draft-text)", "convert wordmark glyphs to <path> outlines so logos never font-substitute"))
     comp_ok = (1 <= shape_count <= 64) and (path_cmd_total <= 400)
-    checks.append(_chk("logo_complexity", comp_ok, {"shapes": shape_count, "path_cmds": path_cmd_total}, "1..64 shapes and <= 400 path commands", "clean vector geometry without bloated auto-trace soup"))
+    checks.append(_chk("logo_complexity", comp_ok, {"shapes": shape_count, "path_cmds": path_cmd_total}, "1..64 shapes and <= 400 path commands/vertices", "clean vector geometry without bloated auto-trace soup"))
     checks.append(_chk("logo_micro_legibility", not thin_features, thin_features or "legible", f"strokes/features >= {round(min_feature, 3)} (>= 0.5px at 16px favicon)", "features survive 16px favicon downscale without vanishing"))
 
     if bbox[0] <= bbox[2] and bbox[1] <= bbox[3]:
@@ -2028,9 +2200,9 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
             contrast_ok = True
             contrast_val = "currentColor"
         else:
-            ratios = [round(_contrast_ratio(c, surf_rgb), 2) for c in colors_seen]
-            contrast_ok = bool(ratios) and all(r >= 3.0 for r in ratios)
-            contrast_val = {"surface": surface, "min_ratio": min(ratios) if ratios else 0.0}
+            raw_ratios = [_contrast_ratio(c, surf_rgb) for c in colors_seen]
+            contrast_ok = bool(raw_ratios) and all(r >= 3.0 for r in raw_ratios)
+            contrast_val = {"surface": surface, "min_ratio": round(min(raw_ratios), 4) if raw_ratios else 0.0}
     else:
         if invalid_paints:
             contrast_ok = False
@@ -2039,11 +2211,13 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
             contrast_ok = True
             contrast_val = "currentColor"
         else:
-            light_ok = bool(colors_seen) and all(_contrast_ratio(c, (255, 255, 255)) >= 3.0 for c in colors_seen)
-            dark_ok = bool(colors_seen) and all(_contrast_ratio(c, (17, 17, 17)) >= 3.0 for c in colors_seen)
+            light_ratios = [_contrast_ratio(c, (255, 255, 255)) for c in colors_seen]
+            dark_ratios = [_contrast_ratio(c, (17, 17, 17)) for c in colors_seen]
+            light_ok = bool(light_ratios) and all(r >= 3.0 for r in light_ratios)
+            dark_ok = bool(dark_ratios) and all(r >= 3.0 for r in dark_ratios)
             contrast_ok = light_ok or dark_ok
-            min_l = round(min((_contrast_ratio(c, (255, 255, 255)) for c in colors_seen), default=0.0), 2)
-            min_d = round(min((_contrast_ratio(c, (17, 17, 17)) for c in colors_seen), default=0.0), 2)
+            min_l = round(min(light_ratios, default=0.0), 4)
+            min_d = round(min(dark_ratios, default=0.0), 4)
             contrast_val = {"min_on_light": min_l, "min_on_dark": min_d}
     checks.append(_chk("logo_contrast", contrast_ok, contrast_val, ">= 3.0:1 WCAG graphical contrast on light or dark surface (no fake white-fill cutouts)", "all logo inks meet >= 3:1 contrast on their target surface"))
 
