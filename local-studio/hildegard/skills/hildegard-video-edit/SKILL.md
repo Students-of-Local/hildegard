@@ -469,11 +469,16 @@ sys.exit(bool(bad))
 
 ## 9. Deliver
 
+Slot-based assembly invariants (non-negotiable production correctness):
+- Extract and grade per segment first, then join with lossless `-c copy` concat (avoid double-encoding); pad every cut edge `30-200 ms` snapped to word boundaries and apply `30 ms` audio fades (`afade`) at segment boundaries.
+- Shift every overlay window by its numeric start offset with `setpts=PTS-STARTPTS+<offset_s>/TB` (for example `setpts=PTS-STARTPTS+4.5/TB`; never literal `T`, which is FFmpeg's frame-time variable), compute master SRT timestamps on the output timeline (`word.start - segment_start + segment_offset`), and burn subtitles LAST after every overlay.
+- Measure `-14 LUFS` and `<= -2.0 dBTP` after AAC encoding (AAC raises inter-sample peaks) and run `--max-freeze 0.5` on continuous animations.
+
 ```sh
 ffmpeg -i master.mp4 -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p -movflags +faststart -c:a copy final.mp4   # the sound is section 7's AAC, untouched
 hildegard review final.mp4 --final --film --audio --sheet final-sheet.jpg   # Hildegard installed
 python3 -B <folder>/scripts/check_video.py final.mp4 --lufs -14 --size 1920x1080         # without Hildegard; then the sheet and spec.json checks above, with "final": true
-python3 -B <folder>/scripts/check_sync.py --video final.mp4 --min-liveness 0.55          # optional, for continuous procedural animation (omit on reading holds or static talking heads; add --beats beats.json for sync)
+python3 -B <folder>/scripts/check_sync.py --video final.mp4 --min-liveness 0.55 --max-freeze 0.5 --post-aac-lufs -14 --post-aac-peak -2.0   # continuous animation: freezedetect + post-AAC peak (for reading holds or static talking heads, pass --static instead of --min-liveness/--max-freeze; add --beats beats.json for sync)
 ```
 
 Look at the sheet and listen through once. Then tell your user the path, the length, what you cut and why, and

@@ -164,6 +164,77 @@ Exact `check_sync.py --camera` JSON shape (include only the blocks the brief ask
 never keep 30-fps frame numbers when `fps` is 24 or 60), compute 3-step log zoom as `[start, sqrt(start * end), end]`,
 and use integer `freqs_hz` (`[1.0, 2.0, 3.0]`) for whole-second `period_s`.
 
+### Motion QA, closed-form renderAt(t), master timing, framing, and seams
+
+Stills alone pass frozen renders. For code-directed films and continuous loops, verify rendered video with
+`python3 scripts/check_sync.py --video out.mp4 --max-freeze 0.5 --post-aac-lufs -14 --post-aac-peak -2.0` (catches
+unintended freezes >= 0.5 s via `freezedetect` and measures `-14 LUFS` / `<= -2.0 dBTP` AFTER AAC encoding, because AAC
+raises true peak), and verify the JSON contract with `python3 scripts/check_sync.py --camera spec.json`:
+
+- **Closed-form `renderAt(t)` (`"motion"`):** every animation and spring is a pure closed-form function of `t` with zero
+  carried frame-to-frame velocity state (`"closed_form": true`) so preview and headless render never diverge. Replace
+  vague adjectives with numeric damping ratios (`"dead_still": 1.0`, `"single_bounce": 0.8`, `"playful": 0.5`) and
+  numeric easing curves (`"ease_in": "cubic-bezier(0.16, 1, 0.3, 1)"`, `"ease_out": "cubic-bezier(0.7, 0, 0.84, 0)"`)
+  with exit duration 40 to 50% shorter than entrance (`ease_out_ms = 0.5 * ease_in_ms`).
+- **Master `timing.json` clock (`"timing"`):** derive every cut and sound cue from one clock:
+  `frames_per_beat = fps * 60 / bpm`. Every audio hit lands 1 frame after its visual event (`audio_frame = visual_frame + 1`).
+  Seamless loops render frames `0..N-1` (`last_frame = total_frames - 1`, never `N`).
+- **Framing and geometric planes (`"framing"`):** measure hero pixel width on stills before full render (`>= 170 px` at
+  1080p for `"main"` shots, `>= 95 px` for `"wide"` shots, scaled by `frame_height / 1080`). Design clipping out with
+  separate geometric planes (`"separate_planes": true`).
+- **Seam vector law (`"seams"`):** keep an opaque stage ground (`"stage_bg_opaque": true`) to prevent white flashes at
+  opacity dips. Each cut keeps the same `"axis"` (`"x"`, `"y"`, `"z"`) and signed direction (`exit_dir == entry_dir`,
+  including Z `"push"` vs `"pull"`), cuts mid-motion (`"cut_mid_motion": true`), and never flips opposing directions on
+  consecutive cuts without an explicit `"cause"`.
+
+Optional `check_sync.py --camera` Motion QA blocks (top-level keys: `"seed"`, `"contact_sheet_frames"`, plus only the
+blocks requested by the brief; omit unused blocks and recompute every number from the brief):
+
+```json
+{
+  "seed": 10,
+  "contact_sheet_frames": 10,
+  "motion": {
+    "closed_form": true,
+    "feel": "dead_still",
+    "damping_ratio": 1.0,
+    "ease_in": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "ease_out": "cubic-bezier(0.7, 0, 0.84, 0)",
+    "ease_in_ms": 600,
+    "ease_out_ms": 300
+  },
+  "timing": {
+    "fps": 60,
+    "bpm": 120,
+    "frames_per_beat": 30,
+    "events": [{ "visual_frame": 30, "audio_frame": 31 }],
+    "seamless_loop": true,
+    "total_frames": 120,
+    "last_frame": 119
+  },
+  "framing": {
+    "separate_planes": true,
+    "shots": [
+      { "kind": "main", "hero_width_px": 190, "frame_height": 1080 },
+      { "kind": "wide", "hero_width_px": 110, "frame_height": 1080 }
+    ]
+  },
+  "seams": {
+    "stage_bg_opaque": true,
+    "transitions": [
+      { "axis": "x", "exit_dir": "left", "entry_dir": "left", "cut_mid_motion": true },
+      { "axis": "z", "exit_dir": "push", "entry_dir": "push", "cut_mid_motion": true }
+    ]
+  }
+}
+```
+
+**Recompute every Motion QA field from the brief:**
+- `motion`: set `"closed_form": true`, map `"dead_still" -> 1.0`, `"single_bounce" -> 0.8`, `"playful" -> 0.5`, use `cubic-bezier(...)` curves, and set `ease_out_ms = round(0.5 * ease_in_ms)`.
+- `timing`: compute `frames_per_beat = fps * 60 / bpm` (60 fps / 120 BPM = 30; 24 fps / 120 BPM = 12; 30 fps / 150 BPM = 12), set every event's `"audio_frame"` to `visual_frame + 1` (never equal), and set `"last_frame": total_frames - 1` when `"seamless_loop": true`.
+- `framing`: verify `hero_width_px >= 170 * (frame_height / 1080)` for `"main"` and `>= 95 * (frame_height / 1080)` for `"wide"`.
+- `seams`: keep `"stage_bg_opaque": true`, match `"exit_dir" == "entry_dir"` (`"left"`, `"right"`, `"up"`, `"down"`, `"push"`, `"pull"`), and set `"cut_mid_motion": true`. Include only the blocks the brief asks for.
+
 ## What --check says, and what to do
 
 | It says | Do this |
