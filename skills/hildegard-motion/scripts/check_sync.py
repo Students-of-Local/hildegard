@@ -18,7 +18,8 @@ import subprocess
 import sys
 
 FFMPEG = shutil.which("ffmpeg")
-SAMPLE_FPS, W, H = 20, 32, 18
+SAMPLE_FPS, W, H = 60, 32, 18  # 16.7 ms step, well below default 45 ms beat tolerance
+LIVENESS_STRIDE = 6  # 10 Hz liveness sampling (100 ms intervals)
 
 
 def _chk(cid, ok, value, limit, detail):
@@ -58,23 +59,33 @@ def check_video_sync(video_path, beats_path=None, tol_ms=45.0, hold_tail=1.0, mi
         sum(abs(a - b) for a, b in zip(frames[i - 1], frames[i])) / (len(frames[i]) * 255.0)
         for i in range(1, len(frames))
     ]
-    # Non-hold window excludes closing hold_tail seconds
-    active_end = max(1, len(steps) - int(round(hold_tail * SAMPLE_FPS)))
-    active_steps = steps[:active_end]
-    live_count = sum(1 for s in active_steps if s >= 0.0025)
-    liveness = live_count / max(1, len(active_steps))
+
+    # Non-hold frame liveness at 10 Hz: detects either global motion (mean >= 0.0025) or localized motion (max channel diff >= 3/255)
+    l_frames = frames[::LIVENESS_STRIDE]
+    l_fps = SAMPLE_FPS / float(LIVENESS_STRIDE)
+    active_end = max(1, (len(l_frames) - 1) - int(round(hold_tail * l_fps)))
+    live_count = 0
+    for i in range(1, min(len(l_frames), active_end + 1)):
+        prev_f, cur_f = l_frames[i - 1], l_frames[i]
+        diffs = [abs(a - b) for a, b in zip(prev_f, cur_f)]
+        mean_d = sum(diffs) / (len(cur_f) * 255.0)
+        max_d = max(diffs) / 255.0 if diffs else 0.0
+        if mean_d >= 0.0025 or max_d >= 3.0 / 255.0:
+            live_count += 1
+    liveness = live_count / max(1, active_end)
 
     checks = [
         _chk("frame_liveness", liveness >= min_liveness, round(liveness, 3), f">= {min_liveness}", "non-hold frames show real motion (not dead/frozen)"),
     ]
 
-    # Visual event times (frame jumps above local median)
+    # Visual event times at 60 Hz with interval midpoint timestamps (i + 0.5) / SAMPLE_FPS
     events = []
+    win = 18  # +/- 0.3 s at 60 Hz
     for i, s in enumerate(steps):
-        lo, hi = max(0, i - 6), min(len(steps), i + 7)
+        lo, hi = max(0, i - win), min(len(steps), i + win + 1)
         med = sorted(steps[lo:hi])[len(steps[lo:hi]) // 2]
         if s >= 0.05 and s >= 2.2 * max(med, 0.01):
-            events.append((i + 1) / float(SAMPLE_FPS))
+            events.append((i + 0.5) / float(SAMPLE_FPS))
 
     if beats_path:
         beats_doc = json.load(open(beats_path, encoding="utf-8"))
@@ -101,13 +112,21 @@ def check_camera_spec(spec):
     # 2. Log-space zoom uniformity & clamped frame bounds
     if "zoom" in spec:
         z = spec["zoom"]
-        s0, s1 = float(z["start_scale"]), float(z["end_scale"])
-        samples = [float(x) for x in z.get("samples", [])]
-        if len(samples) >= 3 and s0 > 0 and s1 > 0:
-            logs = [math.log(max(1e-9, x)) for x in samples]
-            diffs = [logs[i + 1] - logs[i] for i in range(len(logs) - 1)]
-            spread = max(diffs) - min(diffs)
-            checks.append(_chk("log_space_zoom", spread < 1e-3, round(spread, 6), "< 1e-3", "zoom interpolates in log(scale) space for constant apparent speed"))
+        if any(k in z for k in ("start_scale", "end_scale", "samples")):
+            s0 = float(z["start_scale"]) if "start_scale" in z else None
+            s1 = float(z["end_scale"]) if "end_scale" in z else None
+            samples = [float(x) for x in z.get("samples", [])]
+            if s0 is None or s1 is None or not (math.isfinite(s0) and math.isfinite(s1)) or s0 <= 0.0 or s1 <= 0.0:
+                checks.append(_chk("log_space_zoom", False, [s0, s1], "start_scale > 0 and end_scale > 0", "positive finite start_scale and end_scale required"))
+            elif len(samples) < 3 or any((not math.isfinite(x)) or x <= 0.0 for x in samples):
+                checks.append(_chk("log_space_zoom", False, samples, ">= 3 positive samples", "at least 3 positive zoom samples required"))
+            else:
+                n_steps = len(samples) - 1
+                max_err = max(
+                    abs(math.log(samples[i]) - math.log(s0 * ((s1 / s0) ** (i / float(n_steps)))))
+                    for i in range(len(samples))
+                )
+                checks.append(_chk("log_space_zoom", max_err < 1e-3, round(max_err, 6), "< 1e-3", "zoom samples match log-space curve from start_scale to end_scale"))
         # Bounds check: viewport at scale s with pan (px, py) stays inside [0, src_w] x [0, src_h]
         if "pan_x" in z and "pan_y" in z and "max_pan_x" in z and "max_pan_y" in z:
             in_bounds = abs(float(z["pan_x"])) <= float(z["max_pan_x"]) + 1e-6 and abs(float(z["pan_y"])) <= float(z["max_pan_y"]) + 1e-6

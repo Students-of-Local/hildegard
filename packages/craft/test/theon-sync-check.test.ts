@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Deterministic tests for check_sync.py (log-space zoom, cyclic shake seams, beat frames, video liveness).
+// Deterministic tests for check_sync.py (log-space zoom, cyclic shake seams, beat frames, video liveness & beat sync).
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,7 +20,7 @@ describe('check_sync.py', { timeout: 60_000 }, () => {
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('validates log-space zoom, cyclic shake seams and beat frame math, and catches linear zoom or seam drift', () => {
+  it('validates log-space zoom, cyclic shake seams and beat frame math, and catches stale/invalid zoom samples', () => {
     const good = join(dir, 'cam-ok.json');
     writeFileSync(
       good,
@@ -46,6 +46,36 @@ describe('check_sync.py', { timeout: 60_000 }, () => {
       }),
     );
     expect(runPy(['--camera', good, '--json']).status).toBe(0);
+
+    // Pan-only zoom block without start_scale/end_scale must not crash with KeyError.
+    const panOnly = join(dir, 'cam-pan-only.json');
+    writeFileSync(
+      panOnly,
+      JSON.stringify({
+        seed: 7,
+        contact_sheet_frames: 10,
+        zoom: { pan_x: 10, pan_y: 5, max_pan_x: 30, max_pan_y: 20, mipmap_levels: 4 },
+      }),
+    );
+    expect(runPy(['--camera', panOnly, '--json']).status).toBe(0);
+
+    // Stale template samples (end_scale 9 vs samples ending at 4), non-positive samples, and < 3 samples must all fail.
+    for (const [name, zoom] of [
+      ['stale', { start_scale: 1, end_scale: 9, samples: [1, 2, 4] }],
+      ['zeros', { start_scale: 1, end_scale: 4, samples: [0, 0, 0] }],
+      ['negative', { start_scale: 1, end_scale: 4, samples: [-1, -2, -4] }],
+      ['short', { start_scale: 1, end_scale: 4, samples: [1, 4] }],
+      ['bad-start', { start_scale: 0, end_scale: 4, samples: [1, 2, 4] }],
+    ] as const) {
+      const p = join(dir, `cam-${name}.json`);
+      writeFileSync(p, JSON.stringify({ seed: 7, contact_sheet_frames: 10, zoom }));
+      const r = runPy(['--camera', p, '--json']);
+      expect(r.status, name).toBe(1);
+      const badIds = JSON.parse(r.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id);
+      expect(badIds, name).toContain('log_space_zoom');
+    }
 
     const bad = join(dir, 'cam-bad.json');
     writeFileSync(
@@ -80,36 +110,137 @@ describe('check_sync.py', { timeout: 60_000 }, () => {
     expect(badIds).toContain('beat_frame_math');
   });
 
-  it.skipIf(!hasFfmpeg)('detects dead frozen video vs live moving video with --video', () => {
-    const frozen = join(dir, 'frozen.mp4');
-    const live = join(dir, 'live.mp4');
-    execFileSync('ffmpeg', [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-y',
-      '-f',
-      'lavfi',
-      '-i',
-      'color=c=blue:s=160x90:r=20:d=3',
-      '-pix_fmt',
-      'yuv420p',
-      frozen,
-    ]);
-    execFileSync('ffmpeg', [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-y',
-      '-f',
-      'lavfi',
-      '-i',
-      'testsrc2=s=160x90:r=20:d=3',
-      '-pix_fmt',
-      'yuv420p',
-      live,
-    ]);
-    expect(runPy(['--video', frozen, '--min-liveness', '0.5', '--json']).status).toBe(1);
-    expect(runPy(['--video', live, '--min-liveness', '0.5', '--json']).status).toBe(0);
-  });
+  it.skipIf(!hasFfmpeg)(
+    'detects frozen vs localized live motion and aligns 24 fps beat cuts within 45 ms',
+    () => {
+      const frozen = join(dir, 'frozen.mp4');
+      const localized = join(dir, 'localized.mp4');
+      const cut24 = join(dir, 'cut24.mp4');
+      const beatsOk = join(dir, 'beats-ok.json');
+      const beatsBad = join(dir, 'beats-bad.json');
+
+      execFileSync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=blue:s=160x90:r=20:d=3',
+        '-pix_fmt',
+        'yuv420p',
+        frozen,
+      ]);
+      // Localized motion (~1% of frame: a small 12x12 white box sweeping across a static navy background)
+      // Global mean diff stays < 0.003 (fails old 0.008 threshold), while localized max diff passes.
+      execFileSync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=0x102040:s=160x90:r=20:d=3',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=white:s=12x12:r=20:d=3',
+        '-filter_complex',
+        "[0:v][1:v]overlay=x='10+25*t':y=38:shortest=1",
+        '-pix_fmt',
+        'yuv420p',
+        localized,
+      ]);
+      expect(runPy(['--video', frozen, '--min-liveness', '0.5', '--json']).status).toBe(1);
+      expect(runPy(['--video', localized, '--min-liveness', '0.5', '--json']).status).toBe(0);
+
+      // 24 fps cut at frame 11 (t = 11/24 = 0.4583 s), matching beat at t = 0.45 s under round(t * fps).
+      const partA = join(dir, 'a24.mp4');
+      const partB = join(dir, 'b24.mp4');
+      const list = join(dir, 'list24.txt');
+      execFileSync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=0x102040:s=160x90:r=24:d=0.458333',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=white:s=24x24:r=24:d=0.458333',
+        '-filter_complex',
+        "[0:v][1:v]overlay=x='10+40*t':y=30:shortest=1",
+        '-pix_fmt',
+        'yuv420p',
+        partA,
+      ]);
+      execFileSync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=0xe07020:s=160x90:r=24:d=2.0',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=black:s=24x24:r=24:d=2.0',
+        '-filter_complex',
+        "[0:v][1:v]overlay=x='10+40*t':y=30:shortest=1",
+        '-pix_fmt',
+        'yuv420p',
+        partB,
+      ]);
+      writeFileSync(list, `file '${partA}'\nfile '${partB}'\n`);
+      execFileSync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'concat',
+        '-safe',
+        '0',
+        '-i',
+        list,
+        '-c',
+        'copy',
+        cut24,
+      ]);
+
+      writeFileSync(beatsOk, JSON.stringify([{ t: 0.45 }]));
+      writeFileSync(beatsBad, JSON.stringify([{ t: 0.8 }]));
+      const rOk = runPy([
+        '--video',
+        cut24,
+        '--beats',
+        beatsOk,
+        '--tol-ms',
+        '45',
+        '--min-liveness',
+        '0.5',
+        '--json',
+      ]);
+      expect(rOk.status, rOk.stdout).toBe(0);
+      const rBad = runPy([
+        '--video',
+        cut24,
+        '--beats',
+        beatsBad,
+        '--tol-ms',
+        '45',
+        '--min-liveness',
+        '0.5',
+        '--json',
+      ]);
+      expect(rBad.status, rBad.stdout).toBe(1);
+    },
+  );
 });

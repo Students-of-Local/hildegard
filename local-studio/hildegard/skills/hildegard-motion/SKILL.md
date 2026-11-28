@@ -122,7 +122,7 @@ never mid-tone on mid-tone. On a photo, put a dark gradient under the text (the 
 ## Procedural camera, zoom, shake seams, and beat sync
 
 When driving custom procedural animation or camera moves in Python/Pillow/canvas, verify the camera and sync contract with
-`python3 -B <folder>/scripts/check_sync.py --camera camera.json` (and check rendered video liveness/sync with `--video out.mp4`):
+`python3 -B <folder>/scripts/check_sync.py --camera camera.json` (and for continuous procedural animation without reading holds, check liveness/sync with `--video out.mp4`):
 
 - **Deterministic seed and contact sheet:** pass an explicit integer `"seed"` and preview `"contact_sheet_frames"` (`8` to
   `16`, typically `10` or `12`) before final render.
