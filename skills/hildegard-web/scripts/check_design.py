@@ -13,6 +13,7 @@ Pure Python 3 stdlib (zero external dependencies).
 """
 
 import argparse
+import colorsys
 import json
 import math
 import os
@@ -873,34 +874,82 @@ def check_sakuga_file(path, pre_render=False):
 
 
 LOGO_SHAPE_TAGS = {"path", "circle", "ellipse", "rect", "polygon", "polyline", "line"}
-LOGO_FORBIDDEN_TAGS = {"script", "foreignobject", "link", "iframe", "embed", "object", "image"}
+LOGO_SMIL_TAGS = {"animate", "set", "animatetransform", "animatemotion", "animatecolor"}
+LOGO_FORBIDDEN_TAGS = {
+    "script", "foreignobject", "link", "iframe", "embed", "object", "image",
+    "style", "use",
+} | LOGO_SMIL_TAGS
 LOGO_TEXT_TAGS = {"text", "tspan", "textpath"}
 LOGO_EFFECT_TAGS = {"filter", "fegaussianblur", "fedropshadow", "lineargradient", "radialgradient"}
-LOGO_NAMED_RGB = {
-    "black": (0, 0, 0),
-    "white": (255, 255, 255),
-    "red": (255, 0, 0),
-    "green": (0, 128, 0),
-    "blue": (0, 0, 255),
-    "navy": (0, 0, 128),
-    "teal": (0, 128, 128),
-    "maroon": (128, 0, 0),
-    "olive": (128, 128, 0),
-    "purple": (128, 0, 128),
-    "gray": (128, 128, 128),
-    "grey": (128, 128, 128),
-    "silver": (192, 192, 192),
-    "orange": (255, 165, 0),
-    "gold": (255, 215, 0),
-    "crimson": (220, 20, 60),
-    "indigo": (75, 0, 130),
-    "ivory": (255, 255, 240),
-    "beige": (245, 245, 220),
-    "linen": (250, 240, 230),
-    "coral": (255, 127, 80),
+SVG_NS_TAG = "{http://www.w3.org/2000/svg}svg"
+
+# Packed 24-bit sRGB values for every named color in CSS_NAMED_COLORS (grouped by family)
+LOGO_NAMED_HEX = {
+    # Neutrals and whites
+    "black": 0x000000, "white": 0xFFFFFF, "silver": 0xC0C0C0, "gray": 0x808080, "grey": 0x808080,
+    "darkgray": 0xA9A9A9, "darkgrey": 0xA9A9A9, "dimgray": 0x696969, "dimgrey": 0x696969,
+    "lightgray": 0xD3D3D3, "lightgrey": 0xD3D3D3, "gainsboro": 0xDCDCDC, "whitesmoke": 0xF5F5F5,
+    "snow": 0xFFFAFA, "ghostwhite": 0xF8F8FF, "floralwhite": 0xFFFAF0, "ivory": 0xFFFFF0,
+    "linen": 0xFAF0E6, "oldlace": 0xFDF5E6, "seashell": 0xFFF5EE, "beige": 0xF5F5DC,
+    "antiquewhite": 0xFAEBD7, "cornsilk": 0xFFF8DC, "mintcream": 0xF5FFFA, "azure": 0xF0FFFF,
+    "aliceblue": 0xF0F8FF, "honeydew": 0xF0FFF0, "lavenderblush": 0xFFF0F5, "mistyrose": 0xFFE4E1,
+    "slategray": 0x708090, "slategrey": 0x708090, "lightslategray": 0x778899, "lightslategrey": 0x778899,
+    "darkslategray": 0x2F4F4F, "darkslategrey": 0x2F4F4F,
+    # Reds and pinks
+    "red": 0xFF0000, "darkred": 0x8B0000, "maroon": 0x800000, "firebrick": 0xB22222, "crimson": 0xDC143C,
+    "indianred": 0xCD5C5C, "lightcoral": 0xF08080, "salmon": 0xFA8072, "darksalmon": 0xE9967A,
+    "lightsalmon": 0xFFA07A, "coral": 0xFF7F50, "tomato": 0xFF6347, "orangered": 0xFF4500,
+    "pink": 0xFFC0CB, "lightpink": 0xFFB6C1, "hotpink": 0xFF69B4, "deeppink": 0xFF1493,
+    "palevioletred": 0xDB7093, "mediumvioletred": 0xC71585, "rosybrown": 0xBC8F8F,
+    # Oranges, yellows, and browns
+    "orange": 0xFFA500, "darkorange": 0xFF8C00, "gold": 0xFFD700, "yellow": 0xFFFF00,
+    "lightyellow": 0xFFFFE0, "lemonchiffon": 0xFFFACD, "lightgoldenrodyellow": 0xFAFAD2,
+    "papayawhip": 0xFFEFD5, "moccasin": 0xFFE4B5, "peachpuff": 0xFFDAB9, "palegoldenrod": 0xEEE8AA,
+    "khaki": 0xF0E68C, "darkkhaki": 0xBDB76B, "goldenrod": 0xDAA520, "darkgoldenrod": 0xB8860B,
+    "olive": 0x808000, "bisque": 0xFFE4C4, "blanchedalmond": 0xFFEBCD, "wheat": 0xF5DEB3,
+    "navajowhite": 0xFFDEAD, "burlywood": 0xDEB887, "tan": 0xD2B48C, "sandybrown": 0xF4A460,
+    "peru": 0xCD853F, "chocolate": 0xD2691E, "saddlebrown": 0x8B4513, "sienna": 0xA0522D,
+    "brown": 0xA52A2A,
+    # Greens
+    "green": 0x008000, "darkgreen": 0x006400, "lime": 0x00FF00, "limegreen": 0x32CD32,
+    "forestgreen": 0x228B22, "seagreen": 0x2E8B57, "mediumseagreen": 0x3CB371, "darkseagreen": 0x8FBC8F,
+    "springgreen": 0x00FF7F, "mediumspringgreen": 0x00FA9A, "palegreen": 0x98FB98, "lightgreen": 0x90EE90,
+    "yellowgreen": 0x9ACD32, "olivedrab": 0x6B8E23, "darkolivegreen": 0x556B2F, "lawngreen": 0x7CFC00,
+    "chartreuse": 0x7FFF00, "greenyellow": 0xADFF2F, "mediumaquamarine": 0x66CDAA, "aquamarine": 0x7FFFD4,
+    # Cyans and blues
+    "aqua": 0x00FFFF, "cyan": 0x00FFFF, "lightcyan": 0xE0FFFF, "paleturquoise": 0xAFEEEE,
+    "turquoise": 0x40E0D0, "mediumturquoise": 0x48D1CC, "darkturquoise": 0x00CED1, "darkcyan": 0x008B8B,
+    "teal": 0x008080, "cadetblue": 0x5F9EA0, "lightseagreen": 0x20B2AA, "steelblue": 0x4682B4,
+    "lightsteelblue": 0xB0C4DE, "powderblue": 0xB0E0E6, "lightblue": 0xADD8E6, "skyblue": 0x87CEEB,
+    "lightskyblue": 0x87CEFA, "deepskyblue": 0x00BFFF, "dodgerblue": 0x1E90FF, "cornflowerblue": 0x6495ED,
+    "royalblue": 0x4169E1, "blue": 0x0000FF, "mediumblue": 0x0000CD, "darkblue": 0x00008B,
+    "navy": 0x000080, "midnightblue": 0x191970,
+    # Purples and violets
+    "lavender": 0xE6E6FA, "thistle": 0xD8BFD8, "plum": 0xDDA0DD, "violet": 0xEE82EE,
+    "orchid": 0xDA70D6, "fuchsia": 0xFF00FF, "magenta": 0xFF00FF, "mediumorchid": 0xBA55D3,
+    "mediumpurple": 0x9370DB, "rebeccapurple": 0x663399, "blueviolet": 0x8A2BE2, "darkviolet": 0x9400D3,
+    "darkorchid": 0x9932CC, "darkmagenta": 0x8B008B, "purple": 0x800080, "indigo": 0x4B0082,
+    "slateblue": 0x6A5ACD, "darkslateblue": 0x483D8B, "mediumslateblue": 0x7B68EE,
 }
-SVG_PATH_TOKEN_RE = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
-SVG_TRANSFORM_RE = re.compile(r"(translate|scale|rotate)\s*\(([^)]*)\)", re.I)
+
+SVG_NUM_RE = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+SVG_LEN_RE = re.compile(r"^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(px|pt|pc|in|cm|mm|%)?$", re.I)
+SVG_LEN_UNIT_PX = {
+    "": 1.0,
+    "px": 1.0,
+    "pt": 4.0 / 3.0,
+    "pc": 16.0,
+    "in": 96.0,
+    "cm": 96.0 / 2.54,
+    "mm": 96.0 / 25.4,
+}
+SVG_TF_ITEM_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)\s*\(([^)]*)\)")
+SVG_TF_SEP_RE = re.compile(r"[\s,]*")
+SVG_XML_STYLESHEET_RE = re.compile(r"<\?\s*xml-stylesheet\b", re.I)
+SVG_DATA_URI_RE = re.compile(r"(?:^|[\s(,:'\"])data\s*:", re.I)
+SVG_EXT_SCHEME_RE = re.compile(r"^(?:javascript:|https?:|//|file:|data:)", re.I)
+SVG_STYLE_URL_RE = re.compile(r"\burl\s*\(", re.I)
+SVG_MAT_IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 
 
 def _local_tag(tag):
@@ -911,12 +960,12 @@ def _local_tag(tag):
     return tag.strip().lower()
 
 
-def _parse_svg_len(val):
+def _parse_plain_float(val):
     if not isinstance(val, str):
         return None
-    s = val.strip().lower()
-    if s.endswith("px"):
-        s = s[:-2].strip()
+    s = val.strip()
+    if not s or not SVG_NUM_RE.fullmatch(s):
+        return None
     try:
         v = float(s)
         return v if math.isfinite(v) else None
@@ -924,42 +973,197 @@ def _parse_svg_len(val):
         return None
 
 
-def _parse_rgb_color(val):
-    """Parse #rgb, #rrggbb, rgb(...), or common named color to (r, g, b) tuple; None if none/transparent/unparsed."""
+def _parse_svg_len(val, ref_len=None):
+    """Parse SVG length supporting unitless, px, pt, pc, in, cm, mm, and % (relative to ref_len)."""
     if not isinstance(val, str):
         return None
-    s = val.strip().lower()
-    if s in ("", "none", "transparent", "inherit", "initial", "unset"):
+    s = val.strip()
+    m = SVG_LEN_RE.fullmatch(s)
+    if not m:
         return None
+    try:
+        num = float(m.group(1))
+    except ValueError:
+        return None
+    if not math.isfinite(num):
+        return None
+    unit = (m.group(2) or "").lower()
+    if unit == "%":
+        if ref_len is None or not math.isfinite(ref_len):
+            return None
+        return (num / 100.0) * ref_len
+    return num * SVG_LEN_UNIT_PX[unit]
+
+
+def _parse_opacity_val(val):
+    """Parse CSS/SVG opacity (number or percentage). Returns float clamped to [0, 1] or None if invalid."""
+    if not isinstance(val, str):
+        return None
+    s = val.strip()
+    if not s:
+        return None
+    if s.endswith("%"):
+        num = _parse_plain_float(s[:-1])
+        if num is None:
+            return None
+        v = num / 100.0
+    else:
+        v = _parse_plain_float(s)
+        if v is None:
+            return None
+    return max(0.0, min(1.0, v))
+
+
+def _parse_alpha_token(tok):
+    return _parse_opacity_val(tok)
+
+
+def _split_css_func_args(body):
+    """Split CSS color function arguments supporting both legacy comma and CSS Color 4 space/slash syntax."""
+    s = body.strip()
+    if not s:
+        return None, None
+    if "," in s:
+        if "/" in s:
+            return None, None
+        parts = [p.strip() for p in s.split(",")]
+        if any(not p for p in parts):
+            return None, None
+        if len(parts) == 3:
+            return parts, None
+        if len(parts) == 4:
+            return parts[:3], parts[3]
+        return None, None
+    if "/" in s:
+        left, right = s.split("/", 1)
+        if "/" in right:
+            return None, None
+        chans = [p for p in left.split() if p]
+        alpha = right.strip()
+        if len(chans) == 3 and alpha:
+            return chans, alpha
+        return None, None
+    chans = [p for p in s.split() if p]
+    if len(chans) == 3:
+        return chans, None
+    return None, None
+
+
+def _parse_logo_paint(val):
+    """Parse an SVG logo paint string into (kind, value).
+
+    Kinds:
+      - ('none', None): explicit 'none', 'transparent', or parsed color with alpha == 0
+      - ('currentColor', 'currentColor'): 'currentColor'
+      - ('rgb', (r, g, b)): opaque color (alpha == 1)
+      - ('translucent', alpha): valid color with 0 < alpha < 1
+      - ('invalid', raw): unparsed, unsupported, or paint-server string (e.g. inherit, context-fill, url(...))
+    """
+    if not isinstance(val, str):
+        return ("invalid", str(val))
+    raw = val.strip()
+    s = raw.lower()
+    if not s:
+        return ("invalid", raw)
+    if s in ("none", "transparent"):
+        return ("none", None)
     if s == "currentcolor":
-        return "currentColor"
-    if s in LOGO_NAMED_RGB:
-        return LOGO_NAMED_RGB[s]
-    m3 = re.fullmatch(r"#([0-9a-f]{3})", s)
-    if m3:
-        h = m3.group(1)
-        return (int(h[0] * 2, 16), int(h[1] * 2, 16), int(h[2] * 2, 16))
-    m6 = re.fullmatch(r"#([0-9a-f]{6})", s)
-    if m6:
-        h = m6.group(1)
-        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-    mrgb = re.fullmatch(r"rgb\(\s*([^,]+),\s*([^,]+),\s*([^,)]+)\)", s)
-    if mrgb:
-        out = []
-        for g in mrgb.groups():
-            g = g.strip()
-            try:
-                if g.endswith("%"):
-                    v = float(g[:-1]) * 2.55
-                else:
-                    v = float(g)
-            except ValueError:
-                return None
-            if not math.isfinite(v):
-                return None
-            out.append(max(0, min(255, int(round(v)))))
-        return tuple(out)
-    return None
+        return ("currentColor", "currentColor")
+    if s in LOGO_NAMED_HEX:
+        hx = LOGO_NAMED_HEX[s]
+        return ("rgb", ((hx >> 16) & 0xFF, (hx >> 8) & 0xFF, hx & 0xFF))
+
+    if s.startswith("#"):
+        h = s[1:]
+        if re.fullmatch(r"[0-9a-f]{3}", h):
+            return ("rgb", (int(h[0] * 2, 16), int(h[1] * 2, 16), int(h[2] * 2, 16)))
+        if re.fullmatch(r"[0-9a-f]{6}", h):
+            return ("rgb", (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)))
+        if re.fullmatch(r"[0-9a-f]{4}", h):
+            a = int(h[3] * 2, 16) / 255.0
+            if a <= 0.0:
+                return ("none", None)
+            if a < 1.0 - 1e-9:
+                return ("translucent", round(a, 4))
+            return ("rgb", (int(h[0] * 2, 16), int(h[1] * 2, 16), int(h[2] * 2, 16)))
+        if re.fullmatch(r"[0-9a-f]{8}", h):
+            a = int(h[6:8], 16) / 255.0
+            if a <= 0.0:
+                return ("none", None)
+            if a < 1.0 - 1e-9:
+                return ("translucent", round(a, 4))
+            return ("rgb", (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)))
+        return ("invalid", raw)
+
+    m_rgb = re.fullmatch(r"rgba?\((.*)\)", s)
+    if m_rgb:
+        chans, alpha_tok = _split_css_func_args(m_rgb.group(1))
+        if chans is None:
+            return ("invalid", raw)
+        rgb = []
+        for ch in chans:
+            if ch.endswith("%"):
+                num = _parse_plain_float(ch[:-1])
+                if num is None:
+                    return ("invalid", raw)
+                v = num * 2.55
+            else:
+                num = _parse_plain_float(ch)
+                if num is None:
+                    return ("invalid", raw)
+                v = num
+            rgb.append(max(0, min(255, int(round(v)))))
+        if alpha_tok is not None:
+            a = _parse_alpha_token(alpha_tok)
+            if a is None:
+                return ("invalid", raw)
+            if a <= 0.0:
+                return ("none", None)
+            if a < 1.0 - 1e-9:
+                return ("translucent", round(a, 4))
+        return ("rgb", tuple(rgb))
+
+    m_hsl = re.fullmatch(r"hsla?\((.*)\)", s)
+    if m_hsl:
+        chans, alpha_tok = _split_css_func_args(m_hsl.group(1))
+        if chans is None:
+            return ("invalid", raw)
+        h_tok, s_tok, l_tok = chans
+        m_ang = re.fullmatch(r"([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(deg|rad|grad|turn)?", h_tok)
+        if not m_ang:
+            return ("invalid", raw)
+        h_num = _parse_plain_float(m_ang.group(1))
+        if h_num is None:
+            return ("invalid", raw)
+        ang_unit = m_ang.group(2) or "deg"
+        if ang_unit == "rad":
+            h_deg = math.degrees(h_num)
+        elif ang_unit == "grad":
+            h_deg = h_num * 0.9
+        elif ang_unit == "turn":
+            h_deg = h_num * 360.0
+        else:
+            h_deg = h_num
+        if not (s_tok.endswith("%") and l_tok.endswith("%")):
+            return ("invalid", raw)
+        sat = _parse_plain_float(s_tok[:-1])
+        lit = _parse_plain_float(l_tok[:-1])
+        if sat is None or lit is None:
+            return ("invalid", raw)
+        sat = max(0.0, min(100.0, sat)) / 100.0
+        lit = max(0.0, min(100.0, lit)) / 100.0
+        if alpha_tok is not None:
+            a = _parse_alpha_token(alpha_tok)
+            if a is None:
+                return ("invalid", raw)
+            if a <= 0.0:
+                return ("none", None)
+            if a < 1.0 - 1e-9:
+                return ("translucent", round(a, 4))
+        rf, gf, bf = colorsys.hls_to_rgb((h_deg % 360.0) / 360.0, lit, sat)
+        return ("rgb", (int(round(rf * 255.0)), int(round(gf * 255.0)), int(round(bf * 255.0))))
+
+    return ("invalid", raw)
 
 
 def _rel_luminance(rgb):
@@ -987,120 +1191,491 @@ def _parse_inline_style_map(el):
     return out
 
 
-def _apply_transforms(pts, tf_chain):
-    """Apply list of (kind, nums) transforms right-to-left (SVG order) to (x, y) points."""
-    out = list(pts)
-    for kind, nums in reversed(tf_chain):
-        if kind == "translate" and len(nums) >= 1:
-            tx = nums[0]
-            ty = nums[1] if len(nums) >= 2 else 0.0
-            out = [(x + tx, y + ty) for x, y in out]
-        elif kind == "scale" and len(nums) >= 1:
-            sx = nums[0]
-            sy = nums[1] if len(nums) >= 2 else sx
-            out = [(x * sx, y * sy) for x, y in out]
-        elif kind == "rotate" and len(nums) >= 1:
-            ang = math.radians(nums[0])
-            cx = nums[1] if len(nums) >= 3 else 0.0
-            cy = nums[2] if len(nums) >= 3 else 0.0
-            ca, sa = math.cos(ang), math.sin(ang)
-            out = [((x - cx) * ca - (y - cy) * sa + cx, (x - cx) * sa + (y - cy) * ca + cy) for x, y in out]
-    return out
+def _mat_mul(m1, m2):
+    a1, b1, c1, d1, e1, f1 = m1
+    a2, b2, c2, d2, e2, f2 = m2
+    return (
+        a1 * a2 + c1 * b2,
+        b1 * a2 + d1 * b2,
+        a1 * c2 + c1 * d2,
+        b1 * c2 + d1 * d2,
+        a1 * e2 + c1 * f2 + e1,
+        b1 * e2 + d1 * f2 + f1,
+    )
 
 
-def _parse_transform_list(attr):
-    if not attr:
-        return []
-    out = []
-    for m in SVG_TRANSFORM_RE.finditer(attr):
+def _mat_apply(mat, x, y):
+    a, b, c, d, e, f = mat
+    return (a * x + c * y + e, b * x + d * y + f)
+
+
+def _mat_linear_scales(mat):
+    """Return (min_scale, max_scale) singular values of the 2x2 linear part of mat."""
+    a, b, c, d, _, _ = mat
+    s1 = math.hypot(a + d, b - c)
+    s2 = math.hypot(a - d, b + c)
+    return 0.5 * abs(s1 - s2), 0.5 * (s1 + s2)
+
+
+def _parse_transform_matrix(attr):
+    """Parse SVG transform attribute into (matrix, error_or_None). Rejects unknown functions or bad syntax."""
+    if not attr or not attr.strip():
+        return SVG_MAT_IDENTITY, None
+    s = attr.strip()
+    pos = 0
+    n = len(s)
+    mat = SVG_MAT_IDENTITY
+    while pos < n:
+        sep = SVG_TF_SEP_RE.match(s, pos)
+        if sep:
+            pos = sep.end()
+        if pos >= n:
+            break
+        m = SVG_TF_ITEM_RE.match(s, pos)
+        if not m:
+            return mat, f"transform:syntax:{s[pos:pos + 24]}"
+        pos = m.end()
         kind = m.group(1).lower()
-        nums = [float(x) for x in re.findall(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", m.group(2))]
-        if nums and all(math.isfinite(x) for x in nums):
-            out.append((kind, nums))
-    return out
+        arg_str = m.group(2).strip()
+        nums = []
+        if arg_str:
+            ap = 0
+            an = len(arg_str)
+            while ap < an:
+                sp = SVG_TF_SEP_RE.match(arg_str, ap)
+                if sp:
+                    ap = sp.end()
+                if ap >= an:
+                    break
+                nm = SVG_NUM_RE.match(arg_str, ap)
+                if not nm:
+                    return mat, f"transform:{kind}:bad-arg:{arg_str[ap:ap + 16]}"
+                val = float(nm.group(0))
+                if not math.isfinite(val):
+                    return mat, f"transform:{kind}:non-finite"
+                nums.append(val)
+                ap = nm.end()
+
+        if kind == "translate" and len(nums) in (1, 2):
+            tx = nums[0]
+            ty = nums[1] if len(nums) == 2 else 0.0
+            cur = (1.0, 0.0, 0.0, 1.0, tx, ty)
+        elif kind == "scale" and len(nums) in (1, 2):
+            sx = nums[0]
+            sy = nums[1] if len(nums) == 2 else sx
+            cur = (sx, 0.0, 0.0, sy, 0.0, 0.0)
+        elif kind == "rotate" and len(nums) in (1, 3):
+            ang = math.radians(nums[0])
+            ca, sa = math.cos(ang), math.sin(ang)
+            if len(nums) == 3:
+                rx, ry = nums[1], nums[2]
+                cur = (ca, sa, -sa, ca, rx - ca * rx + sa * ry, ry - sa * rx - ca * ry)
+            else:
+                cur = (ca, sa, -sa, ca, 0.0, 0.0)
+        elif kind == "skewx" and len(nums) == 1:
+            rad = math.radians(nums[0])
+            if abs(math.cos(rad)) < 1e-12:
+                return mat, f"transform:skewX:singular:{nums[0]}"
+            cur = (1.0, 0.0, math.tan(rad), 1.0, 0.0, 0.0)
+        elif kind == "skewy" and len(nums) == 1:
+            rad = math.radians(nums[0])
+            if abs(math.cos(rad)) < 1e-12:
+                return mat, f"transform:skewY:singular:{nums[0]}"
+            cur = (1.0, math.tan(rad), 0.0, 1.0, 0.0, 0.0)
+        elif kind == "matrix" and len(nums) == 6:
+            cur = tuple(nums)
+        else:
+            return mat, f"transform:unsupported:{kind}({len(nums)})"
+        mat = _mat_mul(mat, cur)
+    return mat, None
 
 
-def _path_points_and_cmds(d):
-    """Return (points, cmd_count) from SVG path data d (handles all absolute and relative commands)."""
-    tokens = SVG_PATH_TOKEN_RE.findall(d or "")
+def _quad_bezier_bbox_pts(p0, p1, p2):
+    """Return endpoints plus exact interior x/y extrema of a quadratic Bezier curve."""
+    pts = [p0, p2]
+    for axis in (0, 1):
+        v0, v1, v2 = p0[axis], p1[axis], p2[axis]
+        denom = v0 - 2.0 * v1 + v2
+        if abs(denom) > 1e-12:
+            t = (v0 - v1) / denom
+            if 0.0 < t < 1.0:
+                mt = 1.0 - t
+                pts.append((
+                    mt * mt * p0[0] + 2.0 * mt * t * p1[0] + t * t * p2[0],
+                    mt * mt * p0[1] + 2.0 * mt * t * p1[1] + t * t * p2[1],
+                ))
+    return pts
+
+
+def _cubic_bezier_bbox_pts(p0, p1, p2, p3):
+    """Return endpoints plus exact interior x/y extrema of a cubic Bezier curve."""
+    pts = [p0, p3]
+    for axis in (0, 1):
+        v0, v1, v2, v3 = p0[axis], p1[axis], p2[axis], p3[axis]
+        qa = -v0 + 3.0 * v1 - 3.0 * v2 + v3
+        qb = v0 - 2.0 * v1 + v2
+        qc = v1 - v0
+        roots = []
+        if abs(qa) < 1e-12:
+            if abs(qb) > 1e-12:
+                roots.append(-qc / (2.0 * qb))
+        else:
+            disc = qb * qb - qa * qc
+            if disc >= 0.0:
+                sq = math.sqrt(disc)
+                roots.append((-qb + sq) / qa)
+                roots.append((-qb - sq) / qa)
+        for t in roots:
+            if 0.0 < t < 1.0:
+                mt = 1.0 - t
+                c0 = mt * mt * mt
+                c1 = 3.0 * mt * mt * t
+                c2 = 3.0 * mt * t * t
+                c3 = t * t * t
+                pts.append((
+                    c0 * p0[0] + c1 * p1[0] + c2 * p2[0] + c3 * p3[0],
+                    c0 * p0[1] + c1 * p1[1] + c2 * p2[1] + c3 * p3[1],
+                ))
+    return pts
+
+
+def _arc_transformed_bbox_pts(p0, rx, ry, x_rot_deg, large_arc, sweep, p1, mat):
+    """Return exact transformed endpoints and extrema of an SVG elliptical arc under affine matrix mat."""
+    x1, y1 = p0
+    x2, y2 = p1
+    tp0 = _mat_apply(mat, x1, y1)
+    tp1 = _mat_apply(mat, x2, y2)
+    rx = abs(rx)
+    ry = abs(ry)
+    if rx < 1e-12 or ry < 1e-12 or (abs(x1 - x2) < 1e-12 and abs(y1 - y2) < 1e-12):
+        return [tp0, tp1]
+
+    phi = math.radians(x_rot_deg)
+    cphi, sphi = math.cos(phi), math.sin(phi)
+    dx2 = 0.5 * (x1 - x2)
+    dy2 = 0.5 * (y1 - y2)
+    x1p = cphi * dx2 + sphi * dy2
+    y1p = -sphi * dx2 + cphi * dy2
+
+    lam = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry)
+    if lam > 1.0:
+        s_lam = math.sqrt(lam)
+        rx *= s_lam
+        ry *= s_lam
+
+    rx2, ry2 = rx * rx, ry * ry
+    x1p2, y1p2 = x1p * x1p, y1p * y1p
+    num = max(0.0, rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2)
+    den = rx2 * y1p2 + ry2 * x1p2
+    coef = math.sqrt(num / den) if den > 1e-18 else 0.0
+    if large_arc == sweep:
+        coef = -coef
+    cxp = coef * (rx * y1p / ry)
+    cyp = coef * (-ry * x1p / rx)
+
+    cx = cphi * cxp - sphi * cyp + 0.5 * (x1 + x2)
+    cy = sphi * cxp + cphi * cyp + 0.5 * (y1 + y2)
+
+    def vec_angle(ux, uy, vx, vy):
+        dot = ux * vx + uy * vy
+        mag = math.hypot(ux, uy) * math.hypot(vx, vy)
+        if mag < 1e-18:
+            return 0.0
+        ang = math.acos(max(-1.0, min(1.0, dot / mag)))
+        return -ang if (ux * vy - uy * vx) < 0.0 else ang
+
+    ux, uy = (x1p - cxp) / rx, (y1p - cyp) / ry
+    vx, vy = (-x1p - cxp) / rx, (-y1p - cyp) / ry
+    theta1 = vec_angle(1.0, 0.0, ux, uy)
+    dtheta = vec_angle(ux, uy, vx, vy)
+    if sweep == 0 and dtheta > 0.0:
+        dtheta -= 2.0 * math.pi
+    elif sweep == 1 and dtheta < 0.0:
+        dtheta += 2.0 * math.pi
+
+    a, b, c, d, _, _ = mat
+    tcx, tcy = _mat_apply(mat, cx, cy)
+    # Local ellipse basis vectors u = rx*(cos phi, sin phi), v = ry*(-sin phi, cos phi)
+    lux, luy = rx * cphi, rx * sphi
+    lvx, lvy = -ry * sphi, ry * cphi
+    tux, tuy = a * lux + c * luy, b * lux + d * luy
+    tvx, tvy = a * lvx + c * lvy, b * lvx + d * lvy
+
+    t_lo = min(theta1, theta1 + dtheta)
+    t_hi = max(theta1, theta1 + dtheta)
+    cand_bases = []
+    if abs(tux) > 1e-12 or abs(tvx) > 1e-12:
+        cand_bases.append(math.atan2(tvx, tux))
+    if abs(tuy) > 1e-12 or abs(tvy) > 1e-12:
+        cand_bases.append(math.atan2(tvy, tuy))
+
+    pts = [tp0, tp1]
+    two_pi = 2.0 * math.pi
+    for base in cand_bases:
+        for half_shift in (0.0, math.pi):
+            ang = base + half_shift
+            k_start = math.floor((t_lo - ang) / two_pi)
+            for k in range(k_start, k_start + 3):
+                t = ang + k * two_pi
+                if t_lo + 1e-12 < t < t_hi - 1e-12:
+                    ct, st = math.cos(t), math.sin(t)
+                    pts.append((tcx + tux * ct + tvx * st, tcy + tuy * ct + tvy * st))
+    return pts
+
+
+def _path_transformed_points_and_cmds(d, mat):
+    """Parse SVG path data strictly, returning (transformed_bbox_pts, executed_cmd_count, error_or_None)."""
+    if d is None:
+        return [], 0, None
+    s = d
+    n = len(s)
+    pos = 0
     pts = []
     cmds = 0
     cx = cy = sx = sy = 0.0
-    cmd = None
-    i = 0
-    n = len(tokens)
+    prev_cmd = None
+    last_ctrl = None
+    valid_cmds = set("MmLlHhVvCcSsQqTtAaZz")
 
-    def next_f():
-        nonlocal i
-        if i >= n or tokens[i].isalpha():
+    def skip_ws():
+        nonlocal pos
+        while pos < n and s[pos] in " \t\r\n":
+            pos += 1
+
+    def skip_sep(allow_comma=True):
+        nonlocal pos
+        skip_ws()
+        if allow_comma and pos < n and s[pos] == ",":
+            pos += 1
+            skip_ws()
+
+    def read_num(allow_comma=True):
+        nonlocal pos
+        skip_sep(allow_comma=allow_comma)
+        if pos >= n:
             return None
-        v = float(tokens[i])
-        i += 1
-        return v
+        m = SVG_NUM_RE.match(s, pos)
+        if not m:
+            return None
+        val = float(m.group(0))
+        if not math.isfinite(val):
+            return None
+        pos = m.end()
+        return val
 
-    while i < n:
-        tok = tokens[i]
-        if tok.isalpha():
-            cmd = tok
-            cmds += 1
-            i += 1
-            if cmd in ("Z", "z"):
-                cx, cy = sx, sy
-                continue
-        if cmd is None:
-            i += 1
-            continue
-        if cmd in ("M", "m", "L", "l", "T", "t"):
-            x, y = next_f(), next_f()
-            if x is None or y is None:
-                break
-            cx, cy = (cx + x, cy + y) if cmd.islower() else (x, y)
-            if cmd in ("M", "m"):
-                sx, sy = cx, cy
-                cmd = "l" if cmd == "m" else "L"
-            pts.append((cx, cy))
-        elif cmd in ("H", "h"):
-            x = next_f()
-            if x is None:
-                break
-            cx = cx + x if cmd == "h" else x
-            pts.append((cx, cy))
-        elif cmd in ("V", "v"):
-            y = next_f()
-            if y is None:
-                break
-            cy = cy + y if cmd == "v" else y
-            pts.append((cx, cy))
-        elif cmd in ("C", "c"):
-            vals = [next_f() for _ in range(6)]
-            if any(v is None for v in vals):
-                break
-            if cmd == "c":
-                p1, p2, p3 = (cx + vals[0], cy + vals[1]), (cx + vals[2], cy + vals[3]), (cx + vals[4], cy + vals[5])
-            else:
-                p1, p2, p3 = (vals[0], vals[1]), (vals[2], vals[3]), (vals[4], vals[5])
-            pts.extend([p1, p2, p3])
-            cx, cy = p3
-        elif cmd in ("S", "s", "Q", "q"):
-            vals = [next_f() for _ in range(4)]
-            if any(v is None for v in vals):
-                break
-            if cmd.islower():
-                p1, p2 = (cx + vals[0], cy + vals[1]), (cx + vals[2], cy + vals[3])
-            else:
-                p1, p2 = (vals[0], vals[1]), (vals[2], vals[3])
-            pts.extend([p1, p2])
-            cx, cy = p2
-        elif cmd in ("A", "a"):
-            vals = [next_f() for _ in range(7)]
-            if any(v is None for v in vals):
-                break
-            nx, ny = (cx + vals[5], cy + vals[6]) if cmd == "a" else (vals[5], vals[6])
-            pts.append((nx, ny))
-            cx, cy = nx, ny
+    def read_flag():
+        nonlocal pos
+        skip_sep(allow_comma=True)
+        if pos >= n or s[pos] not in ("0", "1"):
+            return None
+        val = 1 if s[pos] == "1" else 0
+        pos += 1
+        return val
+
+    def has_next_arg(allow_comma=True):
+        saved = pos
+        skip_sep(allow_comma=allow_comma)
+        if pos >= n:
+            pos_res = False
         else:
-            i += 1
-    return pts, cmds
+            pos_res = s[pos] in "0123456789+-."
+        return pos_res, saved
+
+    while True:
+        skip_ws()
+        if pos >= n:
+            break
+        ch = s[pos]
+        if ch not in valid_cmds:
+            return pts, cmds, f"path:unexpected:{s[pos:pos + 16]}"
+        cmd = ch
+        if prev_cmd is None and cmd not in ("M", "m"):
+            return pts, cmds, f"path:must-start-with-moveto:{cmd}"
+        pos += 1
+
+        if cmd in ("Z", "z"):
+            cmds += 1
+            cx, cy = sx, sy
+            prev_cmd = cmd
+            last_ctrl = None
+            continue
+
+        first_tuple = True
+        while True:
+            if not first_tuple:
+                more, saved = has_next_arg(allow_comma=True)
+                pos = saved
+                if not more:
+                    break
+            allow_comma = not first_tuple
+            first_tuple = False
+            cmds += 1
+
+            if cmd in ("M", "m"):
+                x = read_num(allow_comma=allow_comma)
+                y = read_num(allow_comma=True)
+                if x is None or y is None:
+                    return pts, cmds, f"path:truncated:{cmd}"
+                cx, cy = (cx + x, cy + y) if cmd == "m" else (x, y)
+                sx, sy = cx, cy
+                pts.append(_mat_apply(mat, cx, cy))
+                prev_cmd = cmd
+                last_ctrl = None
+                cmd = "l" if cmd == "m" else "L"
+            elif cmd in ("L", "l"):
+                x = read_num(allow_comma=allow_comma)
+                y = read_num(allow_comma=True)
+                if x is None or y is None:
+                    return pts, cmds, f"path:truncated:{cmd}"
+                nx, ny = (cx + x, cy + y) if cmd == "l" else (x, y)
+                pts.append(_mat_apply(mat, cx, cy))
+                pts.append(_mat_apply(mat, nx, ny))
+                cx, cy = nx, ny
+                prev_cmd = cmd
+                last_ctrl = None
+            elif cmd in ("H", "h"):
+                x = read_num(allow_comma=allow_comma)
+                if x is None:
+                    return pts, cmds, f"path:truncated:{cmd}"
+                nx = cx + x if cmd == "h" else x
+                pts.append(_mat_apply(mat, cx, cy))
+                pts.append(_mat_apply(mat, nx, cy))
+                cx = nx
+                prev_cmd = cmd
+                last_ctrl = None
+            elif cmd in ("V", "v"):
+                y = read_num(allow_comma=allow_comma)
+                if y is None:
+                    return pts, cmds, f"path:truncated:{cmd}"
+                ny = cy + y if cmd == "v" else y
+                pts.append(_mat_apply(mat, cx, cy))
+                pts.append(_mat_apply(mat, cx, ny))
+                cy = ny
+                prev_cmd = cmd
+                last_ctrl = None
+            elif cmd in ("C", "c"):
+                vals = [read_num(allow_comma=(allow_comma if idx == 0 else True)) for idx in range(6)]
+                if any(v is None for v in vals):
+                    return pts, cmds, f"path:truncated:{cmd}"
+                if cmd == "c":
+                    p1 = (cx + vals[0], cy + vals[1])
+                    p2 = (cx + vals[2], cy + vals[3])
+                    p3 = (cx + vals[4], cy + vals[5])
+                else:
+                    p1 = (vals[0], vals[1])
+                    p2 = (vals[2], vals[3])
+                    p3 = (vals[4], vals[5])
+                pts.extend(_cubic_bezier_bbox_pts(
+                    _mat_apply(mat, cx, cy),
+                    _mat_apply(mat, p1[0], p1[1]),
+                    _mat_apply(mat, p2[0], p2[1]),
+                    _mat_apply(mat, p3[0], p3[1]),
+                ))
+                cx, cy = p3
+                last_ctrl = p2
+                prev_cmd = cmd
+            elif cmd in ("S", "s"):
+                vals = [read_num(allow_comma=(allow_comma if idx == 0 else True)) for idx in range(4)]
+                if any(v is None for v in vals):
+                    return pts, cmds, f"path:truncated:{cmd}"
+                if prev_cmd in ("C", "c", "S", "s") and last_ctrl is not None:
+                    p1 = (2.0 * cx - last_ctrl[0], 2.0 * cy - last_ctrl[1])
+                else:
+                    p1 = (cx, cy)
+                if cmd == "s":
+                    p2 = (cx + vals[0], cy + vals[1])
+                    p3 = (cx + vals[2], cy + vals[3])
+                else:
+                    p2 = (vals[0], vals[1])
+                    p3 = (vals[2], vals[3])
+                pts.extend(_cubic_bezier_bbox_pts(
+                    _mat_apply(mat, cx, cy),
+                    _mat_apply(mat, p1[0], p1[1]),
+                    _mat_apply(mat, p2[0], p2[1]),
+                    _mat_apply(mat, p3[0], p3[1]),
+                ))
+                cx, cy = p3
+                last_ctrl = p2
+                prev_cmd = cmd
+            elif cmd in ("Q", "q"):
+                vals = [read_num(allow_comma=(allow_comma if idx == 0 else True)) for idx in range(4)]
+                if any(v is None for v in vals):
+                    return pts, cmds, f"path:truncated:{cmd}"
+                if cmd == "q":
+                    p1 = (cx + vals[0], cy + vals[1])
+                    p2 = (cx + vals[2], cy + vals[3])
+                else:
+                    p1 = (vals[0], vals[1])
+                    p2 = (vals[2], vals[3])
+                pts.extend(_quad_bezier_bbox_pts(
+                    _mat_apply(mat, cx, cy),
+                    _mat_apply(mat, p1[0], p1[1]),
+                    _mat_apply(mat, p2[0], p2[1]),
+                ))
+                cx, cy = p2
+                last_ctrl = p1
+                prev_cmd = cmd
+            elif cmd in ("T", "t"):
+                x = read_num(allow_comma=allow_comma)
+                y = read_num(allow_comma=True)
+                if x is None or y is None:
+                    return pts, cmds, f"path:truncated:{cmd}"
+                if prev_cmd in ("Q", "q", "T", "t") and last_ctrl is not None:
+                    p1 = (2.0 * cx - last_ctrl[0], 2.0 * cy - last_ctrl[1])
+                else:
+                    p1 = (cx, cy)
+                p2 = (cx + x, cy + y) if cmd == "t" else (x, y)
+                pts.extend(_quad_bezier_bbox_pts(
+                    _mat_apply(mat, cx, cy),
+                    _mat_apply(mat, p1[0], p1[1]),
+                    _mat_apply(mat, p2[0], p2[1]),
+                ))
+                cx, cy = p2
+                last_ctrl = p1
+                prev_cmd = cmd
+            elif cmd in ("A", "a"):
+                rx = read_num(allow_comma=allow_comma)
+                ry = read_num(allow_comma=True)
+                rot = read_num(allow_comma=True)
+                large = read_flag()
+                sweep = read_flag()
+                ax = read_num(allow_comma=True)
+                ay = read_num(allow_comma=True)
+                if None in (rx, ry, rot, large, sweep, ax, ay):
+                    return pts, cmds, f"path:truncated-or-bad-flag:{cmd}"
+                nx, ny = (cx + ax, cy + ay) if cmd == "a" else (ax, ay)
+                pts.extend(_arc_transformed_bbox_pts((cx, cy), rx, ry, rot, large, sweep, (nx, ny), mat))
+                cx, cy = nx, ny
+                last_ctrl = None
+                prev_cmd = cmd
+    return pts, cmds, None
+
+
+def _parse_points_attr(raw):
+    """Parse SVG polygon/polyline points attribute strictly. Returns (list_of_xy, error_or_None)."""
+    if raw is None or not raw.strip():
+        return [], None
+    s = raw.strip()
+    pos = 0
+    n = len(s)
+    nums = []
+    while pos < n:
+        sp = SVG_TF_SEP_RE.match(s, pos)
+        if sp:
+            pos = sp.end()
+        if pos >= n:
+            break
+        m = SVG_NUM_RE.match(s, pos)
+        if not m:
+            return [], f"points:bad-token:{s[pos:pos + 16]}"
+        v = float(m.group(0))
+        if not math.isfinite(v):
+            return [], "points:non-finite"
+        nums.append(v)
+        pos = m.end()
+    if len(nums) % 2 != 0:
+        return [], "points:odd-count"
+    return [(nums[k], nums[k + 1]) for k in range(0, len(nums), 2)], None
 
 
 def check_logo_svg(path, allow_draft_text=False, surface=None):
@@ -1112,39 +1687,47 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
         return {"ok": False, "checks": [_chk("logo_svg_valid", False, str(exc), "readable UTF-8 SVG", "logo SVG must be readable UTF-8")]}
     if re.search(r"<!\s*ENTITY\b|<!\s*DOCTYPE\b[^>]*\b(?:SYSTEM|PUBLIC)\b", raw, re.I):
         return {"ok": False, "checks": [_chk("logo_svg_valid", False, "XML entity/DTD declaration", "plain SVG without <!ENTITY> or external DTD", "reject XML entity and external DTD declarations in logo SVG")]}
+    has_xml_stylesheet = bool(SVG_XML_STYLESHEET_RE.search(raw))
     try:
         root = ET.fromstring(raw)
     except ET.ParseError as exc:
         return {"ok": False, "checks": [_chk("logo_svg_valid", False, str(exc), "valid XML/SVG", "logo SVG must parse cleanly as XML")]}
-    if _local_tag(root.tag) != "svg":
-        return {"ok": False, "checks": [_chk("logo_svg_valid", False, _local_tag(root.tag), "svg", "root element must be <svg>")]}
+    if root.tag != SVG_NS_TAG:
+        return {"ok": False, "checks": [_chk("logo_svg_valid", False, root.tag, SVG_NS_TAG, 'root element must be <svg xmlns="http://www.w3.org/2000/svg">')]}
 
-    checks = [_chk("logo_svg_valid", True, "valid", "valid <svg>", "SVG parsed cleanly")]
+    checks = [_chk("logo_svg_valid", True, "valid", "valid <svg> in SVG namespace", "SVG parsed cleanly")]
 
-    # 1. Explicit clean viewBox and width/height aspect match
+    # 1. Explicit clean 4-number viewBox (no units) and positive width/height aspect match
     vb_raw = root.attrib.get("viewBox", "").strip()
-    vb_nums = [_parse_svg_len(t) for t in re.split(r"[\s,]+", vb_raw) if t] if vb_raw else []
+    vb_tokens = [t for t in re.split(r"[\s,]+", vb_raw) if t] if vb_raw else []
+    vb_nums = [_parse_plain_float(t) for t in vb_tokens]
     vb_ok = len(vb_nums) == 4 and all(v is not None for v in vb_nums) and vb_nums[2] > 0.0 and vb_nums[3] > 0.0
     if vb_ok:
         vb_x, vb_y, vb_w, vb_h = vb_nums
-        w_attr = _parse_svg_len(root.attrib.get("width", ""))
-        h_attr = _parse_svg_len(root.attrib.get("height", ""))
-        if w_attr is not None and h_attr is not None:
-            if w_attr <= 0.0 or h_attr <= 0.0:
-                vb_ok = False
-            else:
-                ar_vb = vb_w / vb_h
-                ar_wh = w_attr / h_attr
-                if abs(ar_wh - ar_vb) / max(ar_vb, 1e-9) > 0.05:
-                    vb_ok = False
     else:
         vb_x, vb_y, vb_w, vb_h = 0.0, 0.0, 100.0, 100.0
-    checks.append(_chk("logo_viewbox", vb_ok, vb_raw or "missing", "4-number viewBox with positive dimensions matching width/height ratio", "explicit viewBox required so logo scales cleanly"))
 
-    # Walk tree with inherited fill/stroke/stroke-width and transform chain
-    security_hits = []
+    raw_w = root.attrib.get("width")
+    raw_h = root.attrib.get("height")
+    w_attr = _parse_svg_len(raw_w, ref_len=vb_w) if raw_w is not None else None
+    h_attr = _parse_svg_len(raw_h, ref_len=vb_h) if raw_h is not None else None
+    if raw_w is not None and (w_attr is None or w_attr <= 0.0):
+        vb_ok = False
+    if raw_h is not None and (h_attr is None or h_attr <= 0.0):
+        vb_ok = False
+    if vb_ok and w_attr is not None and h_attr is not None:
+        ar_vb = vb_w / vb_h
+        ar_wh = w_attr / h_attr
+        if abs(ar_wh - ar_vb) / max(ar_vb, 1e-9) > 0.05:
+            vb_ok = False
+    checks.append(_chk("logo_viewbox", vb_ok, vb_raw or "missing", "4 plain numbers in viewBox with positive dimensions matching width/height ratio", "explicit unitless viewBox required so logo scales cleanly"))
+
+    # Walk tree with inherited fill/stroke/stroke-width/opacity and composed 2D affine matrix
+    security_hits = ["xml-stylesheet"] if has_xml_stylesheet else []
     text_hits = 0
     effect_hits = []
+    invalid_paints = []
+    geometry_errors = []
     shape_count = 0
     path_cmd_total = 0
     thin_features = []
@@ -1152,20 +1735,58 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
     colors_seen = set()
     has_current_color = False
     vb_short = min(vb_w, vb_h)
+    vb_diag = math.hypot(vb_w, vb_h) / math.sqrt(2.0)
     min_feature = vb_short / 32.0
 
-    def walk(el, inh_fill, inh_stroke, inh_sw, tf_chain, in_non_render=False):
-        nonlocal text_hits, shape_count, path_cmd_total, has_current_color
+    def read_len_attr(el, tag, name, default, ref_len, style_map=None, non_negative=False):
+        raw_v = None
+        if style_map is not None and name in style_map:
+            raw_v = style_map[name]
+        elif name in el.attrib:
+            raw_v = el.attrib[name]
+        if raw_v is None:
+            return default
+        parsed = _parse_svg_len(raw_v, ref_len=ref_len)
+        if parsed is None or (non_negative and parsed < 0.0):
+            geometry_errors.append(f"{tag}:{name}={raw_v}")
+            return None
+        return parsed
+
+    def inspect_paint(tag, prop_name, prop_val):
+        nonlocal has_current_color
+        kind, parsed = _parse_logo_paint(prop_val)
+        if kind == "none":
+            return kind
+        if kind == "currentColor":
+            has_current_color = True
+            return kind
+        if kind == "rgb":
+            colors_seen.add(parsed)
+            return kind
+        if kind == "translucent":
+            effect_hits.append(f"{tag}:{prop_name}-translucent({parsed})")
+            return kind
+        # kind == "invalid"
+        low = (prop_val or "").strip().lower()
+        if low.startswith("url("):
+            effect_hits.append(f"paint:{prop_val.strip()}")
+            if SVG_DATA_URI_RE.search(prop_val) or re.search(r"url\s*\(\s*['\"]?(?:https?:|//|javascript:|file:)", prop_val, re.I):
+                security_hits.append(f"paint-url:{prop_val.strip()[:28]}")
+        else:
+            invalid_paints.append(f"{tag}:{prop_name}={prop_val}")
+        return kind
+
+    def walk(el, inh_fill, inh_stroke, inh_sw, inh_op, inh_fop, inh_sop, parent_mat, in_non_render=False, is_root=False):
+        nonlocal text_hits, shape_count, path_cmd_total
         tag = _local_tag(el.tag)
+        if tag == "svg" and not is_root:
+            security_hits.append("nested:<svg>")
         if tag in LOGO_FORBIDDEN_TAGS:
             security_hits.append(f"<{tag}>")
         if tag in LOGO_TEXT_TAGS and not in_non_render:
             text_hits += 1
         if tag in LOGO_EFFECT_TAGS:
             effect_hits.append(f"<{tag}>")
-        if tag == "style" and el.text:
-            if re.search(r"@import\b|url\s*\(\s*['\"]?(?:https?:|//|javascript:|data:)", el.text, re.I):
-                security_hits.append("external-style-ref")
 
         style_map = _parse_inline_style_map(el)
         for k, v in el.attrib.items():
@@ -1173,101 +1794,201 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
             vl = (v or "").strip()
             if kl.startswith("on"):
                 security_hits.append(f"attr:{kl}")
-            if kl in ("href", "src") and re.match(r"^(?:javascript:|https?:|//|file:|data:text/html)", vl, re.I):
+            if kl in ("href", "src") and SVG_EXT_SCHEME_RE.match(vl):
                 security_hits.append(f"{kl}:{vl[:24]}")
+            elif SVG_DATA_URI_RE.search(vl):
+                security_hits.append(f"data-uri:{kl}")
             if kl == "filter" and vl.lower() not in ("", "none"):
                 effect_hits.append(f"filter:{vl}")
         if "filter" in style_map and style_map["filter"].lower() != "none":
             effect_hits.append(f"style-filter:{style_map['filter']}")
-        if "style" in el.attrib and re.search(r"url\s*\(\s*['\"]?(?:https?:|//|javascript:)", el.attrib["style"], re.I):
-            security_hits.append("style-external-url")
+        if "style" in el.attrib and SVG_STYLE_URL_RE.search(el.attrib["style"]):
+            security_hits.append("style-url")
 
         cur_fill = style_map.get("fill", el.attrib.get("fill", inh_fill))
         cur_stroke = style_map.get("stroke", el.attrib.get("stroke", inh_stroke))
         cur_sw_raw = style_map.get("stroke-width", el.attrib.get("stroke-width", inh_sw))
-        cur_tf = tf_chain + _parse_transform_list(el.attrib.get("transform", ""))
+
         next_non_render = in_non_render or (tag in ("defs", "clippath", "mask", "symbol", "title", "desc", "metadata"))
 
-        if tag in LOGO_SHAPE_TAGS and not next_non_render:
+        # Strict opacity tracking (opacity multiplies; fill-opacity/stroke-opacity inherit)
+        cur_op = inh_op
+        cur_fop = inh_fop
+        cur_sop = inh_sop
+        if not next_non_render:
+            op_raw = style_map.get("opacity", el.attrib.get("opacity"))
+            if op_raw is not None:
+                op_val = _parse_opacity_val(op_raw)
+                if op_val is None or op_val < 1.0 - 1e-9:
+                    effect_hits.append(f"{tag}:opacity={op_raw}")
+                    cur_op = 0.0 if op_val is None else cur_op * op_val
+                else:
+                    cur_op *= op_val
+            fop_raw = style_map.get("fill-opacity", el.attrib.get("fill-opacity"))
+            if fop_raw is not None:
+                fop_val = _parse_opacity_val(fop_raw)
+                if fop_val is None or fop_val < 1.0 - 1e-9:
+                    effect_hits.append(f"{tag}:fill-opacity={fop_raw}")
+                    cur_fop = 0.0 if fop_val is None else fop_val
+                else:
+                    cur_fop = fop_val
+            sop_raw = style_map.get("stroke-opacity", el.attrib.get("stroke-opacity"))
+            if sop_raw is not None:
+                sop_val = _parse_opacity_val(sop_raw)
+                if sop_val is None or sop_val < 1.0 - 1e-9:
+                    effect_hits.append(f"{tag}:stroke-opacity={sop_raw}")
+                    cur_sop = 0.0 if sop_val is None else sop_val
+                else:
+                    cur_sop = sop_val
+
+        tf_mat, tf_err = _parse_transform_matrix(el.attrib.get("transform", ""))
+        if tf_err and not next_non_render:
+            geometry_errors.append(f"{tag}:{tf_err}")
+        cur_mat = _mat_mul(parent_mat, tf_mat)
+
+        if not next_non_render and (tag in LOGO_SHAPE_TAGS or (allow_draft_text and tag == "text")):
             shape_count += 1
-            for prop_val in (cur_fill, cur_stroke):
-                if isinstance(prop_val, str) and prop_val.strip().lower().startswith("url("):
-                    effect_hits.append(f"paint:{prop_val.strip()}")
-                parsed_c = _parse_rgb_color(prop_val)
-                if parsed_c == "currentColor":
-                    has_current_color = True
-                elif isinstance(parsed_c, tuple):
-                    colors_seen.add(parsed_c)
+            if cur_op < 1.0 - 1e-9:
+                effect_hits.append(f"{tag}:inherited-opacity={round(cur_op, 3)}")
+            if tag != "line" and cur_fop < 1.0 - 1e-9:
+                effect_hits.append(f"{tag}:inherited-fill-opacity={round(cur_fop, 3)}")
+            if cur_sop < 1.0 - 1e-9:
+                effect_hits.append(f"{tag}:inherited-stroke-opacity={round(cur_sop, 3)}")
 
-            tf_scale_x = tf_scale_y = 1.0
-            for tk, tnums in cur_tf:
-                if tk == "scale" and tnums:
-                    tf_scale_x *= abs(tnums[0])
-                    tf_scale_y *= abs(tnums[1] if len(tnums) >= 2 else tnums[0])
-            eff_scale_min = min(tf_scale_x, tf_scale_y)
-            eff_scale_max = max(tf_scale_x, tf_scale_y)
+            if tag == "line":
+                stroke_kind = inspect_paint(tag, "stroke", cur_stroke)
+            else:
+                inspect_paint(tag, "fill", cur_fill)
+                stroke_kind = inspect_paint(tag, "stroke", cur_stroke)
 
-            stroke_active = isinstance(cur_stroke, str) and cur_stroke.strip().lower() not in ("", "none", "transparent")
-            sw_val = _parse_svg_len(cur_sw_raw) if cur_sw_raw is not None else 1.0
-            if sw_val is None:
+            eff_scale_min, eff_scale_max = _mat_linear_scales(cur_mat)
+            stroke_active = stroke_kind != "none"
+            if cur_sw_raw is None:
                 sw_val = 1.0
+            else:
+                sw_val = _parse_svg_len(cur_sw_raw, ref_len=vb_diag)
+                if sw_val is None or sw_val < 0.0:
+                    geometry_errors.append(f"{tag}:stroke-width={cur_sw_raw}")
+                    sw_val = 1.0
             eff_sw = sw_val * eff_scale_min
             if stroke_active and eff_sw < min_feature - 1e-6:
                 thin_features.append(f"{tag}:stroke-width={round(eff_sw, 3)}<{round(min_feature, 3)}")
             pad = (sw_val * eff_scale_max / 2.0) if stroke_active else 0.0
 
-            pts = []
+            tpts = []
             if tag == "rect":
-                x = _parse_svg_len(el.attrib.get("x", "0")) or 0.0
-                y = _parse_svg_len(el.attrib.get("y", "0")) or 0.0
-                w = _parse_svg_len(el.attrib.get("width", "0")) or 0.0
-                h = _parse_svg_len(el.attrib.get("height", "0")) or 0.0
-                if w * tf_scale_x < min_feature - 1e-6 or h * tf_scale_y < min_feature - 1e-6:
-                    thin_features.append(f"rect:{round(w * tf_scale_x, 2)}x{round(h * tf_scale_y, 2)}<{round(min_feature, 2)}")
-                pts = [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]
+                x = read_len_attr(el, tag, "x", 0.0, vb_w)
+                y = read_len_attr(el, tag, "y", 0.0, vb_h)
+                w = read_len_attr(el, tag, "width", 0.0, vb_w, non_negative=True)
+                h = read_len_attr(el, tag, "height", 0.0, vb_h, non_negative=True)
+                if None not in (x, y, w, h):
+                    a, b, c, d, _, _ = cur_mat
+                    rw = w * math.hypot(a, b)
+                    rh = h * math.hypot(c, d)
+                    det = abs(a * d - b * c)
+                    alt_min = (det * w * h) / max(rw, rh, 1e-12) if (rw > 0.0 or rh > 0.0) else 0.0
+                    if rw < min_feature - 1e-6 or rh < min_feature - 1e-6 or alt_min < min_feature - 1e-6:
+                        thin_features.append(f"rect:{round(rw, 2)}x{round(rh, 2)}<{round(min_feature, 2)}")
+                    tpts = [
+                        _mat_apply(cur_mat, x, y),
+                        _mat_apply(cur_mat, x + w, y),
+                        _mat_apply(cur_mat, x, y + h),
+                        _mat_apply(cur_mat, x + w, y + h),
+                    ]
             elif tag == "circle":
-                cx = _parse_svg_len(el.attrib.get("cx", "0")) or 0.0
-                cy = _parse_svg_len(el.attrib.get("cy", "0")) or 0.0
-                r = _parse_svg_len(el.attrib.get("r", "0")) or 0.0
-                if 2.0 * r * eff_scale_min < min_feature - 1e-6:
-                    thin_features.append(f"circle:d={round(2 * r * eff_scale_min, 2)}<{round(min_feature, 2)}")
-                pts = [(cx - r, cy - r), (cx + r, cy + r)]
+                cx = read_len_attr(el, tag, "cx", 0.0, vb_w)
+                cy = read_len_attr(el, tag, "cy", 0.0, vb_h)
+                r = read_len_attr(el, tag, "r", 0.0, vb_diag, non_negative=True)
+                if None not in (cx, cy, r):
+                    if 2.0 * r * eff_scale_min < min_feature - 1e-6:
+                        thin_features.append(f"circle:d={round(2.0 * r * eff_scale_min, 2)}<{round(min_feature, 2)}")
+                    a, b, c, d, _, _ = cur_mat
+                    tcx, tcy = _mat_apply(cur_mat, cx, cy)
+                    hx = math.hypot(a * r, c * r)
+                    hy = math.hypot(b * r, d * r)
+                    tpts = [(tcx - hx, tcy - hy), (tcx + hx, tcy + hy)]
             elif tag == "ellipse":
-                cx = _parse_svg_len(el.attrib.get("cx", "0")) or 0.0
-                cy = _parse_svg_len(el.attrib.get("cy", "0")) or 0.0
-                rx = _parse_svg_len(el.attrib.get("rx", "0")) or 0.0
-                ry = _parse_svg_len(el.attrib.get("ry", "0")) or 0.0
-                if 2.0 * rx * tf_scale_x < min_feature - 1e-6 or 2.0 * ry * tf_scale_y < min_feature - 1e-6:
-                    thin_features.append(f"ellipse:{round(2 * rx * tf_scale_x, 2)}x{round(2 * ry * tf_scale_y, 2)}<{round(min_feature, 2)}")
-                pts = [(cx - rx, cy - ry), (cx + rx, cy + ry)]
+                cx = read_len_attr(el, tag, "cx", 0.0, vb_w)
+                cy = read_len_attr(el, tag, "cy", 0.0, vb_h)
+                rx = read_len_attr(el, tag, "rx", 0.0, vb_w, non_negative=True)
+                ry = read_len_attr(el, tag, "ry", 0.0, vb_h, non_negative=True)
+                if None not in (cx, cy, rx, ry):
+                    a, b, c, d, _, _ = cur_mat
+                    e_min, _ = _mat_linear_scales((a * rx, b * rx, c * ry, d * ry, 0.0, 0.0))
+                    if 2.0 * e_min < min_feature - 1e-6:
+                        thin_features.append(f"ellipse:min_d={round(2.0 * e_min, 2)}<{round(min_feature, 2)}")
+                    tcx, tcy = _mat_apply(cur_mat, cx, cy)
+                    hx = math.hypot(a * rx, c * ry)
+                    hy = math.hypot(b * rx, d * ry)
+                    tpts = [(tcx - hx, tcy - hy), (tcx + hx, tcy + hy)]
             elif tag == "line":
-                x1 = _parse_svg_len(el.attrib.get("x1", "0")) or 0.0
-                y1 = _parse_svg_len(el.attrib.get("y1", "0")) or 0.0
-                x2 = _parse_svg_len(el.attrib.get("x2", "0")) or 0.0
-                y2 = _parse_svg_len(el.attrib.get("y2", "0")) or 0.0
-                pts = [(x1, y1), (x2, y2)]
+                x1 = read_len_attr(el, tag, "x1", 0.0, vb_w)
+                y1 = read_len_attr(el, tag, "y1", 0.0, vb_h)
+                x2 = read_len_attr(el, tag, "x2", 0.0, vb_w)
+                y2 = read_len_attr(el, tag, "y2", 0.0, vb_h)
+                if None not in (x1, y1, x2, y2):
+                    tpts = [_mat_apply(cur_mat, x1, y1), _mat_apply(cur_mat, x2, y2)]
             elif tag in ("polygon", "polyline"):
-                nums = [float(x) for x in re.findall(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?", el.attrib.get("points", ""))]
-                pts = [(nums[k], nums[k + 1]) for k in range(0, len(nums) - 1, 2)]
+                ppts, perr = _parse_points_attr(el.attrib.get("points", ""))
+                if perr:
+                    geometry_errors.append(f"{tag}:{perr}")
+                else:
+                    tpts = [_mat_apply(cur_mat, px, py) for px, py in ppts]
             elif tag == "path":
-                ppts, cmds = _path_points_and_cmds(el.attrib.get("d", ""))
+                ppts, cmds, perr = _path_transformed_points_and_cmds(el.attrib.get("d", ""), cur_mat)
                 path_cmd_total += cmds
-                pts = ppts
+                if perr:
+                    geometry_errors.append(perr)
+                tpts = ppts
+            elif tag == "text":
+                # Conservative bbox estimate for --allow-draft-text pure wordmark drafts
+                tx_raw = el.attrib.get("x", "").strip().split()
+                ty_raw = el.attrib.get("y", "").strip().split()
+                tx = _parse_svg_len(tx_raw[0], ref_len=vb_w) if tx_raw else 0.0
+                ty = _parse_svg_len(ty_raw[0], ref_len=vb_h) if ty_raw else 0.0
+                if tx is None:
+                    geometry_errors.append(f"text:x={el.attrib.get('x')}")
+                if ty is None:
+                    geometry_errors.append(f"text:y={el.attrib.get('y')}")
+                fs_val = read_len_attr(el, tag, "font-size", 16.0, vb_diag, style_map=style_map, non_negative=True)
+                if None not in (tx, ty, fs_val) and fs_val > 0.0:
+                    txt_content = "".join(el.itertext()).strip()
+                    n_chars = max(1, len(txt_content))
+                    est_w = n_chars * 0.55 * fs_val
+                    anchor = style_map.get("text-anchor", el.attrib.get("text-anchor", "start")).strip().lower()
+                    if anchor == "middle":
+                        x0, x1 = tx - 0.5 * est_w, tx + 0.5 * est_w
+                    elif anchor == "end":
+                        x0, x1 = tx - est_w, tx
+                    else:
+                        x0, x1 = tx, tx + est_w
+                    baseline = style_map.get("dominant-baseline", el.attrib.get("dominant-baseline", "auto")).strip().lower()
+                    if baseline in ("middle", "central"):
+                        y0, y1 = ty - 0.45 * fs_val, ty + 0.45 * fs_val
+                    elif baseline in ("hanging", "text-before-edge", "text-top"):
+                        y0, y1 = ty, ty + 0.95 * fs_val
+                    else:
+                        y0, y1 = ty - 0.75 * fs_val, ty + 0.2 * fs_val
+                    tpts = [
+                        _mat_apply(cur_mat, x0, y0),
+                        _mat_apply(cur_mat, x1, y0),
+                        _mat_apply(cur_mat, x0, y1),
+                        _mat_apply(cur_mat, x1, y1),
+                    ]
 
-            if pts:
-                tpts = _apply_transforms(pts, cur_tf)
-                for px, py in tpts:
-                    bbox[0] = min(bbox[0], px - pad)
-                    bbox[1] = min(bbox[1], py - pad)
-                    bbox[2] = max(bbox[2], px + pad)
-                    bbox[3] = max(bbox[3], py + pad)
+            for px, py in tpts:
+                bbox[0] = min(bbox[0], px - pad)
+                bbox[1] = min(bbox[1], py - pad)
+                bbox[2] = max(bbox[2], px + pad)
+                bbox[3] = max(bbox[3], py + pad)
 
         for child in list(el):
-            walk(child, cur_fill, cur_stroke, cur_sw_raw, cur_tf, next_non_render)
+            walk(child, cur_fill, cur_stroke, cur_sw_raw, cur_op, cur_fop, cur_sop, cur_mat, next_non_render, False)
 
-    walk(root, "black", "none", None, [], False)
+    walk(root, "black", "none", None, 1.0, 1.0, 1.0, SVG_MAT_IDENTITY, False, True)
 
-    checks.append(_chk("logo_self_contained", not security_hits, security_hits or "clean", "[]", "zero <script>, event handlers, <image>, <foreignObject>, or external URLs"))
+    checks.append(_chk("logo_self_contained", not security_hits, security_hits or "clean", "[]", "zero <script>, <style>, <use>, nested <svg>, SMIL, event handlers, <image>, <foreignObject>, <?xml-stylesheet?>, data: URIs, or external/style URLs"))
+    checks.append(_chk("logo_geometry", not geometry_errors, geometry_errors or "valid", "[]", "valid SVG path syntax, transforms, points, and length attributes"))
     text_ok = allow_draft_text or text_hits == 0
     checks.append(_chk("logo_outlined_text", text_ok, text_hits if not text_ok else "outlined", "0 <text> nodes (or --allow-draft-text)", "convert wordmark glyphs to <path> outlines so logos never font-substitute"))
     comp_ok = (1 <= shape_count <= 64) and (path_cmd_total <= 400)
@@ -1288,17 +2009,21 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
         cs_val = "empty"
     checks.append(_chk("logo_clearspace", cs_ok, cs_val, f"within [{round(vb_x + 0.04*vb_w, 2)}, {round(vb_y + 0.04*vb_h, 2)}]..[{round(vb_x + 0.96*vb_w, 2)}, {round(vb_y + 0.96*vb_h, 2)}]", "keep >= 4% clearspace inside viewBox with zero clipped edges"))
 
-    checks.append(_chk("logo_monochrome_safe", not effect_hits, effect_hits or "flat", "[]", "flat solid shapes without gradients, blur, or drop-shadow filters"))
+    checks.append(_chk("logo_monochrome_safe", not effect_hits, effect_hits or "flat", "[]", "flat opaque solid shapes without gradients, blur, drop-shadow filters, or opacity < 1"))
 
     total_inks = len(colors_seen) + (1 if has_current_color else 0)
-    pal_ok = 1 <= total_inks <= 3
-    checks.append(_chk("logo_palette_restraint", pal_ok, total_inks, "1..3 distinct brand colors", "cap logo palette to at most 3 distinct flat brand inks"))
+    pal_ok = (not invalid_paints) and (1 <= total_inks <= 3)
+    pal_val = {"inks": total_inks, "invalid_paints": invalid_paints} if invalid_paints else total_inks
+    checks.append(_chk("logo_palette_restraint", pal_ok, pal_val, "1..3 distinct valid flat brand colors", "cap logo palette to at most 3 distinct flat brand inks with valid CSS colors"))
 
     if surface is not None:
-        surf_rgb = _parse_rgb_color(surface)
-        if not isinstance(surf_rgb, tuple):
+        surf_kind, surf_rgb = _parse_logo_paint(surface)
+        if surf_kind != "rgb":
             contrast_ok = False
             contrast_val = f"invalid surface {surface}"
+        elif invalid_paints:
+            contrast_ok = False
+            contrast_val = {"surface": surface, "invalid_paints": invalid_paints}
         elif not colors_seen and has_current_color:
             contrast_ok = True
             contrast_val = "currentColor"
@@ -1307,7 +2032,10 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
             contrast_ok = bool(ratios) and all(r >= 3.0 for r in ratios)
             contrast_val = {"surface": surface, "min_ratio": min(ratios) if ratios else 0.0}
     else:
-        if not colors_seen and has_current_color:
+        if invalid_paints:
+            contrast_ok = False
+            contrast_val = {"invalid_paints": invalid_paints}
+        elif not colors_seen and has_current_color:
             contrast_ok = True
             contrast_val = "currentColor"
         else:
