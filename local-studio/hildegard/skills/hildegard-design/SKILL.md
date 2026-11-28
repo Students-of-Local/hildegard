@@ -11,6 +11,8 @@ The person's request is at the top of this message and after `</skill>`.
 
 First write the copy deck (the Fast path's step 1). Render with a browser already on this computer: `chromium --headless=new --hide-scrollbars --window-size=1080,1350 --screenshot=design.png design.html` (or `google-chrome` with the same flags, at the canvas size). `npx playwright` downloads a browser, so ask the person first; without a browser, hand over the HTML, say it is unrendered and unchecked, and stop.
 
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
+
 A poster or post that a person would print, pin or share. It is built as one HTML file at its exact size (inline CSS
 and SVG, fonts from Google Fonts), rendered to an image, and checked line by line before you hand it over. This skill
 is all you need for it.
@@ -98,3 +100,67 @@ With Hildegard linked, its image models can make a picture for the design (the *
 picture alone, with room left for text, and place the text in HTML. Without Hildegard, use the image tool you have, or
 your user's own picture, or an SVG shape (step 7). Either way, never ask an image model to write the words; it
 misspells them.
+
+## Anti-slop Floor and design.md token contract
+
+Before rendering, run the static Floor linter `python3 -B <folder>/scripts/check_design.py --html design.html` (and
+`python3 -B <folder>/scripts/check_design.py --design-md design.md` when maintaining a persistent visual identity). Every rule below
+is enforced mechanically:
+
+1. **All colours and fonts via `:root` tokens:** declare every colour (`--bg`, `--ink`, `--accent`) and font family
+   (`--font-head`, `--font-body`) inside `:root { ... }`. Never write literal hex/rgb colours or raw `font-family`
+   values outside `:root`; use `var(--*)` everywhere else.
+2. **Motion safety:** never write `transition: all`, and never animate `width`, `height`, `top`, or `left`. Animate
+   `transform` or `opacity` only, and always include `@media (prefers-reduced-motion: reduce)` when transitions or
+   keyframes are present.
+3. **Overflow and focus:** set `overflow-x: clip` on `html, body` (never `100vw` and never `overflow-x: hidden`). Give
+   every interactive element (`button`, `a`, `input`) a visible `:focus-visible` style.
+4. **No slop defaults:** never use purple-to-blue gradients, emoji as icons, a single italic word inside a roman heading
+   (`<h1>Title <em>word</em></h1>`), or filler copy (`Lorem ipsum`, `Unlock the power of`, `reimagined`).
+
+Minimal clean HTML/CSS Floor pattern:
+
+```html
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Event Title</title>
+<style>
+:root {
+  --bg: #f6f1e7;
+  --ink: #1e1b18;
+  --accent: #a63d28;
+  --font-head: "Libre Caslon Display", serif;
+  --font-body: "Libre Franklin", sans-serif;
+}
+html, body { overflow-x: clip; background: var(--bg); color: var(--ink); font-family: var(--font-body); }
+h1 { font-family: var(--font-head); }
+a, button { background: var(--accent); color: var(--bg); transition: transform 160ms ease-out; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { a, button { transition: none; } }
+</style></head>
+<body><main><h1>Event Title</h1><p>Date and place.</p><button type="button">Register</button></main></body>
+</html>
+```
+
+**Persistent `design.md` format:** embed tokens in YAML front matter (`---` ... `---`) and/or fenced `yaml` blocks with
+unique top-level keys (`version`, `name`, `colors`, `typography`, `spacing`, `rounded`, `motion`, `components`; never
+define the same top-level key twice). Start line 1 with `---` (no heading above `---`), define `colors:` once with quoted hex values (`"#1A1C1E"`), and cross-reference only keys defined in `colors:` with `{colors.primary}`, and keep any `` `@path/file.ext` `` external references relative inside the `design.md` folder:
+
+````markdown
+---
+version: alpha
+name: Brand Name
+colors:
+  primary: "#1A1C1E"
+  surface: "#F6F1E7"
+  accent: "#A63D28"
+---
+
+## Components
+
+```yaml
+components:
+  button:
+    bg: "{colors.primary}"
+```
+````

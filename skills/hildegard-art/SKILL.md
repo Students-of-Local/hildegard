@@ -85,3 +85,44 @@ Generated images often need the finishing a designer would give them:
 
 Give your user the file, the one-sentence idea, how it was made (model, still from video or not), and what you would
 do next with more time. Never say a generated image is hand-made, and keep its AI label when it's published.
+
+## Isometric mechanical and system illustrations
+
+When asked for an isometric technical illustration or interactive explainer diagram, make **the physical object the
+explanation** (a real instrument, rig, lock, plotter, valve manifold, or cabinet of drawers whose working IS the
+concept, never floating labelled boxes or arrows). Before rendering, validate the geometry and density plan with
+`python3 scripts/check_design.py --iso iso.json --pre-render`. After rendering both themes and inspecting 4x close-ups
+at junctions, run `python3 scripts/check_design.py --iso iso.json` for full signoff (never set
+`closeup_4x_checked: true` or populate `themes_checked` before rendering):
+
+- **Camera (`azimuth_deg`, `elevation_deg`):** isometric azimuth in `35..60` deg (default `45`) and elevation in `20..50`
+  deg (default `30`; higher up to `44` to look into an open vessel).
+- **Four-tone directional shading (`tones`, `lit_count`):** distinct `"lo"` (base/feet), `"mid"` (structure), `"hi"`
+  (subject), and exactly one `"lit"` focal accent (`"lit_count": 1`) so the eye goes straight to the moving part.
+- **Density and mounting (`tier`, `parts`):** `"figure"` requires `>= 40` parts, `"hero"` `>= 80`, `"epic"` `>= 150`.
+  Every part or part group must declare a non-empty `"host"` (what it sits on, starting from `"ground"` or `"base"`).
+- **Geometry and visual audit:** verify painter's depth order (`"depth_sorted": true`), resolve every seam, tick, and
+  texture line onto a stroke, dot, or outline (`"floating_line_ends": 0`), inspect 4x close-ups at every junction
+  (`"closeup_4x_checked": true`), and verify both themes (`"themes_checked": ["dark", "light"]`).
+
+Exact `check_design.py --iso` JSON shape (use ONLY these top-level keys; keep `parts` to 3 concise groups whose `count`
+sums meet the tier: `figure` >= 40 e.g. 14+14+16=44, `hero` >= 80 e.g. 28+28+28=84, `epic` >= 150 e.g. 50+50+54=154):
+
+```json
+{
+  "tier": "figure",
+  "azimuth_deg": 45,
+  "elevation_deg": 30,
+  "tones": { "lo": "#2b2d30", "mid": "#5a5f66", "hi": "#c5cbd3", "lit": "#ffffff" },
+  "lit_count": 1,
+  "parts": [
+    { "group": "base_plate", "host": "ground", "count": 14 },
+    { "group": "frame_rails", "host": "base_plate", "count": 14 },
+    { "group": "mechanism", "host": "frame_rails", "count": 16 }
+  ],
+  "depth_sorted": true,
+  "floating_line_ends": 0,
+  "closeup_4x_checked": true,
+  "themes_checked": ["dark", "light"]
+}
+```

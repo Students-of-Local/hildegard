@@ -56,6 +56,10 @@
       "skills": ["hildegard-motion"]
     },
     {
+      "source": "skills/hildegard-design/scripts/check_design.py",
+      "skills": ["hildegard-web", "hildegard-art"]
+    },
+    {
       "source": "skills/hildegard-craft/references/slop.md",
       "to": "references",
       "skills": [

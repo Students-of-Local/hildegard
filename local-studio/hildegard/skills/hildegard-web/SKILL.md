@@ -11,7 +11,7 @@ The person's request is at the top of this message and after `</skill>`.
 
 First call the `site_templates` tool, pick the template that fits, and start a site with `site_new`. If you have no Hildegard tools, copy a template folder from `<folder>/templates/` into a new `site/` folder in the working folder and work there, never in `<folder>`.
 
-`<folder>` is the folder on the "References are relative to" line above.
+`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard's tools off until the person allows them again.
 
 Hildegard's tools (`hildegard_status`, `loop_start` and the rest) are here once the person allows the Hildegard plugin in Local Studio's Settings, Plugins. If you don't have them, use this skill's way without Hildegard.
 
@@ -78,7 +78,8 @@ fill from the brand; Hildegard's own design system is the worked example):
 - **Colour:** by role, not by name: ground, panel, ink, muted ink, hairline, one accent, and states (focus, error,
   success). Text passes WCAG AA (4.5:1, 3:1 for large text). Dark is designed, not inverted: lift the ground a little
   off black, lower the accent's brightness, keep contrast.
-- **Motion:** short (150 to 250 ms), purposeful, and off under `prefers-reduced-motion`.
+- **Motion:** short (150 to 250 ms), purposeful, `transform` and `opacity` only (never `transition: all` or animating `width`, `height`, `top`, `left`), and off under `prefers-reduced-motion: reduce`.
+- **Anti-slop Floor (checked statically before screenshots):** every colour and `font-family` goes through `:root` custom properties; `overflow-x: clip` on `html` and `body` (never `100vw` or `overflow-x: hidden`); `:focus-visible` on every interactive element; no purple-to-blue gradients, emoji icons, single-italic-word headings, or filler copy. Run `python3 -B <folder>/scripts/check_design.py --html site/` (and `--design-md design.md` when a persistent `design.md` exists) until all checks pass.
 
 ## 3. Build it
 
