@@ -64,43 +64,49 @@ release; and runs the real installer from it on all three, then renders through 
 
 ## Review and merge
 
-`main` requires a `baney-review` commit status on the PR's head, next to the CI checks. Setting that status is the
-merge step: auto-merge merges once CI passes. It replaces the skill's `gh pr merge --match-head-commit "$H"`, with the
-same head binding, so don't also run `gh pr merge`. The status is the only way an agent merges: no `--admin`, no
-`gh api .../pulls/<n>/merge`, no direct push to `main`, no bypass in the web page.
+`main` requires a `baney-review` commit status on the PR's head, next to the CI checks. The Auto-merge workflow
+(`.github/workflows/auto-merge.yml`) is disabled on purpose; setting `baney-review` does not merge a PR on its own.
+Merge only with `gh pr merge <n> --merge --match-head-commit "$H"` once `baney-review` and every required CI check are
+green: no `--admin`, no `gh api .../pulls/<n>/merge`, no direct push to `main`, no bypass in the web page.
 
 1. Run the `baney-review` skill on the PR. Its picker sets the tier, and the tier sets the reviewers.
-2. Set the status only when the skill's merge rule for that tier holds (its Tiers table; "settled" is defined there and
-   never loosens it), and the PR body has its Review block. Who sets it:
+2. Put the review record in the PR body before merging:
+   - Tiers 2 and 3: a Review block wrapped in `<!-- review-pr:begin -->` and `<!-- review-pr:end -->` with `- rN ...`
+     lines, `- stop: ...`, and `- merge head: <full sha>`.
+   - Tier 1: a `## Proof` section naming a check that could fail instead.
+3. Set `baney-review` only when the skill's merge rule for that tier holds (its Tiers table; "settled" is defined there
+   and never loosens it), on `H`, the exact head every counted verdict reviewed, with the base those verdicts reviewed
+   (from the review brief, not today's `origin/main`). A fix after a SHIP is a new head: review it first. Who sets it:
    - Tier 1: the author's agent, after the tier's one check passes (`tools/rsi_gate.py` for an rsi PR).
    - Tiers 2 and 3: the author's agent once the rule holds.
    - Donovan, for `donovan_merges: true`, a tier 3 change with an open critical or high finding, or a tier 2 or 3
      change settled with any `disputed:` answer (skill Settled: "or Donovan after round 2"). An agent may do it only
      under his dated written authority for that PR, quoted in the PR body. That Donovan override is the only
      exception to the merge rule.
-3. Set it on `H`, the head every counted verdict reviewed, with the base those verdicts reviewed (from the review
-   brief, not today's `origin/main`). A fix after a SHIP is a new head: review it first.
 
    ```sh
    gh api repos/Students-of-Local/hildegard/statuses/$H -f state=success -f context=baney-review \
      -f description="tier <n> <SHIP|settled r<round>|check <name> pass> base <reviewed base, 7 chars>"
    ```
 
-4. If the PR is updated from `main`, that is a new head. Re-status it without a new review only when
+4. Once `baney-review` and every required CI check are green on `H`, merge with:
+
+   ```sh
+   gh pr merge <n> --merge --match-head-commit "$H"
+   ```
+
+5. If the PR is updated from `main`, that is a new head. Re-status it without a new review only when
    `git diff <old base>...$H | git patch-id --verbatim` equals `git diff <new base>...$NEW | git patch-id --verbatim`
    (both sides non-empty, both `git diff` commands exit 0 under `set -o pipefail`), and the picker on `$NEW` returns
-   the same or a lower tier. Whoever could set it under step 2 sets it again. Otherwise review again.
-5. To take approval back (a late finding, a verdict that turned), always set failure in the same context on the PR's
+   the same or a lower tier. Whoever could set it under step 3 sets it again. Otherwise review again.
+6. To take approval back (a late finding, a verdict that turned), always set failure in the same context on the PR's
    current head, `gh pr view <n> --json headRefOid -q .headRefOid`; the latest status in `baney-review` wins:
 
    ```sh
    gh api repos/Students-of-Local/hildegard/statuses/<head> -f state=failure -f context=baney-review -f description="revoked: <reason>"
    ```
 
-   `gh pr merge <n> --disable-auto` may follow, never replace it: `auto-merge.yml` turns auto-merge back on.
-   The status only merges when `auto-merge.yml` covers the PR (an owner PR). For other PRs, the agent enables
-   auto-merge with `gh pr merge <n> --auto --match-head-commit "$H"`, or Donovan merges. If the PR has already
-   merged, open a revert PR and an issue instead of re-statusing.
+   If the PR has already merged, open a revert PR and an issue instead of re-statusing.
 
 This gate is honor-system. Anyone with write access can set the status, so it records that the reviewing agent
 believes the tier rule held; it is not proof a review ran. A dedicated review-only GitHub App is out of scope for
