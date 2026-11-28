@@ -634,6 +634,7 @@ describe('the Local Studio plugin', () => {
         'design',
         'edit-video',
         'film',
+        'game',
         'loop',
         'motion',
         'music',

@@ -244,6 +244,7 @@ describe('the skill packs', () => {
       'hildegard-3d/references/print3d-license.md',
       'hildegard-3d/references/slop.md',
       'hildegard-3d/scripts/blender_kit.py',
+      'hildegard-3d/scripts/check_game_asset.py',
       'hildegard-3d/scripts/mesh_kit.py',
       'hildegard-3d/scripts/review_mesh.py',
     ]);
