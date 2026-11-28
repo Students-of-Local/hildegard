@@ -77,6 +77,8 @@ ROOT_THEME_SEL_RE = re.compile(
     r"^(?::root(?:\[data-theme[^\]]*\])?|html(?:\[data-theme[^\]]*\])?|\[data-theme[^\]]*\])$",
     re.I,
 )
+GROUPING_AT_RULE_RE = re.compile(r"^@(?:media|supports|layer|container)(?:\s|\(|$)", re.I)
+YAML_LIST_MAP_RE = re.compile(r'^("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z0-9_.-]+)\s*:(?:\s+(.*)|\s*)$')
 
 
 def _chk(cid, ok, value, limit, detail):
@@ -112,17 +114,37 @@ def _is_valid_css_color(val):
     return False
 
 
+def _split_grouping_stack(sel_stack):
+    """Return non-@ selectors when every @ frame in sel_stack is a grouping at-rule, else None."""
+    non_at = []
+    for frame in sel_stack:
+        s = frame.strip()
+        if not s:
+            return None
+        if s.startswith("@"):
+            if not GROUPING_AT_RULE_RE.match(s):
+                return None
+        else:
+            non_at.append(s)
+    return non_at
+
+
 def _is_root_theme_stack(sel_stack):
-    """True iff sel_stack is a pure root/theme token selector (optionally wrapped in @media/@layer/@supports)."""
-    if not sel_stack:
+    """True iff sel_stack has one root/theme token selector plus optional grouping at-rules."""
+    non_at = _split_grouping_stack(sel_stack)
+    if non_at is None or len(non_at) != 1:
         return False
-    if any(not s.lstrip().startswith("@") for s in sel_stack[:-1]):
-        return False
-    inner = sel_stack[-1].strip()
-    if not inner:
-        return False
-    parts = [p.strip() for p in inner.split(",") if p.strip()]
+    parts = [p.strip() for p in non_at[0].split(",") if p.strip()]
     return bool(parts) and all(ROOT_THEME_SEL_RE.match(p) for p in parts)
+
+
+def _is_html_body_stack(sel_stack):
+    """True iff sel_stack has one non-@ selector targeting html or body plus optional grouping at-rules."""
+    non_at = _split_grouping_stack(sel_stack)
+    if non_at is None or len(non_at) != 1:
+        return False
+    parts = [p.strip().lower() for p in non_at[0].split(",") if p.strip()]
+    return any(p in ("html", "body") for p in parts)
 
 
 def _is_font_face_stack(sel_stack):
@@ -271,10 +293,8 @@ def check_html_path(target):
             if prop == "overflow-x":
                 ov_clean = re.sub(r"\s*!important\s*$", "", v, flags=re.I).strip().lower()
                 ov_tokens = ov_clean.split()
-                if ov_tokens and ov_tokens[0] == "hidden":
-                    parts = [p.strip().lower() for p in sel_stack[-1].split(",")]
-                    if any(p in ("html", "body") for p in parts):
-                        ov_hidden = True
+                if ov_tokens and ov_tokens[0] == "hidden" and _is_html_body_stack(sel_stack):
+                    ov_hidden = True
 
         token_ok = has_root_tokens and not raw_colors and not raw_fonts
         detail_val = "clean" if token_ok else {"has_root_tokens": has_root_tokens, "raw_colors": raw_colors[:5], "raw_fonts": raw_fonts[:5]}
@@ -356,10 +376,10 @@ def _parse_simple_yaml(block):
                 container = lst
             item_raw = stripped[2:].strip()
             if isinstance(container, list):
-                if re.match(r"^[A-Za-z0-9_.-]+\s*:(?:\s|$)", item_raw):
-                    ik, iv = item_raw.split(":", 1)
-                    ik = ik.strip().strip("\"'")
-                    iv = iv.strip().strip("\"'")
+                m_item = YAML_LIST_MAP_RE.match(item_raw)
+                if m_item:
+                    ik = m_item.group(1).strip().strip("\"'")
+                    iv = (m_item.group(2) or "").strip().strip("\"'")
                     entry = {ik: iv} if iv else {ik: {}}
                     if k_in_parent == "omitted" and ik == "section" and iv:
                         container.append(iv)
@@ -372,17 +392,17 @@ def _parse_simple_yaml(block):
         while len(stack) > 1 and indent <= stack[-1][0]:
             stack.pop()
         parent = stack[-1][1]
+        if not isinstance(parent, dict):
+            continue
         if ":" not in stripped:
             continue
         key, rest = stripped.split(":", 1)
         key = key.strip().strip("\"'")
         val = rest.strip()
-        if not isinstance(parent, dict):
-            continue
         if parent is root and key in root:
             dup_top.append(key)
         if val == "":
-            child = [] if key == "omitted" else {}
+            child = {}
             if parent is root and key == "colors":
                 color_maps.append(child)
             parent[key] = child
@@ -469,7 +489,17 @@ def check_design_md(path):
     checks.append(_chk("yaml_blocks_present", bool(blocks), len(blocks), ">= 1 YAML token block", "DESIGN.md embeds YAML front matter or fenced yaml token blocks"))
     checks.append(_chk("unique_top_keys", not dup_keys, dup_keys or "unique", "[]", "each top-level schema key is defined at most once"))
 
-    omitted = set(merged.get("omitted", [])) if isinstance(merged.get("omitted"), list) else set()
+    raw_omitted = merged.get("omitted")
+    if isinstance(raw_omitted, list):
+        omitted = {
+            x if isinstance(x, str) else x.get("section", "")
+            for x in raw_omitted
+            if isinstance(x, str) or (isinstance(x, dict) and isinstance(x.get("section"), str))
+        } - {""}
+    elif isinstance(raw_omitted, dict):
+        omitted = {k for k in raw_omitted.keys() if isinstance(k, str)}
+    else:
+        omitted = set()
     has_name = isinstance(merged.get("name"), str) and bool(merged["name"].strip())
     has_colors = ("colors" in merged and isinstance(merged["colors"], dict) and bool(merged["colors"])) or ("colors" in omitted)
     checks.append(_chk("required_fields", has_name and has_colors, {"name": has_name, "colors_or_omitted": has_colors}, "name + colors (or omitted)", "DESIGN.md defines name and colors palette"))

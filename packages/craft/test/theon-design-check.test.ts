@@ -191,6 +191,33 @@ button:focus-visible { outline: 2px solid var(--ink); }
     expect(r1BadIds).toContain('safe_overflow');
     expect(r1BadIds).toContain('no_transition_all');
     expect(r1BadIds).toContain('no_slop_patterns');
+
+    // Round-2 #209 high (second-F1): grouping at-rules nested inside style rules
+    const r2NestedAtOk = join(dir, 'r2-nested-at-ok.html');
+    writeFileSync(
+      r2NestedAtOk,
+      `<!doctype html><html><head><style>
+:root { --bg: #fff; --ink: #111; @media (prefers-color-scheme: dark) { --bg: #111; --ink: #eee; } }
+.modal { body { overflow-x: hidden; } }
+body { background: var(--bg); color: var(--ink); }
+</style></head><body><p>Clean</p></body></html>`,
+    );
+    expect(runPy(['--html', r2NestedAtOk, '--json']).status).toBe(0);
+
+    const r2NestedAtBad = join(dir, 'r2-nested-at-bad.html');
+    writeFileSync(
+      r2NestedAtBad,
+      `<!doctype html><html><head><style>
+:root { --bg: #fff; --ink: #111; }
+body { @media (max-width: 768px) { overflow-x: hidden; } }
+</style></head><body><p>Bad</p></body></html>`,
+    );
+    const rR2Bad = runPy(['--html', r2NestedAtBad, '--json']);
+    expect(rR2Bad.status).toBe(1);
+    const r2BadIds = JSON.parse(rR2Bad.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(r2BadIds).toContain('safe_overflow');
   });
 
   it('validates DESIGN.md YAML token blocks, unique keys, token refs, and safe @path references', () => {
@@ -373,6 +400,38 @@ Bad refs: \`@..\`, \`@./..\`, and \`@.\\..\`.
     const dotExt = dotOut.checks.find((c: { id: string }) => c.id === 'external_refs_safe');
     expect(dotExt.ok).toBe(false);
     expect(dotExt.value.length).toBe(3);
+
+    // Round-2 #209 high (second-F2): quoted list-item keys and mapping under omitted must not raise TypeError or drop values
+    const r2YamlMapMd = join(dir, 'R2-YAML-MAP.md');
+    writeFileSync(
+      r2YamlMapMd,
+      `---
+name: Quoted And Omitted Map
+fonts:
+  - "family": Inter
+    weight: 400
+omitted:
+  colors: monochrome
+---
+`,
+    );
+    const rR2YamlMap = runPy(['--design-md', r2YamlMapMd, '--json']);
+    expect(rR2YamlMap.status, rR2YamlMap.stdout).toBe(0);
+
+    const r2YamlOmittedListMd = join(dir, 'R2-YAML-OMITTED-LIST.md');
+    writeFileSync(
+      r2YamlOmittedListMd,
+      `---
+name: Quoted Omitted List
+omitted:
+  - "section": colors
+    reason: monochrome
+  - note: extra
+---
+`,
+    );
+    const rR2YamlOmittedList = runPy(['--design-md', r2YamlOmittedListMd, '--json']);
+    expect(rR2YamlOmittedList.status, rR2YamlOmittedList.stdout).toBe(0);
   });
 
   it('validates isometric mechanical illustration contracts and rejects sparse/unmounted/floating-line specs', () => {
