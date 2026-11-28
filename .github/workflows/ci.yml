@@ -101,6 +101,46 @@ jobs:
             apps/studio/playwright-report
           retention-days: 7
 
+  # Model loops run Blender build scripts: a pinned Blender LTS, in bubblewrap as it runs for the owner, through the
+  # loop, the refusals and the skill's kit. The tests skip where there is no Blender, so the version step fails first.
+  blender:
+    runs-on: ubuntu-latest
+    env:
+      BLENDER_VERSION: 5.2.2
+      BLENDER_SHA256: 84098912789dc450e95697c4184fb8a90acbe5111c2ba4aede3fecb57806a168
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install numpy==2.5.3 pillow==12.3.0
+      - run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap libegl1 libgl1 libsm6 libxi6 libxkbcommon0 libxrender1 libxxf86vm1 libxfixes3
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - id: blender
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/blender
+          key: blender-${{ env.BLENDER_VERSION }}-linux-x64-${{ env.BLENDER_SHA256 }}
+      - name: Blender 5.2.2 LTS, checked against its SHA-256
+        if: steps.blender.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/blender" && cd "$RUNNER_TEMP/blender"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o blender.tar.xz "https://download.blender.org/release/Blender${BLENDER_VERSION%.*}/blender-$BLENDER_VERSION-linux-x64.tar.xz"
+          echo "$BLENDER_SHA256  blender.tar.xz" | sha256sum -c -
+          tar -xJf blender.tar.xz && rm blender.tar.xz
+      - run: '"$RUNNER_TEMP/blender/blender-5.2.2-linux-x64/blender" --factory-startup --version'
+      - run: pnpm --filter @hildegard/server exec vitest run test/blender.test.ts test/blender-kit.test.ts
+        env:
+          HILDEGARD_BLENDER: ${{ runner.temp }}/blender/blender-5.2.2-linux-x64/blender
+          HILDEGARD_EXPECT_SANDBOX: '1'
+
   # The film-look and safety-check nodes, on CPU.
   node:
     runs-on: ubuntu-latest
