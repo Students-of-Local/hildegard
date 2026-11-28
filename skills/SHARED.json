@@ -53,7 +53,7 @@
     },
     {
       "source": "skills/hildegard-video-edit/scripts/check_sync.py",
-      "skills": ["hildegard-motion"]
+      "skills": ["hildegard-motion", "hildegard-film"]
     },
     {
       "source": "skills/hildegard-design/scripts/check_design.py",

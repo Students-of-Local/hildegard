@@ -264,7 +264,11 @@ export const EDITS = [
       'python3 scripts/check_design.py --html design.html',
       'python3 scripts/check_design.py --design-md design.md',
     ],
-    'hildegard-film/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
+    'hildegard-film/SKILL.md': [
+      'python3 scripts/review_media.py',
+      'python3 scripts/contact_sheet.py',
+      'python3 scripts/check_sync.py --video film.mp4',
+    ],
     'hildegard-game/SKILL.md': [
       '`python3 scripts/check_game.py spec.json`',
       '   python3 scripts/check_game.py spec.json',
@@ -277,6 +281,8 @@ export const EDITS = [
     'hildegard-motion/SKILL.md': [
       'python3 scripts/motion.py --fonts',
       'python3 scripts/check_sync.py --camera camera.json',
+      'python3 scripts/check_sync.py --video out.mp4',
+      'python3 scripts/check_sync.py --camera spec.json',
       'python3 <skill>/scripts/motion.py work/promo.json --check',
       'python3 <skill>/scripts/motion.py work/promo.json work/promo.mp4',
     ],

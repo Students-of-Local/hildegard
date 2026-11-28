@@ -68,6 +68,8 @@ Write the brief from hildegard-craft. Then a shot list, one line per shot:
 ```
 
 - Each shot has one action and a reason to exist. Vary size between consecutive shots (wide, medium, close).
+- Replace vague adjectives with numbers: lens focal length and aperture (`35mm f/2.8`, `85mm f/1.8`), colour temperature (`3200 K` key, `7500 K` rim), hero pixel width floor on stills (`>= 170 px` wide at 1080p in main shots, `>= 95 px` in wide group shots), and separate geometric planes so moving elements cannot clip.
+- For code-directed or beat-locked films, derive cuts and sound hits from one master `timing.json` clock (`frames_per_beat = fps * 60 / BPM`, audio hits 1 frame after visual events) and render seamless loops over frames `0..N-1` (never `N`).
 - Keep `lighting`, `palette`, `camera_body` and `era` the same across a scene unless the story changes.
 - Write a continuity list (people, places, light) and paste it into every prompt word for word.
 - People who appear in more than one shot should be characters (step 2a), not just words.
@@ -135,7 +137,13 @@ Common fixes:
 
    It prints each check (exposure, frozen frames, flicker, colour, black frames, sound) as pass, warn or fail, and
    writes a sheet of nine frames. `python3 -B <folder>/scripts/contact_sheet.py sheet.png --video film.mp4 --every 2` makes a
-   denser, time-labelled sheet. Look at the sheet.
+   denser, time-labelled sheet. Look at the sheet. Stills alone pass frozen renders: run Motion QA and post-AAC
+   loudness verification directly on the exported MP4 (AAC encoding raises true peak, so verify `-14 LUFS` and
+   `<= -2.0 dBTP` after encoding, plus `freezedetect` for any unintended freeze `>= 0.5 s`):
+
+   ```sh
+   python3 -B <folder>/scripts/check_sync.py --video film.mp4 --max-freeze 0.5 --post-aac-lufs -14 --post-aac-peak -2.0
+   ```
 5. Tell your user: the film's path, its length, what each shot is, and anything still imperfect.
 
 Sound: LTX makes sound with the picture; Wan doesn't. For a voice-over, **hildegard-sound** has the steps: a person
