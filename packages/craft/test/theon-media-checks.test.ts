@@ -284,18 +284,55 @@ with wave.open(${JSON.stringify(stereoSrc)}, 'wb') as w:
         expect(r.status, `${name}: ${r.stdout}`).toBe(1);
       }
 
-      // --src static audit catches cloud API endpoints in JS and unguarded pow() in GLSL
+      // --src static audit: missing path and empty directory must fail (never silently pass)
+      expect(runPy(CHECK_GAME, [good, '--src', join(dir, 'nonexistent-dir'), '--json']).status).toBe(1);
+      const emptySrc = join(dir, 'empty-src');
+      mkdirSync(emptySrc, { recursive: true });
+      expect(runPy(CHECK_GAME, [good, '--src', emptySrc, '--json']).status).toBe(1);
+
+      // --src static audit: valid standalone & inline GLSL with positive literals and comments passes
+      const cleanSrc = join(dir, 'clean-src');
+      mkdirSync(cleanSrc, { recursive: true });
+      writeFileSync(
+        join(cleanSrc, 'safe.frag'),
+        '// guard pow(x, 2.0)\n/* sqrt(y) */\nvoid main() { float k = 1.0 / sqrt(2.0); float p = pow(2.0, r) + pow(max(x, 1e-5), 2.0); }\n',
+      );
+      writeFileSync(
+        join(cleanSrc, 'app.js'),
+        'const v = Math.pow(x, 2) + Math.sqrt(y);\nconst frag = `void main() { float p = pow(abs(n), 2.0); }`;\n',
+      );
+      const rClean = runPy(CHECK_GAME, [good, '--src', cleanSrc, '--json']);
+      expect(rClean.status, rClean.stdout).toBe(0);
+
+      // --src static audit catches single-file cloud URL, inline JS/HTML shaders, multi-line pow, and nested sqrt(max(pow(x,2),1e-5))
       const srcDir = join(dir, 'bad-src');
       mkdirSync(srcDir, { recursive: true });
-      writeFileSync(join(srcDir, 'main.js'), 'const url = "https://api.tripo3d.ai/v2/mesh";\n');
-      writeFileSync(join(srcDir, 'fx.frag'), 'void main() { float y = pow(x, 2.0); }\n');
-      const rSrc = runPy(CHECK_GAME, [good, '--src', srcDir, '--json']);
-      expect(rSrc.status).toBe(1);
-      const srcBad = JSON.parse(rSrc.stdout)
+      const badJs = join(srcDir, 'main.js');
+      writeFileSync(
+        badJs,
+        'const url = "https://api.tripo3d.ai/v2/mesh";\nconst frag = "void main() { float y = pow(x, 2.0); }";\n',
+      );
+      const rSingle = runPy(CHECK_GAME, [good, '--src', badJs, '--json']);
+      expect(rSingle.status).toBe(1);
+      const singleBad = JSON.parse(rSingle.stdout)
         .checks.filter((c: { ok: boolean }) => !c.ok)
         .map((c: { id: string }) => c.id);
-      expect(srcBad).toContain('src_local_assets_only');
-      expect(srcBad).toContain('src_shader_nan_guards');
+      expect(singleBad).toContain('src_local_assets_only');
+      expect(singleBad).toContain('src_shader_nan_guards');
+
+      const htmlDir = join(dir, 'bad-html');
+      mkdirSync(htmlDir, { recursive: true });
+      writeFileSync(
+        join(htmlDir, 'index.html'),
+        '<script type="x-shader/x-fragment">void main() { float y = sqrt(max(pow(\n  x, 2.0), 1e-5)); }</script>\n',
+      );
+      const rHtml = runPy(CHECK_GAME, [good, '--src', htmlDir, '--json']);
+      expect(rHtml.status).toBe(1);
+      expect(
+        JSON.parse(rHtml.stdout)
+          .checks.filter((c: { ok: boolean }) => !c.ok)
+          .map((c: { id: string }) => c.id),
+      ).toContain('src_shader_nan_guards');
     });
   });
 
@@ -387,6 +424,46 @@ with open(${JSON.stringify(badParentGlb)}, "wb") as f:
       const badIds = parsed.checks.filter((c: { ok: boolean }) => !c.ok).map((c: { id: string }) => c.id);
       expect(badIds).toContain('clean_transforms');
       expect(badIds).toContain('skinning_hygiene');
+
+      // 3. Single-skin GLB whose mesh node omits `"skin": 0` MUST fail skinning_hygiene (no len(skins)==1 fallback)
+      const unboundSkinGlb = join(dir, 'unbound-skin.glb');
+      runGlbBuilder(`
+import json, struct, numpy as np
+v = np.array([[-0.5,0,-0.5],[0.5,0,-0.5],[0.5,1,-0.5],[-0.5,1,-0.5],
+              [-0.5,0,0.5],[0.5,0,0.5],[0.5,1,0.5],[-0.5,1,0.5]], dtype=np.float32)
+tris = np.array([0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,2,3,7,2,7,6,0,4,7,0,7,3,1,2,6,1,6,5], dtype=np.uint16)
+jts = np.tile(np.array([0,1,2,3], dtype=np.uint8), (8,1))
+wts = np.tile(np.array([0.5,0.3,0.2,0.0], dtype=np.float32), (8,1))
+buf, bvs, accs = bytearray(), [], []
+def add(raw, ct, tp, cnt):
+    while len(buf) % 4: buf.append(0)
+    off = len(buf); buf.extend(raw)
+    bvs.append({"buffer":0,"byteOffset":off,"byteLength":len(raw)})
+    accs.append({"bufferView":len(bvs)-1,"componentType":ct,"count":cnt,"type":tp})
+    return len(accs)-1
+attrs = {"POSITION": add(v.tobytes(), 5126, "VEC3", 8),
+         "JOINTS_0": add(jts.tobytes(), 5121, "VEC4", 8),
+         "WEIGHTS_0": add(wts.tobytes(), 5126, "VEC4", 8)}
+doc = {"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+       "nodes":[{"name":"body","mesh":0},{"name":"j0"},{"name":"j1"},{"name":"j2"},{"name":"j3"}],
+       "meshes":[{"name":"body","primitives":[{"attributes":attrs,"indices":add(tris.tobytes(),5123,"SCALAR",len(tris)),"material":0}]}],
+       "materials":[{"name":"m0"}],"skins":[{"joints":[1,2,3,4]}],
+       "buffers":[{"byteLength":len(buf)}],"bufferViews":bvs,"accessors":accs}
+jb = json.dumps(doc).encode()
+while len(jb) % 4: jb += b" "
+while len(buf) % 4: buf.append(0)
+with open(${JSON.stringify(unboundSkinGlb)}, "wb") as f:
+    f.write(struct.pack("<4sII", b"glTF", 2, 12+8+len(jb)+8+len(buf)))
+    f.write(struct.pack("<II", len(jb), 0x4E4F534A)); f.write(jb)
+    f.write(struct.pack("<II", len(buf), 0x004E4942)); f.write(buf)
+`);
+      const rUnbound = runPy(CHECK_ASSET, [unboundSkinGlb, '--require-rig', '--json']);
+      expect(rUnbound.status, rUnbound.stdout).toBe(1);
+      expect(
+        JSON.parse(rUnbound.stdout)
+          .checks.filter((c: { ok: boolean }) => !c.ok)
+          .map((c: { id: string }) => c.id),
+      ).toContain('skinning_hygiene');
     });
   });
 });

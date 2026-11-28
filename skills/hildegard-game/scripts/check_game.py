@@ -27,7 +27,14 @@ SW_RENDERERS = ("swiftshader", "llvmpipe", "software rasterizer")
 KNOWN_KEYS = {"timestep", "dolly_zoom", "parallax_loop", "particles", "spring_bone", "vfx", "audio", "inspect"}
 SRC_EXTS = {".js", ".mjs", ".ts", ".jsx", ".tsx", ".html", ".glsl", ".frag", ".vert"}
 SHADER_EXTS = {".glsl", ".frag", ".vert"}
-UNGUARDED_SHADER_OP = re.compile(r"\b(pow|sqrt)\s*\(([^,\n)]+)")
+SKIP_DIRS = {"node_modules", ".git", "__pycache__"}
+SHADER_CALL_RE = re.compile(r"(?<!\.)\b(pow|sqrt)\s*\(")
+GLSL_COMMENT_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
+HTML_SHADER_SCRIPT_RE = re.compile(r"<script\b[^>]*type\s*=\s*[\"'][^\"']*shader[^\"']*[\"'][^>]*>([\s\S]*?)</script>", re.I)
+JS_TOKEN_RE = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/|(`(?:\\.|[^`\\])*`|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')")
+GLSL_MARKER_RE = re.compile(r"\b(?:void\s+main|gl_FragColor|gl_Position|precision\s+(?:lowp|mediump|highp)|uniform\s+\w+|varying\s+\w+|attribute\s+\w+|#version|vec[234]\s+\w+|fragColor)\b")
+GUARD_PREFIX_RE = re.compile(r"^(?:max|abs|clamp|saturate)\s*\(")
+POS_NUM_RE = re.compile(r"^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?[fF]?$")
 
 
 def _chk(cid, ok, value, limit, detail):
@@ -244,30 +251,94 @@ def check_inspection_and_policy(spec):
     return checks
 
 
+def _strip_glsl_comments(code):
+    return GLSL_COMMENT_RE.sub(lambda m: "".join("\n" if ch == "\n" else " " for ch in m.group(0)), code)
+
+
+def _first_call_arg(text, start):
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                return text[start:i].strip()
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return text[start:i].strip()
+    return text[start:].strip()
+
+
+def _is_safe_shader_arg(fn, arg):
+    if GUARD_PREFIX_RE.match(arg):
+        return True
+    if POS_NUM_RE.match(arg):
+        val = float(arg.rstrip("fF"))
+        return val > 0.0 if fn == "pow" else val >= 0.0
+    return False
+
+
+def _scan_glsl_block(code, rel, base_line, hits):
+    cleaned = _strip_glsl_comments(code)
+    for sm in SHADER_CALL_RE.finditer(cleaned):
+        fn = sm.group(1)
+        arg = _first_call_arg(cleaned, sm.end())
+        if not _is_safe_shader_arg(fn, arg):
+            ln = base_line + cleaned[: sm.start()].count("\n")
+            compact = re.sub(r"\s+", " ", arg)
+            hits.append(f"{rel}:{ln}:{fn}({compact})")
+
+
 def check_source_dir(src_dir):
-    """Static audit over project source/shader files for cloud generator URLs and unguarded GLSL pow/sqrt."""
+    """Static audit over project source/shader files (dir or single file) for cloud endpoints and unguarded GLSL pow/sqrt."""
+    if not os.path.exists(src_dir):
+        return [_chk("src_path_exists", False, src_dir, "existing source file or directory", "source path does not exist")]
+
+    targets = []
+    if os.path.isfile(src_dir):
+        if os.path.splitext(src_dir)[1].lower() in SRC_EXTS:
+            targets.append((src_dir, os.path.basename(src_dir)))
+    elif os.path.isdir(src_dir):
+        for root, dirs, files in os.walk(src_dir):
+            dirs[:] = [d for d in sorted(dirs) if d not in SKIP_DIRS]
+            for name in sorted(files):
+                if os.path.splitext(name)[1].lower() in SRC_EXTS:
+                    path = os.path.join(root, name)
+                    targets.append((path, os.path.relpath(path, src_dir)))
+    else:
+        return [_chk("src_path_exists", False, src_dir, "existing source file or directory", "source path is neither a file nor a directory")]
+
+    if not targets:
+        return [_chk("src_files_scanned", False, 0, ">= 1 source/shader file", f"no matching source/shader files found under {src_dir}")]
+
     cloud_hits = []
     shader_hits = []
-    for root, _, files in os.walk(src_dir):
-        for name in sorted(files):
-            ext = os.path.splitext(name)[1].lower()
-            if ext not in SRC_EXTS:
-                continue
-            path = os.path.join(root, name)
-            rel = os.path.relpath(path, src_dir)
-            text = open(path, encoding="utf-8", errors="replace").read()
-            m = CLOUD_BLOCK.search(text)
-            if m:
-                cloud_hits.append(f"{rel}:{m.group(0)}")
-            if ext in SHADER_EXTS:
-                for ln, line in enumerate(text.splitlines(), 1):
-                    for sm in UNGUARDED_SHADER_OP.finditer(line):
-                        arg = sm.group(2).strip()
-                        if not arg.startswith(("max(", "abs(", "clamp(")):
-                            shader_hits.append(f"{rel}:{ln}:{sm.group(1)}({arg})")
+    for path, rel in targets:
+        ext = os.path.splitext(path)[1].lower()
+        text = open(path, encoding="utf-8", errors="replace").read()
+        m = CLOUD_BLOCK.search(text)
+        if m:
+            cloud_hits.append(f"{rel}:{m.group(0)}")
+        if ext in SHADER_EXTS:
+            _scan_glsl_block(text, rel, 1, shader_hits)
+        else:
+            if ext == ".html":
+                for sm in HTML_SHADER_SCRIPT_RE.finditer(text):
+                    base_line = text[: sm.start(1)].count("\n") + 1
+                    _scan_glsl_block(sm.group(1), rel, base_line, shader_hits)
+            for sm in JS_TOKEN_RE.finditer(text):
+                lit = sm.group(1)
+                if not lit:
+                    continue
+                body = lit[1:-1].replace("\\n", "\n").replace("\\r", "\r") if lit[0] in ('"', "'") else lit[1:-1]
+                if GLSL_MARKER_RE.search(body):
+                    base_line = text[: sm.start(1)].count("\n") + 1
+                    _scan_glsl_block(body, rel, base_line, shader_hits)
     return [
+        _chk("src_files_scanned", True, len(targets), ">= 1 source/shader file", "source/shader files scanned"),
         _chk("src_local_assets_only", not cloud_hits, cloud_hits or "clean", "[]", "source files contain no cloud-only asset generator endpoints"),
-        _chk("src_shader_nan_guards", not shader_hits, shader_hits or "clean", "[]", "GLSL pow/sqrt inputs guarded with max/abs/clamp"),
+        _chk("src_shader_nan_guards", not shader_hits, shader_hits or "clean", "[]", "GLSL pow/sqrt inputs guarded with max/abs/clamp or positive literals"),
     ]
 
 

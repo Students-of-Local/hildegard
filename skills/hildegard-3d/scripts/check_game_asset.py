@@ -209,8 +209,6 @@ def inspect_glb(path):
             sk_i = int(nodes[n_idx]["skin"])
             if 0 <= sk_i < len(skins):
                 node_skin_joints = len(skins[sk_i].get("joints", []))
-        elif len(skins) == 1:
-            node_skin_joints = len(skins[0].get("joints", []))
 
         m_pts = []
         for prim in meshes[m_idx].get("primitives", []):
