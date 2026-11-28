@@ -92,3 +92,67 @@ With Hildegard linked, its image models can make a picture for the design (the *
 picture alone, with room left for text, and place the text in HTML. Without Hildegard, use the image tool you have, or
 your user's own picture, or an SVG shape (step 7). Either way, never ask an image model to write the words; it
 misspells them.
+
+## Anti-slop Floor and design.md token contract
+
+Before rendering, run the static Floor linter `python3 scripts/check_design.py --html design.html` (and
+`python3 scripts/check_design.py --design-md design.md` when maintaining a persistent visual identity). Every rule below
+is enforced mechanically:
+
+1. **All colours and fonts via `:root` tokens:** declare every colour (`--bg`, `--ink`, `--accent`) and font family
+   (`--font-head`, `--font-body`) inside `:root { ... }`. Never write literal hex/rgb colours or raw `font-family`
+   values outside `:root`; use `var(--*)` everywhere else.
+2. **Motion safety:** never write `transition: all`, and never animate `width`, `height`, `top`, or `left`. Animate
+   `transform` or `opacity` only, and always include `@media (prefers-reduced-motion: reduce)` when transitions or
+   keyframes are present.
+3. **Overflow and focus:** set `overflow-x: clip` on `html, body` (never `100vw` and never `overflow-x: hidden`). Give
+   every interactive element (`button`, `a`, `input`) a visible `:focus-visible` style.
+4. **No slop defaults:** never use purple-to-blue gradients, emoji as icons, a single italic word inside a roman heading
+   (`<h1>Title <em>word</em></h1>`), or filler copy (`Lorem ipsum`, `Unlock the power of`, `reimagined`).
+
+Minimal clean HTML/CSS Floor pattern:
+
+```html
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Event Title</title>
+<style>
+:root {
+  --bg: #f6f1e7;
+  --ink: #1e1b18;
+  --accent: #a63d28;
+  --font-head: "Libre Caslon Display", serif;
+  --font-body: "Libre Franklin", sans-serif;
+}
+html, body { overflow-x: clip; background: var(--bg); color: var(--ink); font-family: var(--font-body); }
+h1 { font-family: var(--font-head); }
+a, button { background: var(--accent); color: var(--bg); transition: transform 160ms ease-out; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { a, button { transition: none; } }
+</style></head>
+<body><main><h1>Event Title</h1><p>Date and place.</p><button type="button">Register</button></main></body>
+</html>
+```
+
+**Persistent `design.md` format:** embed tokens in YAML front matter (`---` ... `---`) and/or fenced `yaml` blocks with
+unique top-level keys (`version`, `name`, `colors`, `typography`, `spacing`, `rounded`, `motion`, `components`; never
+define the same top-level key twice). Start line 1 with `---` (no heading above `---`), define `colors:` once with quoted hex values (`"#1A1C1E"`), and cross-reference only keys defined in `colors:` with `{colors.primary}`, and keep any `` `@path/file.ext` `` external references relative inside the `design.md` folder:
+
+````markdown
+---
+version: alpha
+name: Brand Name
+colors:
+  primary: "#1A1C1E"
+  surface: "#F6F1E7"
+  accent: "#A63D28"
+---
+
+## Components
+
+```yaml
+components:
+  button:
+    bg: "{colors.primary}"
+```
+````

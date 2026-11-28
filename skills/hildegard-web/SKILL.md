@@ -68,7 +68,8 @@ fill from the brand; Hildegard's own design system is the worked example):
 - **Colour:** by role, not by name: ground, panel, ink, muted ink, hairline, one accent, and states (focus, error,
   success). Text passes WCAG AA (4.5:1, 3:1 for large text). Dark is designed, not inverted: lift the ground a little
   off black, lower the accent's brightness, keep contrast.
-- **Motion:** short (150 to 250 ms), purposeful, and off under `prefers-reduced-motion`.
+- **Motion:** short (150 to 250 ms), purposeful, `transform` and `opacity` only (never `transition: all` or animating `width`, `height`, `top`, `left`), and off under `prefers-reduced-motion: reduce`.
+- **Anti-slop Floor (checked statically before screenshots):** every colour and `font-family` goes through `:root` custom properties; `overflow-x: clip` on `html` and `body` (never `100vw` or `overflow-x: hidden`); `:focus-visible` on every interactive element; no purple-to-blue gradients, emoji icons, single-italic-word headings, or filler copy. Run `python3 scripts/check_design.py --html site/` (and `--design-md design.md` when a persistent `design.md` exists) until all checks pass.
 
 ## 3. Build it
 

@@ -253,8 +253,16 @@ export const EDITS = [
       '`python3 scripts/check_game_asset.py model.glb`',
       'python3 scripts/check_game_asset.py model.glb --max-triangles',
     ],
-    'hildegard-art/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
+    'hildegard-art/SKILL.md': [
+      'python3 scripts/review_media.py',
+      'python3 scripts/contact_sheet.py',
+      'python3 scripts/check_design.py --iso iso.json',
+    ],
     'hildegard-craft/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
+    'hildegard-design/SKILL.md': [
+      'python3 scripts/check_design.py --html design.html',
+      'python3 scripts/check_design.py --design-md design.md',
+    ],
     'hildegard-film/SKILL.md': ['python3 scripts/review_media.py', 'python3 scripts/contact_sheet.py'],
     'hildegard-game/SKILL.md': [
       '`python3 scripts/check_game.py spec.json`',
@@ -336,6 +344,7 @@ export const EDITS = [
       'python3 scripts/check_video.py final.mp4',
       'python3 scripts/check_sync.py --video final.mp4',
     ],
+    'hildegard-web/SKILL.md': ['python3 scripts/check_design.py --html site/'],
   }).flatMap(([file, finds]) =>
     finds.map((find) => ({
       file,
@@ -355,7 +364,6 @@ export const EDITS = [
 
 const tools =
   "Hildegard's tools (`hildegard_status`, `loop_start` and the rest) are here once the person allows the Hildegard plugin in Local Studio's Settings, Plugins. If you don't have them, use this skill's way without Hildegard.";
-const where = '`<folder>` is the folder on the "References are relative to" line above.';
 const folder =
   '`<folder>` is the folder on the "References are relative to" line above. Run its scripts as `python3 -B <folder>/scripts/<name>.py`, and a script of yours that imports from `<folder>/scripts` as `python3 -B yours.py`: `-B` keeps Python from writing into the plugin, which would turn Hildegard\'s tools off until the person allows them again.';
 
@@ -394,7 +402,7 @@ export const FIRST = {
   ],
   'hildegard-web': [
     'First call the `site_templates` tool, pick the template that fits, and start a site with `site_new`. If you have no Hildegard tools, copy a template folder from `<folder>/templates/` into a new `site/` folder in the working folder and work there, never in `<folder>`.',
-    where,
+    folder,
     tools,
   ],
   'hildegard-loop': [
@@ -404,6 +412,7 @@ export const FIRST = {
   ],
   'hildegard-design': [
     "First write the copy deck (the Fast path's step 1). Render with a browser already on this computer: `chromium --headless=new --hide-scrollbars --window-size=1080,1350 --screenshot=design.png design.html` (or `google-chrome` with the same flags, at the canvas size). `npx playwright` downloads a browser, so ask the person first; without a browser, hand over the HTML, say it is unrendered and unchecked, and stop.",
+    folder,
   ],
   'hildegard-music': [
     'First pick the closest recipe: `python3 -B <folder>/scripts/sfx.py --list` for a sound effect, `music.py --list` for music, `soundscape.py --list` for a long bed. Copy it into your working folder (`cp <folder>/templates/lofi.json mine.json`) and change the copy, never the file in `<folder>`. Run every script from your working folder.',
