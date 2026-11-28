@@ -111,6 +111,59 @@ never mid-tone on mid-tone. On a photo, put a dark gradient under the text (the 
   `dip` for a hard break. Use one or two kinds in a video.
 - Everything is on screen long enough to read before the next thing moves.
 
+## Procedural camera, zoom, shake seams, and beat sync
+
+When driving custom procedural animation or camera moves in Python/Pillow/canvas, verify the camera and sync contract with
+`python3 scripts/check_sync.py --camera camera.json` (and for continuous procedural animation without reading holds, check liveness/sync with `--video out.mp4`):
+
+- **Deterministic seed and contact sheet:** pass an explicit integer `"seed"` and preview `"contact_sheet_frames"` (`8` to
+  `16`, typically `10` or `12`) before final render.
+- **Log-space zoom and mipmaps:** interpolate scale multiplicatively (`scale(u) = start_scale * (end_scale / start_scale) ** u`),
+  never linearly, so apparent zoom speed stays uniform (for 3 steps `u = 0, 0.5, 1`, the midpoint is the geometric mean
+  `sqrt(start_scale * end_scale)`). Clamp `|pan_x| <= max_pan_x` and `|pan_y| <= max_pan_y`, and pre-build at least
+  `mipmap_levels: 4` area-filtered mipmaps to eliminate shimmer.
+- **Seamless cyclic camera shake:** for a loop of `period_s` seconds, every frequency `f` in `"freqs_hz"` MUST satisfy
+  `f * period_s == integer`. For ANY whole-second `period_s` (`1.0`, `2.0`, `3.0`, `4.0`, `5.0`), integer frequencies
+  `[1.0, 2.0, 3.0]` (or `[1.0, 2.0]` when 2 frequencies are asked) ALWAYS satisfy `f * period_s == integer` seamlessly.
+- **Absolute beat-to-frame math:** compute every cue frame independently as `frame = round(t * fps)` on the master clock,
+  never by accumulating rounded step durations and never keeping another frame rate's numbers. Standard frame rates:
+  - `24 fps`: `1.0 s = 24`, `0.5 s = 12`, `0.25 s = 6` frames.
+  - `30 fps`: `1.0 s = 30`, `0.5 s = 15`, `0.1 s = 3` frames.
+  - `60 fps`: `1.0 s = 60`, `0.5 s = 30`, `0.25 s = 15` frames.
+
+Exact `check_sync.py --camera` JSON shape (include only the blocks the brief asks for):
+
+```json
+{
+  "seed": 42,
+  "contact_sheet_frames": 10,
+  "fps": 30,
+  "zoom": {
+    "start_scale": 1.0,
+    "end_scale": 4.0,
+    "samples": [1.0, 2.0, 4.0],
+    "pan_x": 0,
+    "pan_y": 0,
+    "max_pan_x": 50,
+    "max_pan_y": 50,
+    "mipmap_levels": 4
+  },
+  "shake": {
+    "period_s": 2.0,
+    "freqs_hz": [1.0, 2.0, 3.0]
+  },
+  "beats": [
+    { "t": 0.5, "frame": 15 },
+    { "t": 1.2, "frame": 36 },
+    { "t": 2.7, "frame": 81 }
+  ]
+}
+```
+
+**Always recompute every number from the brief:** multiply each beat's `t` by the brief's `fps` (`frame = round(t * fps)`;
+never keep 30-fps frame numbers when `fps` is 24 or 60), compute 3-step log zoom as `[start, sqrt(start * end), end]`,
+and use integer `freqs_hz` (`[1.0, 2.0, 3.0]`) for whole-second `period_s`.
+
 ## What --check says, and what to do
 
 | It says | Do this |

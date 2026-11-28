@@ -267,6 +267,7 @@ export const EDITS = [
     ],
     'hildegard-motion/SKILL.md': [
       'python3 scripts/motion.py --fonts',
+      'python3 scripts/check_sync.py --camera camera.json',
       'python3 <skill>/scripts/motion.py work/promo.json --check',
       'python3 <skill>/scripts/motion.py work/promo.json work/promo.mp4',
     ],
@@ -333,6 +334,7 @@ export const EDITS = [
       'python3 scripts/review_media.py',
       'python3 scripts/contact_sheet.py input-sheet.png',
       'python3 scripts/check_video.py final.mp4',
+      'python3 scripts/check_sync.py --video final.mp4',
     ],
   }).flatMap(([file, finds]) =>
     finds.map((find) => ({
