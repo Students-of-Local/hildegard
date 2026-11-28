@@ -9,10 +9,10 @@
 
 Reads GLB binary chunks directly (pure Python 3 + NumPy; never executes external code or loads URIs).
 Checks:
-  - Clean node transforms (unit scale (1,1,1), positive determinant / no negative scale)
-  - Finite vertices, triangle budget, material/draw-call budget, zero degenerate triangles
-  - UV (TEXCOORD_0) finite and in [0, 1] with non-zero UV area
-  - Skinning (JOINTS_0 / WEIGHTS_0): max 4 influences, non-negative, normalized (sum == 1.0)
+  - Clean accumulated world transforms (unit orthogonal 3x3 linear matrix, no parent/matrix scale or shear, det > 0)
+  - Finite vertices, triangle budget (TRIANGLES, TRIANGLE_STRIP, TRIANGLE_FAN), material/draw-call budget, zero degenerate triangles
+  - UV (TEXCOORD_0, honoring glTF 2.0 normalized integer accessors) finite and in [0, 1] with non-zero UV area
+  - Skinning (all JOINTS_k / WEIGHTS_k sets, honoring normalized integers): max 4 influences, non-negative, normalized (sum == 1.0), valid node skin & joint bounds
   - Multi-part assembly contact check (no unintended floating parts beyond --contact-tol)
   - Optional LOD monotonic triangle reduction + bounding-box IoU >= 0.85
   - Optional closed collision proxy containment
@@ -73,7 +73,8 @@ def read_glb(path):
 def read_accessor(doc, bin_data, acc_idx):
     acc = doc["accessors"][acc_idx]
     bv = doc["bufferViews"][acc["bufferView"]]
-    dtype = np.dtype(COMP_DTYPES[acc["componentType"]]).newbyteorder("<")
+    ct = int(acc["componentType"])
+    dtype = np.dtype(COMP_DTYPES[ct]).newbyteorder("<")
     comps = TYPE_COUNTS[acc["type"]]
     count = int(acc["count"])
     offset = int(bv.get("byteOffset", 0)) + int(acc.get("byteOffset", 0))
@@ -87,7 +88,35 @@ def read_accessor(doc, bin_data, acc_idx):
             for i in range(count)
         ]
         out = np.vstack(rows) if comps > 1 else np.array([r[0] for r in rows], dtype=dtype)
-    return out.astype(np.float64) if acc["componentType"] == 5126 else out
+
+    if acc.get("normalized", False):
+        f = out.astype(np.float64)
+        if ct == 5121:
+            return f / 255.0
+        if ct == 5123:
+            return f / 65535.0
+        if ct == 5120:
+            return np.maximum(f / 127.0, -1.0)
+        if ct == 5122:
+            return np.maximum(f / 32767.0, -1.0)
+        return f
+    return out.astype(np.float64) if ct == 5126 else out
+
+
+def _expand_triangles(idx_arr, mode):
+    """Expand glTF 2.0 primitive indices into Nx3 triangle indices per mode (4=TRIANGLES, 5=STRIP, 6=FAN)."""
+    n = len(idx_arr)
+    if mode == 4:
+        return idx_arr[: (n // 3) * 3].reshape(-1, 3)
+    if mode == 5 and n >= 3:
+        tris = []
+        for i in range(n - 2):
+            a, b, c = idx_arr[i], idx_arr[i + 1], idx_arr[i + 2]
+            tris.append((a, b, c) if i % 2 == 0 else (a, c, b))
+        return np.array(tris, dtype=np.int64)
+    if mode == 6 and n >= 3:
+        return np.array([(idx_arr[0], idx_arr[i], idx_arr[i + 1]) for i in range(1, n - 1)], dtype=np.int64)
+    return np.zeros((0, 3), dtype=np.int64)
 
 
 def _node_matrix(node):
@@ -133,7 +162,6 @@ def inspect_glb(path):
     materials = doc.get("materials", [])
     skins = doc.get("skins", [])
 
-    # Compute world matrices
     parents = {}
     for idx, n in enumerate(nodes):
         for ch in n.get("children", []):
@@ -164,28 +192,35 @@ def inspect_glb(path):
     bad_joint_refs = 0
     all_pts = []
 
-    joint_count = max((len(sk.get("joints", [])) for sk in skins), default=0)
-
-    # Walk mesh-bearing nodes (or meshes directly if no nodes)
     mesh_instances = [(i, n["mesh"], get_world(i), n.get("name", f"node_{i}")) for i, n in enumerate(nodes) if "mesh" in n]
     if not mesh_instances:
-        mesh_instances = [(i, i, np.eye(4), m.get("name", f"mesh_{i}")) for i, m in enumerate(meshes)]
+        mesh_instances = [(None, i, np.eye(4), m.get("name", f"mesh_{i}")) for i, m in enumerate(meshes)]
 
     for n_idx, m_idx, wm, name in mesh_instances:
-        if n_idx < len(nodes):
-            sc = np.array(nodes[n_idx].get("scale", [1.0, 1.0, 1.0]), dtype=np.float64)
-            if float(np.max(np.abs(sc - 1.0))) > 1e-4:
-                unapplied_scale_nodes.append(name)
-            if float(np.linalg.det(wm[:3, :3])) < 0.0:
-                neg_scale_nodes.append(name)
+        lin = wm[:3, :3]
+        # Check accumulated world 3x3 linear matrix for unit scale AND zero shear (catches parent & matrix scale)
+        if float(np.max(np.abs(lin.T @ lin - np.eye(3)))) > 1e-4:
+            unapplied_scale_nodes.append(name)
+        if float(np.linalg.det(lin)) < 0.0:
+            neg_scale_nodes.append(name)
+
+        node_skin_joints = None
+        if n_idx is not None and n_idx < len(nodes) and "skin" in nodes[n_idx]:
+            sk_i = int(nodes[n_idx]["skin"])
+            if 0 <= sk_i < len(skins):
+                node_skin_joints = len(skins[sk_i].get("joints", []))
+        elif len(skins) == 1:
+            node_skin_joints = len(skins[0].get("joints", []))
+
         m_pts = []
         for prim in meshes[m_idx].get("primitives", []):
             attrs = prim.get("attributes", {})
+            mode = int(prim.get("mode", 4))
             pos = read_accessor(doc, bdata, attrs["POSITION"]).astype(np.float64)
             if not np.all(np.isfinite(pos)):
                 bad_verts += int(np.sum(~np.all(np.isfinite(pos), axis=1)))
                 pos = np.nan_to_num(pos)
-            wpos = (pos @ wm[:3, :3].T) + wm[:3, 3]
+            wpos = (pos @ lin.T) + wm[:3, 3]
             m_pts.append(wpos)
             all_pts.append(wpos)
 
@@ -193,7 +228,7 @@ def inspect_glb(path):
                 idx_arr = read_accessor(doc, bdata, prim["indices"]).astype(np.int64).reshape(-1)
             else:
                 idx_arr = np.arange(len(pos), dtype=np.int64)
-            tris = idx_arr[: (len(idx_arr) // 3) * 3].reshape(-1, 3)
+            tris = _expand_triangles(idx_arr, mode)
             total_tris += len(tris)
             if len(tris):
                 v0, v1, v2 = wpos[tris[:, 0]], wpos[tris[:, 1]], wpos[tris[:, 2]]
@@ -209,17 +244,21 @@ def inspect_glb(path):
                     u0, u1, u2 = uv[tris[:, 0]], uv[tris[:, 1]], uv[tris[:, 2]]
                     uv_area += float(0.5 * np.sum(np.abs((u1[:, 0] - u0[:, 0]) * (u2[:, 1] - u0[:, 1]) - (u2[:, 0] - u0[:, 0]) * (u1[:, 1] - u0[:, 1]))))
 
-            if "JOINTS_0" in attrs and "WEIGHTS_0" in attrs:
+            # Collect ALL skinning sets (JOINTS_0/WEIGHTS_0, JOINTS_1/WEIGHTS_1, ...)
+            weight_sets = sorted(int(k.split("_", 1)[1]) for k in attrs if k.startswith("WEIGHTS_") and f"JOINTS_{k.split('_', 1)[1]}" in attrs)
+            if weight_sets:
                 rig_present = True
-                jts = read_accessor(doc, bdata, attrs["JOINTS_0"]).astype(np.int64)
-                wts = read_accessor(doc, bdata, attrs["WEIGHTS_0"]).astype(np.float64)
-                nz = np.sum(wts > 1e-5, axis=1)
+                all_w = np.hstack([read_accessor(doc, bdata, attrs[f"WEIGHTS_{k}"]).astype(np.float64) for k in weight_sets])
+                all_j = np.hstack([read_accessor(doc, bdata, attrs[f"JOINTS_{k}"]).astype(np.int64) for k in weight_sets])
+                nz = np.sum(all_w > 1e-5, axis=1)
                 max_influences = max(max_influences, int(np.max(nz)) if len(nz) else 0)
-                wsum = np.sum(wts, axis=1)
-                bad_w = np.any(wts < -1e-5, axis=1) | (np.abs(wsum - 1.0) > 1e-3)
+                wsum = np.sum(all_w, axis=1)
+                bad_w = np.any(all_w < -1e-5, axis=1) | (np.abs(wsum - 1.0) > 1e-3)
                 bad_weight_verts += int(np.sum(bad_w))
-                if joint_count > 0:
-                    bad_joint_refs += int(np.sum((jts < 0) | (jts >= joint_count)))
+                if not node_skin_joints or node_skin_joints <= 0:
+                    bad_joint_refs += int(len(all_j))
+                else:
+                    bad_joint_refs += int(np.sum((all_j < 0) | (all_j >= node_skin_joints)))
 
         if m_pts:
             stacked = np.vstack(m_pts)
@@ -231,7 +270,6 @@ def inspect_glb(path):
     else:
         bmin = bmax = np.zeros(3, dtype=np.float64)
 
-    # Assembly connectivity via part-to-part AABB gap
     floating_parts = []
     if len(part_aabbs) > 1:
         for i, (nm, mn, mx) in enumerate(part_aabbs):
@@ -273,7 +311,7 @@ def evaluate(path, max_triangles=25000, max_materials=4, require_uv=False, requi
         _chk("triangle_budget", 0 < info["triangles"] <= max_triangles, info["triangles"], f"1..{max_triangles}", "stay within game triangle budget"),
         _chk("degenerate_tris", info["degenerate_triangles"] == 0, info["degenerate_triangles"], 0, "remove zero-area triangles"),
         _chk("material_budget", info["materials"] <= max_materials, info["materials"], f"<= {max_materials}", "keep draw-call/material count within budget"),
-        _chk("clean_transforms", not info["unapplied_scale_nodes"], info["unapplied_scale_nodes"], "[]", "apply node scale to (1,1,1) before export"),
+        _chk("clean_transforms", not info["unapplied_scale_nodes"], info["unapplied_scale_nodes"], "[]", "apply node/parent/matrix scale and shear to unit orthogonal transform before export"),
         _chk("no_negative_scale", not info["negative_scale_nodes"], info["negative_scale_nodes"], "[]", "no inverted-winding negative scale"),
     ]
     if info["part_gaps"]:
@@ -284,7 +322,7 @@ def evaluate(path, max_triangles=25000, max_materials=4, require_uv=False, requi
         checks.append(_chk("uv_hygiene", uv_ok, {"present": info["uv_present"], "oob": info["uv_out_of_range"], "area": info["uv_area"]}, "in [0,1] with area > 0", "clean TEXCOORD_0 inside [0,1]"))
     if require_rig or info["rig_present"]:
         rig_ok = info["rig_present"] and info["max_influences"] <= 4 and info["bad_weight_verts"] == 0 and info["bad_joint_refs"] == 0
-        checks.append(_chk("skinning_hygiene", rig_ok, {"present": info["rig_present"], "max_inf": info["max_influences"], "bad_w": info["bad_weight_verts"], "bad_j": info["bad_joint_refs"]}, "<= 4 normalized weights", "valid JOINTS_0 / WEIGHTS_0"))
+        checks.append(_chk("skinning_hygiene", rig_ok, {"present": info["rig_present"], "max_inf": info["max_influences"], "bad_w": info["bad_weight_verts"], "bad_j": info["bad_joint_refs"]}, "<= 4 normalized weights + valid skin", "valid JOINTS_k / WEIGHTS_k and skin"))
 
     if lods:
         prev_tris = info["triangles"]

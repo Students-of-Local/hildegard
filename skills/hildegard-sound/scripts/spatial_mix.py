@@ -7,9 +7,10 @@
 
 Pure Python 3 + NumPy (optional ffmpeg/ffprobe for EBU R128 loudness normalization and checks).
 Right-handed metre coordinates: +X right, +Y up, -Z forward.
-Analytical spherical-head Woodworth ITD + head-shadow ILD + inverse-distance attenuation +
-HF air absorption + obstruction low-pass + radial Doppler + camera-cut <= 8 ms continuity crossfade +
-focus-preserving stereo/phone-band (300-3400 Hz) margin + locked stems + quiet-window protection.
+Analytical spherical-head Woodworth ITD (band-split <= 700 Hz for broadband mono safety) +
+head-shadow ILD + inverse-distance attenuation + HF air absorption + obstruction low-pass +
+radial Doppler + camera-cut <= 8 ms continuity crossfade + focus-preserving stereo/phone-band
+(300-3400 Hz) margin + locked stereo/mono stems + quiet-window protection.
 """
 
 import argparse
@@ -47,7 +48,6 @@ def _one_pole_lp(x, cutoff_hz, sr):
     fc = max(60.0, min(float(cutoff_hz), 0.45 * sr))
     a = math.exp(-2.0 * math.pi * fc / sr)
     b = 1.0 - a
-    # Vectorized via FFT of truncated exponential impulse response for exact, fast filtering.
     taps = min(len(x), max(32, int(6.0 / max(1e-4, 1.0 - a))))
     k = np.arange(taps, dtype=np.float64)
     ir = b * (a ** k)
@@ -76,26 +76,6 @@ def _frac_delay(x, delay_samples):
     return np.interp(idx, np.arange(n, dtype=np.float64), x, left=0.0, right=0.0)
 
 
-def _read_wav_mono(path, sr):
-    with wave.open(path, "rb") as w:
-        ch = w.getnchannels()
-        sw = w.getsampwidth()
-        wsr = w.getframerate()
-        raw = w.readframes(w.getnframes())
-    if sw == 2:
-        data = np.frombuffer(raw, dtype=np.int16).astype(np.float64) / 32768.0
-    elif sw == 4:
-        data = np.frombuffer(raw, dtype=np.int32).astype(np.float64) / 2147483648.0
-    else:
-        raise ValueError(f"unsupported wav sample width {sw} in {path}")
-    if ch > 1:
-        data = data.reshape(-1, ch).mean(axis=1)
-    if wsr != sr and len(data) > 1:
-        new_len = max(1, int(round(len(data) * sr / wsr)))
-        data = np.interp(np.linspace(0, len(data) - 1, new_len), np.arange(len(data)), data)
-    return data
-
-
 def _read_wav_stereo(path):
     with wave.open(path, "rb") as w:
         ch = w.getnchannels()
@@ -107,10 +87,32 @@ def _read_wav_stereo(path):
     elif sw == 4:
         data = np.frombuffer(raw, dtype=np.int32).astype(np.float64) / 2147483648.0
     else:
-        raise ValueError(f"unsupported wav sample width {sw}")
+        raise ValueError(f"unsupported wav sample width {sw} in {path}")
     if ch == 1:
         return np.stack([data, data], axis=1), sr
     return data.reshape(-1, ch)[:, :2], sr
+
+
+def _read_wav_stereo_resampled(path, target_sr, n, gain=1.0):
+    st, wsr = _read_wav_stereo(path)
+    if wsr != target_sr and len(st) > 1:
+        new_len = max(1, int(round(len(st) * target_sr / float(wsr))))
+        src_x = np.arange(len(st), dtype=np.float64)
+        dst_x = np.linspace(0.0, len(st) - 1, new_len)
+        st = np.stack([np.interp(dst_x, src_x, st[:, 0]), np.interp(dst_x, src_x, st[:, 1])], axis=1)
+    out = np.zeros((n, 2), dtype=np.float64)
+    k = min(n, len(st))
+    out[:k] = st[:k] * float(gain)
+    return out
+
+
+def _read_wav_mono(path, sr):
+    st, wsr = _read_wav_stereo(path)
+    data = st.mean(axis=1)
+    if wsr != sr and len(data) > 1:
+        new_len = max(1, int(round(len(data) * sr / float(wsr))))
+        data = np.interp(np.linspace(0.0, len(data) - 1, new_len), np.arange(len(data), dtype=np.float64), data)
+    return data
 
 
 def _write_wav_stereo(path, stereo, sr):
@@ -127,7 +129,8 @@ def _synth_signal(sig, n, sr, seed=1):
     rng = np.random.default_rng(int(seed))
     t = np.arange(n, dtype=np.float64) / sr
     kind = str(sig.get("kind", "tone")).lower()
-    amp = float(sig.get("gain", 0.35))
+    default_gain = 1.0 if kind == "file" else 0.35
+    amp = float(sig.get("gain", default_gain))
     if kind == "file":
         arr = _read_wav_mono(sig["path"], sr)
         out = np.zeros(n, dtype=np.float64)
@@ -139,7 +142,6 @@ def _synth_signal(sig, n, sr, seed=1):
         x = np.sin(2.0 * math.pi * f * t) + 0.35 * np.sin(2.0 * math.pi * 2.0 * f * t)
         return amp * x / 1.35
     if kind == "voice":
-        # Speech-like band-limited harmonic formants (160 Hz fundamental + 500/1400/2600 Hz)
         f0 = float(sig.get("freq_hz", 165.0))
         mod = 0.65 + 0.35 * np.sin(2.0 * math.pi * 3.2 * t)
         x = (
@@ -155,7 +157,6 @@ def _synth_signal(sig, n, sr, seed=1):
         rms = float(np.sqrt(np.mean(x * x)) + 1e-12)
         return amp * (x / rms) * 0.35
     if kind == "bed":
-        # Full-spectrum music-like chord bed
         freqs = sig.get("freqs_hz", [220.0, 277.18, 329.63, 660.0, 1320.0])
         x = sum(np.sin(2.0 * math.pi * float(f) * t + 0.3 * i) for i, f in enumerate(freqs))
         return amp * x / max(1.0, len(freqs))
@@ -181,8 +182,8 @@ def _listener_frame(pose):
 
 
 def _spatialize_segment(mono, src, pose, sr):
-    """Binaural Woodworth ITD + head-shadow ILD + inverse-distance + air absorption + obstruction."""
-    lpos, lright, lup, lfwd = _listener_frame(pose)
+    """Binaural band-split Woodworth ITD (<= 700 Hz) + head-shadow ILD + distance/air/obstruction."""
+    lpos, lright, _, _ = _listener_frame(pose)
     spos = np.array(src.get("pos", [0.0, 0.0, -1.0]), dtype=np.float64)
     rel = spos - lpos
     dist = float(np.linalg.norm(rel))
@@ -191,40 +192,39 @@ def _spatialize_segment(mono, src, pose, sr):
     eff_dist = max(ref_dist, dist)
     dist_gain = ref_dist / (ref_dist + rolloff * (eff_dist - ref_dist))
 
-    # Listener-relative coordinates: x right, y up, z forward
     rx = float(np.dot(rel, lright))
-    rz = float(np.dot(rel, lfwd))
-    az = math.atan2(rx, max(1e-6, rz) if rz >= 0 else rz)  # +pi/2 = right, -pi/2 = left
-    # Lateral angle theta in [-pi/2, +pi/2] for spherical-head ITD
     sin_lat = max(-1.0, min(1.0, rx / max(1e-6, dist)))
     lat = math.asin(sin_lat)
 
-    # Analytical Woodworth ITD (seconds): positive when source is on the right (+X) -> left ear delayed.
+    # Analytical Woodworth ITD (seconds), capped at 0.30 ms and applied to the <= 700 Hz band
+    # so broadband noise and >= 1 kHz tones remain mono-fold safe (corr >= +0.2) while preserving ITD localization.
     itd_s = (HEAD_RADIUS_M / SPEED_OF_SOUND) * (abs(math.sin(lat)) + abs(lat))
-    # Cap ITD so extreme panning remains mono-fold safe (cos(2*pi*f*itd) stays positive across midband).
     max_itd_s = float(src.get("max_itd_ms", 0.30)) / 1000.0
     itd_s = min(itd_s, max_itd_s)
     itd_samp = itd_s * sr
 
-    # Distance HF air absorption + obstruction curve
     obstruction = max(0.0, min(1.0, float(src.get("obstruction", 0.0))))
     air_fc = max(1200.0, 16000.0 * math.exp(-0.08 * max(0.0, dist - ref_dist)))
     obs_fc = 16000.0 * (1.0 - 0.92 * obstruction)
     obs_gain = 10.0 ** (-12.0 * obstruction / 20.0)
     base = _one_pole_lp(mono * (dist_gain * obs_gain), min(air_fc, obs_fc), sr)
 
-    # Head-shadow ILD: contralateral ear attenuated & low-passed; keep mild floor so mono correlation stays positive.
-    pan = sin_lat  # -1 left .. +1 right
+    pan = sin_lat
     g_l = math.sqrt(max(0.18, 0.5 * (1.0 - 0.72 * pan)))
     g_r = math.sqrt(max(0.18, 0.5 * (1.0 + 0.72 * pan)))
     shadow_fc = 14000.0 - 10500.0 * abs(pan)
 
+    low = _one_pole_lp(base, 700.0, sr)
+    high = base - low
+    shadow_high = _one_pole_lp(high, shadow_fc, sr)
+    delayed_low = _frac_delay(low, itd_samp)
+
     if pan >= 0.0:
         right_ch = base * g_r
-        left_ch = _frac_delay(_one_pole_lp(base, shadow_fc, sr) * g_l, itd_samp)
+        left_ch = (delayed_low + shadow_high) * g_l
     else:
         left_ch = base * g_l
-        right_ch = _frac_delay(_one_pole_lp(base, shadow_fc, sr) * g_r, itd_samp)
+        right_ch = (delayed_low + shadow_high) * g_r
     return np.stack([left_ch, right_ch], axis=1)
 
 
@@ -237,7 +237,6 @@ def _apply_doppler(mono, src, pose, sr):
     t = np.arange(len(mono), dtype=np.float64) / sr
     pos_t = spos[None, :] + t[:, None] * vel[None, :]
     d_t = np.linalg.norm(pos_t - lpos[None, :], axis=1)
-    # Emitted time tau = t - (d(t) - d(0)) / c
     delay = (d_t - d_t[0]) / SPEED_OF_SOUND
     tau_samp = np.arange(len(mono), dtype=np.float64) - delay * sr
     return np.interp(tau_samp, np.arange(len(mono), dtype=np.float64), mono, left=0.0, right=0.0)
@@ -319,7 +318,6 @@ def render_spec(spec, out_wav, target_lufs=None, peak_dbtp=None):
     if cut_fade_ms > 8.0:
         raise ValueError(f"camera_cut_fade_ms must be <= 8.0 ms (got {cut_fade_ms})")
 
-    # Listener timeline (default static pose at origin looking -Z)
     base_pose = spec.get("listener", {"pos": [0.0, 0.0, 0.0], "forward": [0.0, 0.0, -1.0], "up": [0.0, 1.0, 0.0]})
     cuts = sorted(spec.get("camera_cuts", []), key=lambda c: float(c.get("t", 0.0)))
     segments = []
@@ -334,9 +332,10 @@ def render_spec(spec, out_wav, target_lufs=None, peak_dbtp=None):
     if cur_t < dur:
         segments.append((cur_t, dur, cur_pose))
 
-    focus_bus = np.zeros((n, 2), dtype=np.float64)
-    bed_bus = np.zeros((n, 2), dtype=np.float64)
     locked_bus = np.zeros((n, 2), dtype=np.float64)
+    locked_focus_bus = np.zeros((n, 2), dtype=np.float64)
+    unlocked_focus_bus = np.zeros((n, 2), dtype=np.float64)
+    bed_bus = np.zeros((n, 2), dtype=np.float64)
     has_focus = False
     has_locked = False
 
@@ -344,41 +343,51 @@ def render_spec(spec, out_wav, target_lufs=None, peak_dbtp=None):
     for idx, src in enumerate(spec.get("sources", [])):
         role = str(src.get("role", "bed")).lower()
         locked = bool(src.get("locked", False))
-        mono = _synth_signal(src.get("signal", {"kind": "tone"}), n, sr, seed=src.get("seed", idx + 1))
+        sig = src.get("signal", {"kind": "tone"})
+        sig_kind = str(sig.get("kind", "tone")).lower()
+        is_spatial = bool(src.get("spatial", True))
+
         if locked:
             has_locked = True
-            st = np.stack([mono, mono], axis=1)
+            if sig_kind == "file":
+                st = _read_wav_stereo_resampled(sig["path"], sr, n, gain=float(sig.get("gain", 1.0)))
+            else:
+                mono = _synth_signal(sig, n, sr, seed=src.get("seed", idx + 1))
+                st = np.stack([mono, mono], axis=1)
             locked_bus += st
             if role == "focus":
                 has_focus = True
-                focus_bus += st
+                locked_focus_bus += st
             continue
 
-        if src.get("spatial", True):
-            st = np.zeros((n, 2), dtype=np.float64)
-            xfade_n = max(2, int(round(cut_fade_ms * sr / 1000.0)))
-            for seg_i, (t0, t1, pose) in enumerate(segments):
-                i0 = int(round(t0 * sr))
-                i1 = int(round(t1 * sr))
-                # Render slightly wider window for smooth <= 8 ms crossfade across camera cut
-                pad0 = max(0, i0 - xfade_n) if seg_i > 0 else i0
-                seg_mono = _apply_doppler(mono[pad0:i1], src, pose, sr)
-                seg_st = _spatialize_segment(seg_mono, src, pose, sr)
-                if seg_i == 0:
-                    st[i0:i1] = seg_st
-                else:
-                    ov = min(xfade_n, i0 - pad0, i1 - i0)
-                    if ov > 0:
-                        w = np.linspace(0.0, 1.0, ov)[:, None]
-                        st[i0 - ov : i0] = st[i0 - ov : i0] * (1.0 - w) + seg_st[:ov] * w
-                    st[i0:i1] = seg_st[i0 - pad0 :]
+        if not is_spatial and sig_kind == "file":
+            st = _read_wav_stereo_resampled(sig["path"], sr, n, gain=float(sig.get("gain", 1.0)))
         else:
-            st = np.stack([mono, mono], axis=1)
+            mono = _synth_signal(sig, n, sr, seed=src.get("seed", idx + 1))
+            if is_spatial:
+                st = np.zeros((n, 2), dtype=np.float64)
+                xfade_n = max(2, int(round(cut_fade_ms * sr / 1000.0)))
+                for seg_i, (t0, t1, pose) in enumerate(segments):
+                    i0 = int(round(t0 * sr))
+                    i1 = int(round(t1 * sr))
+                    pad0 = max(0, i0 - xfade_n) if seg_i > 0 else i0
+                    seg_mono = _apply_doppler(mono[pad0:i1], src, pose, sr)
+                    seg_st = _spatialize_segment(seg_mono, src, pose, sr)
+                    if seg_i == 0:
+                        st[i0:i1] = seg_st
+                    else:
+                        ov = min(xfade_n, i0 - pad0, i1 - i0)
+                        if ov > 0:
+                            w = np.linspace(0.0, 1.0, ov)[:, None]
+                            st[i0 - ov : i0] = st[i0 - ov : i0] * (1.0 - w) + seg_st[:ov] * w
+                        st[i0:i1] = seg_st[i0 - pad0 :]
+            else:
+                st = np.stack([mono, mono], axis=1)
 
         st = _apply_fade_edges(st, sr, ms=8.0)
         if role == "focus":
             has_focus = True
-            focus_bus += st
+            unlocked_focus_bus += st
         else:
             bed_bus += st
 
@@ -407,11 +416,12 @@ def render_spec(spec, out_wav, target_lufs=None, peak_dbtp=None):
                 c_st = np.stack([c_mono, c_mono], axis=1)
             bed_bus[start : start + click_n] += c_st
 
-    # 3. Focus-preserving gain control (guarantee >= focus_margin_db in fullband AND 300-3400 Hz phone band)
+    # 3. Focus-preserving gain control (fullband + 300-3400 Hz phone band) against combined focus stems
     margin_db = float(spec.get("focus_margin_db", 8.0))
     bed_scale = 1.0
+    total_focus = locked_focus_bus + unlocked_focus_bus
     if has_focus and float(np.sqrt(np.mean(bed_bus ** 2))) > 1e-7:
-        f_mono = focus_bus.mean(axis=1)
+        f_mono = total_focus.mean(axis=1)
         b_mono = bed_bus.mean(axis=1)
         f_phone = _bandpass_fft(f_mono, 300.0, 3400.0, sr)
         b_phone = _bandpass_fft(b_mono, 300.0, 3400.0, sr)
@@ -435,33 +445,29 @@ def render_spec(spec, out_wav, target_lufs=None, peak_dbtp=None):
             bed_scale = 10.0 ** (-need_db / 20.0)
             bed_bus *= bed_scale
 
-    # 4. Protected quiet windows (< -45 dBFS) on non-locked beds
+    # 4. Protected quiet windows (< -45 dBFS) on all unlocked buses (locked_bus passes through untouched)
     for qw in spec.get("quiet_windows", []):
         q0 = max(0, int(round(float(qw[0]) * sr)))
         q1 = min(n, int(round(float(qw[1]) * sr)))
         fade = min(int(round(0.01 * sr)), max(1, (q1 - q0) // 4))
         if q1 > q0:
             env = np.ones((n, 1), dtype=np.float64)
-            env[q0:q1] = 0.001  # -60 dB
+            env[q0:q1] = 0.001
             if fade > 1 and q0 >= fade:
                 env[q0 - fade : q0] = np.linspace(1.0, 0.001, fade)[:, None]
             if fade > 1 and q1 + fade <= n:
                 env[q1 : q1 + fade] = np.linspace(0.001, 1.0, fade)[:, None]
             bed_bus *= env
-            if not has_locked:
-                focus_bus *= env
+            unlocked_focus_bus *= env
 
-    # Combine stems (locked stem never modified if present; non-locked focus + bed combine cleanly)
-    mix = locked_bus + (focus_bus - locked_bus if has_locked and has_focus else focus_bus) + bed_bus
+    # Combine disjoint buses without cancelling locked non-focus stems
+    mix = locked_bus + unlocked_focus_bus + bed_bus
 
-    # Remove tiny DC offset on non-locked mixes
     if not has_locked:
         mix -= np.mean(mix, axis=0, keepdims=True)
-
-    # Peak safety before loudness pass
-    peak_lin = float(np.max(np.abs(mix))) if len(mix) else 0.0
-    if peak_lin > 0.89 and not has_locked:
-        mix *= 0.89 / peak_lin
+        peak_lin = float(np.max(np.abs(mix))) if len(mix) else 0.0
+        if peak_lin > 0.89:
+            mix *= 0.89 / peak_lin
 
     lufs_t = target_lufs if target_lufs is not None else spec.get("target_lufs")
     peak_t = peak_dbtp if peak_dbtp is not None else float(spec.get("peak_dbtp", -1.0))
@@ -484,7 +490,7 @@ def render_spec(spec, out_wav, target_lufs=None, peak_dbtp=None):
     }
 
 
-def check_audio(wav_path, spec=None, target_lufs=None, peak_dbtp=-1.0):
+def check_audio(wav_path, spec=None, target_lufs=None, peak_dbtp=None):
     stereo, sr = _read_wav_stereo(wav_path)
     l_ch, r_ch = stereo[:, 0], stereo[:, 1]
     n = len(stereo)
@@ -494,19 +500,16 @@ def check_audio(wav_path, spec=None, target_lufs=None, peak_dbtp=-1.0):
     clipped = int(np.sum(np.abs(stereo) >= 0.999))
     rms_l = float(np.sqrt(np.mean(l_ch ** 2)) + 1e-12)
     rms_r = float(np.sqrt(np.mean(r_ch ** 2)) + 1e-12)
-    lr_db = 20.0 * math.log10(rms_r / rms_l)  # >0 right louder, <0 left louder
+    lr_db = 20.0 * math.log10(rms_r / rms_l)
 
-    # Mono-fold Pearson correlation
     denom = float(np.linalg.norm(l_ch) * np.linalg.norm(r_ch))
     corr = float(np.dot(l_ch, r_ch) / denom) if denom > 1e-12 else 1.0
 
-    # Cross-correlation ITD lag in ms inside the physical spherical-head window (±0.80 ms, avoiding tone-period aliasing).
     max_lag = int(round(0.0008 * sr))
     seg = min(n, sr * 2)
     a, b = r_ch[:seg] - np.mean(r_ch[:seg]), l_ch[:seg] - np.mean(l_ch[:seg])
-    lags = range(-max_lag, max_lag + 1)
     best_lag, best_val = 0, -1e18
-    for lag in lags:
+    for lag in range(-max_lag, max_lag + 1):
         if lag >= 0:
             v = float(np.dot(a[: seg - lag], b[lag:seg]))
         else:
@@ -515,7 +518,6 @@ def check_audio(wav_path, spec=None, target_lufs=None, peak_dbtp=-1.0):
             best_val, best_lag = v, lag
     itd_ms = best_lag * 1000.0 / sr
 
-    # Max sample-to-sample jump around any declared camera cuts
     cut_jumps = []
     if spec and spec.get("camera_cuts"):
         diff = np.max(np.abs(np.diff(stereo, axis=0)), axis=1)
@@ -524,7 +526,6 @@ def check_audio(wav_path, spec=None, target_lufs=None, peak_dbtp=-1.0):
             lo, hi = max(0, idx - int(0.015 * sr)), min(len(diff), idx + int(0.015 * sr))
             cut_jumps.append(float(np.max(diff[lo:hi])) if hi > lo else 0.0)
 
-    # Quiet-window peak dBFS
     quiet_peaks_db = []
     if spec and spec.get("quiet_windows"):
         for qw in spec["quiet_windows"]:
@@ -533,15 +534,20 @@ def check_audio(wav_path, spec=None, target_lufs=None, peak_dbtp=-1.0):
             p = float(np.max(np.abs(stereo[q0:q1]))) if q1 > q0 else 0.0
             quiet_peaks_db.append(20.0 * math.log10(max(p, 1e-9)))
 
+    has_locked = bool(spec and any(bool(s.get("locked")) for s in spec.get("sources", [])))
+    eff_lufs = target_lufs if target_lufs is not None else (spec.get("target_lufs") if spec else None)
+    eff_peak = peak_dbtp if peak_dbtp is not None else float((spec or {}).get("peak_dbtp", -1.0))
+
     eb = _ebur128_stats(wav_path)
-    checks = []
-    checks.append({"id": "clipping", "ok": clipped == 0, "value": clipped, "limit": 0})
-    checks.append({"id": "dc_offset", "ok": dc < 0.005, "value": round(dc, 6), "limit": 0.005})
-    checks.append({"id": "mono_corr", "ok": corr >= 0.2, "value": round(corr, 4), "limit": 0.2})
+    checks = [
+        {"id": "clipping", "ok": clipped == 0, "value": clipped, "limit": 0},
+        {"id": "dc_offset", "ok": dc < 0.005, "value": round(dc, 6), "limit": 0.005},
+        {"id": "mono_corr", "ok": corr >= 0.2, "value": round(corr, 4), "limit": 0.2},
+    ]
     if eb:
-        if target_lufs is not None:
-            checks.append({"id": "lufs", "ok": abs(eb["lufs"] - target_lufs) <= 1.0, "value": eb["lufs"], "limit": target_lufs})
-        checks.append({"id": "true_peak", "ok": eb["true_peak_dbtp"] <= peak_dbtp + 0.1, "value": eb["true_peak_dbtp"], "limit": peak_dbtp})
+        if eff_lufs is not None and not (has_locked and target_lufs is None):
+            checks.append({"id": "lufs", "ok": abs(eb["lufs"] - float(eff_lufs)) <= 1.0, "value": eb["lufs"], "limit": float(eff_lufs)})
+        checks.append({"id": "true_peak", "ok": eb["true_peak_dbtp"] <= eff_peak + 0.1, "value": eb["true_peak_dbtp"], "limit": eff_peak})
     if quiet_peaks_db:
         checks.append({"id": "quiet_windows", "ok": max(quiet_peaks_db) < -45.0, "value": round(max(quiet_peaks_db), 2), "limit": -45.0})
 
@@ -570,7 +576,7 @@ def main():
     ap.add_argument("--check", dest="check_file")
     ap.add_argument("--spec", dest="check_spec")
     ap.add_argument("--lufs", type=float, default=None)
-    ap.add_argument("--peak", type=float, default=-1.0)
+    ap.add_argument("--peak", type=float, default=None)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
@@ -589,7 +595,7 @@ def main():
         ap.error("provide SPEC.json OUT.wav, or --check FILE.wav")
     spec = json.load(open(a.spec_or_wav, encoding="utf-8"))
     info = render_spec(spec, a.out_wav, target_lufs=a.lufs, peak_dbtp=a.peak)
-    chk = check_audio(a.out_wav, spec=spec, target_lufs=a.lufs if a.lufs is not None else spec.get("target_lufs"), peak_dbtp=a.peak)
+    chk = check_audio(a.out_wav, spec=spec, target_lufs=a.lufs, peak_dbtp=a.peak)
     out = {"render": info, "check": chk, "ok": chk["ok"]}
     if a.json:
         print(json.dumps(out, indent=2))

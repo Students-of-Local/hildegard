@@ -152,6 +152,9 @@ Include only the blocks relevant to the brief (all numeric fields use plain numb
 
 ## Deliver
 
-Hand over the runnable build, screenshots of key states, and the `check_game.py` output. State plainly what was verified
-mechanically (timestep stability, camera math, shader guards, draw calls, console errors) and what remains open for human
-playtesting (game feel, difficulty balance, and visual taste).
+Hand over the runnable build, screenshots of key states, and the `check_game.py` output (run with `--src <build-dir>` when
+shipping JS/GLSL files so cloud endpoints and GLSL `pow`/`sqrt` guards are audited on source, not just declared in JSON).
+State plainly what was simulated mechanically (`check_game.py`: fixed-timestep spike clamp, dolly-zoom math, parallax/C1
+loop, Beer-Lambert transmittance, spring-bone damping, cue crossing), what was measured live in Chromium on a real GPU
+(renderer string, draw calls, console errors, screenshots), and what remains open for human playtesting (game feel,
+difficulty balance, and visual taste).
