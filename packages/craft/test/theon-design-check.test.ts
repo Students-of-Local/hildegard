@@ -1598,4 +1598,307 @@ omitted:
     expect(scaledDownDraft.status).toBe(1);
     expect(scaledDownDraft.bad).toContain('logo_micro_legibility');
   }, 60_000);
+
+  it('audits HTML and TSX with --web-lint [--fidelity], enforcing all 12 prescriptive rules, 4 fidelity gates, comment stripping, and symlink/node_modules skipping', () => {
+    // 1. Clean HTML passes --web-lint --fidelity (including allowed style="--idx: 1", descendant/classed h1, and transition: none)
+    const cleanWebHtml = join(dir, 'wl-clean.html');
+    writeFileSync(
+      cleanWebHtml,
+      `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Brand</title>
+<style>
+:root {
+  --bg: #f6f1e7;
+  --surface: #ffffff;
+  --ink: #1e1b18;
+  --hairline: rgba(30, 27, 24, 0.12);
+  --accent: #a63d28;
+}
+html, body { overflow-x: clip; background: var(--bg); color: var(--ink); font-size: 16px; line-height: 1.5; margin: 0; }
+header, main { max-width: 65ch; margin: 0 auto; padding: 24px; }
+header h1.title { font-size: clamp(2rem, 5vw, 2.5rem); letter-spacing: -0.02em; }
+.card { background: var(--surface); border: 1px solid var(--hairline); padding: 20px; }
+.btn { background: var(--accent); color: var(--surface); border: 0; padding: 10px 18px; transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+.btn:active { transform: scale(0.97); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (min-width: 768px) { header, main { padding: 48px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none; animation: none; } }
+</style></head>
+<body>
+  <header><h1 class="title">Brand</h1></header>
+  <main><section class="card" style="--idx: 1"><p>Concrete facts.</p><button class="btn" type="button">Action</button></section></main>
+</body>
+</html>`,
+    );
+    const rCleanHtml = runPy(['--web-lint', cleanWebHtml, '--fidelity', '--json']);
+    expect(rCleanHtml.status, rCleanHtml.stdout).toBe(0);
+    const cleanHtmlOut = JSON.parse(rCleanHtml.stdout);
+    expect(cleanHtmlOut.ok).toBe(true);
+    expect(cleanHtmlOut.findings).toEqual([]);
+
+    // Non-motion transition: none without prefers-reduced-motion must NOT false-trigger reduced-motion
+    const staticNoneHtml = join(dir, 'wl-transition-none.html');
+    writeFileSync(
+      staticNoneHtml,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; --surface: #fafafa; --accent: #a63d28; }
+body { background: var(--bg); color: var(--ink); font-size: 16px; }
+h1 { font-size: 40px; }
+.box { transition: none; animation: none; }
+</style></head><body><main><h1>Static</h1><div class="box">Plain</div></main></body></html>`,
+    );
+    const rStaticNone = runPy(['--web-lint', staticNoneHtml, '--json']);
+    expect(rStaticNone.status, rStaticNone.stdout).toBe(0);
+
+    // 2. Clean TSX passes --web-lint (min-h-dvh, <Button variant="brand">, static Record map, balanced-brace style={{ '--step': 1 }})
+    const cleanTsx = join(dir, 'wl-clean.tsx');
+    writeFileSync(
+      cleanTsx,
+      `const TONE_CLASS: Record<string, string> = { ok: 'text-foreground', warn: 'text-muted-foreground' };
+export function Banner({ tone, step, fn }: { tone: string; step: number; fn: (a: number, b: number) => number }) {
+  return (
+    <section className="min-h-dvh flex items-center" style={{ '--step': step, '--y': \`\${fn(1, 2)}px\` }}>
+      <Button onClick={() => step > 0} variant="brand">Action</Button>
+      <span className={TONE_CLASS[tone] ?? 'text-foreground'}>Live</span>
+    </section>
+  );
+}`,
+    );
+    const rCleanTsx = runPy(['--web-lint', cleanTsx, '--json']);
+    expect(rCleanTsx.status, rCleanTsx.stdout).toBe(0);
+    expect(JSON.parse(rCleanTsx.stdout).ok).toBe(true);
+
+    // 3. All 12 rules failing across broken HTML and TSX
+    const brokenHtml = join(dir, 'wl-broken.html');
+    writeFileSync(
+      brokenHtml,
+      `<!doctype html>
+<html><head><style>
+:root { --bg: #f6f1e7; --ink: #1e1b18; --accent: #a63d28; --surface: #ffffff; }
+html, body { width: 100vw; overflow-x: hidden; color: #222222; font-size: 16px; }
+.card-header { background: linear-gradient(135deg, #6366f1, #3b82f6); }
+.pop { transform: scale(0); transition: all 300ms ease-in; animation: enter 200ms ease-in; }
+@media (prefers-reduced-motion: reduce) {}
+</style></head>
+<body>
+  <div class="card-hedaer h-screen bg-pink-500 p-[13px]" style="color: var(--accent)">
+    <p style="--: 1">Unlock the power of widgets \u{1F525}</p>
+    <button class="pop" type="button">Go</button>
+  </div>
+</body></html>`,
+    );
+    const rBrokenHtml = runPy(['--web-lint', brokenHtml, '--json']);
+    expect(rBrokenHtml.status).toBe(1);
+    const brokenHtmlOut = JSON.parse(rBrokenHtml.stdout);
+    const htmlRules = new Set(brokenHtmlOut.findings.map((f: { rule: string }) => f.rule));
+    for (const rule of [
+      'no-raw-colors',
+      'no-arbitrary-values',
+      'no-inline-styles',
+      'no-unknown-classes',
+      'micro-craft',
+      'no-transition-all',
+      'safe-overflow',
+      'focus-visible',
+      'reduced-motion',
+      'no-slop-patterns',
+    ]) {
+      expect(htmlRules, `expected HTML rule ${rule}`).toContain(rule);
+    }
+    const unknownClassFinding = brokenHtmlOut.findings.find(
+      (f: { rule: string; what: string }) =>
+        f.rule === 'no-unknown-classes' && f.what.includes('card-hedaer'),
+    );
+    expect(unknownClassFinding?.fix).toContain('.card-header');
+    const focusFinding = brokenHtmlOut.findings.find((f: { rule: string }) => f.rule === 'focus-visible');
+    expect(focusFinding?.fix).toContain('a:focus-visible, button:focus-visible');
+    // Inline style="--: 1" (bare --) and style="color: var(--accent)" must both trigger no-inline-styles
+    const inlineHtmlFindings = brokenHtmlOut.findings.filter(
+      (f: { rule: string }) => f.rule === 'no-inline-styles',
+    );
+    expect(inlineHtmlFindings.length).toBe(2);
+
+    // Check human-readable CLI output format: [rule] file:line | what | why | Fix:
+    const rBrokenText = runPy(['--web-lint', brokenHtml]);
+    expect(rBrokenText.status).toBe(1);
+    expect(rBrokenText.stdout).toMatch(/\[no-unknown-classes\] wl-broken\.html:\d+ \| .* \| .* \| Fix: /);
+    expect(rBrokenText.stdout).toContain('RESULT: FIX the lines above');
+
+    // no-unknown-classes must STILL fire when HTML has <style> with zero declared .class selectors
+    const noClassCssHtml = join(dir, 'wl-noclass-css.html');
+    writeFileSync(
+      noClassCssHtml,
+      `<!doctype html><html><head><style>
+:root { --bg: #fff; --ink: #111; }
+body { background: var(--bg); color: var(--ink); }
+</style></head><body><div class="mystery-widget">Text</div></body></html>`,
+    );
+    const rNoClassCss = runPy(['--web-lint', noClassCssHtml, '--json']);
+    expect(rNoClassCss.status).toBe(1);
+    expect(JSON.parse(rNoClassCss.stdout).findings.map((f: { rule: string }) => f.rule)).toContain(
+      'no-unknown-classes',
+    );
+
+    // Broken TSX: no-restyle (with onClick={() => x > 1}, className={"..."}, className={'...'}), require-static-classes (direct, cn(), ternary), balanced-brace style={{ ... }} & bare '--', raw colors, arbitrary values, min-h-screen
+    const brokenTsx = join(dir, 'wl-broken.tsx');
+    writeFileSync(
+      brokenTsx,
+      `export function Broken({ tone, ok, fn }: { tone: string; ok: boolean; fn: (o: { a: number }) => string }) {
+  return (
+    <div className="min-h-screen" style={{ color: fn({ a: 1 }) }}>
+      <Button onClick={() => tone.length > 0} className="bg-red-500 p-[13px]">Save</Button>
+      <Card className={"rounded-lg border-2"} style={{ '--': 1 }} />
+      <Badge className={'text-slate-900'} />
+      <span className={\`bg-\${tone}-500\`} />
+      <span className={cn(\`text-\${tone}-600\`, 'flex')} />
+      <span className={ok ? \`p-\${tone}\` : 'p-4'} />
+    </div>
+  );
+}`,
+    );
+    const rBrokenTsx = runPy(['--web-lint', brokenTsx, '--json']);
+    expect(rBrokenTsx.status).toBe(1);
+    const brokenTsxOut = JSON.parse(rBrokenTsx.stdout);
+    const tsxRules = new Set(brokenTsxOut.findings.map((f: { rule: string }) => f.rule));
+    for (const rule of [
+      'no-restyle',
+      'no-raw-colors',
+      'no-arbitrary-values',
+      'no-inline-styles',
+      'require-static-classes',
+      'micro-craft',
+    ]) {
+      expect(tsxRules, `expected TSX rule ${rule}`).toContain(rule);
+    }
+    const restyleComps = brokenTsxOut.findings
+      .filter((f: { rule: string }) => f.rule === 'no-restyle')
+      .map((f: { what: string }) => f.what);
+    expect(restyleComps.some((w: string) => w.includes('<Button'))).toBe(true);
+    expect(restyleComps.some((w: string) => w.includes('<Card'))).toBe(true);
+    expect(restyleComps.some((w: string) => w.includes('<Badge'))).toBe(true);
+    expect(
+      brokenTsxOut.findings.filter((f: { rule: string }) => f.rule === 'require-static-classes').length,
+    ).toBe(3);
+    expect(brokenTsxOut.findings.filter((f: { rule: string }) => f.rule === 'no-inline-styles').length).toBe(
+      2,
+    );
+
+    // 4. All 4 --fidelity checks failing (only 2 tokens, bad type scale ratio + 0px guard, only prefers-reduced-motion media query, missing landmarks)
+    const lowFidelityHtml = join(dir, 'wl-low-fidelity.html');
+    writeFileSync(
+      lowFidelityHtml,
+      `<!doctype html>
+<html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; }
+body { background: var(--bg); color: var(--ink); font-size: 16px; }
+h1 { font-size: 20px; }
+.tiny { font-size: 0px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none; } }
+</style></head>
+<body><div><p>No landmarks here</p></div></body></html>`,
+    );
+    const rLowFid = runPy(['--web-lint', lowFidelityHtml, '--fidelity', '--json']);
+    expect(rLowFid.status).toBe(1);
+    const lowFidBad = JSON.parse(rLowFid.stdout)
+      .checks.filter((c: { ok: boolean }) => !c.ok)
+      .map((c: { id: string }) => c.id);
+    expect(lowFidBad).toContain('fidelity_tokens');
+    expect(lowFidBad).toContain('fidelity_type_scale');
+    expect(lowFidBad).toContain('fidelity_responsive');
+    expect(lowFidBad).toContain('fidelity_landmarks');
+
+    // Non-finite font-size (1e309px) must NOT pass fidelity_type_scale
+    const infFontHtml = join(dir, 'wl-inf-font.html');
+    writeFileSync(
+      infFontHtml,
+      `<!doctype html><html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; --surface: #eee; --accent: #a63d28; }
+body { font-size: 16px; background: var(--bg); color: var(--ink); }
+h1 { font-size: 1e309px; }
+@media (min-width: 768px) { body { padding: 16px; } }
+</style></head><body><header><h1>Hi</h1></header><main><p>Body</p></main></body></html>`,
+    );
+    const rInfFont = runPy(['--web-lint', infFontHtml, '--fidelity', '--json']);
+    expect(rInfFont.status).toBe(1);
+    expect(
+      JSON.parse(rInfFont.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('fidelity_type_scale');
+
+    // 5. Commented-out HTML/JSX must neither false-trigger findings nor falsely satisfy fidelity_landmarks
+    const commentedHtml = join(dir, 'wl-comments.html');
+    writeFileSync(
+      commentedHtml,
+      `<!doctype html>
+<html lang="en"><head><style>
+:root { --bg: #fff; --ink: #111; --surface: #eee; --accent: #a63d28; }
+body { background: var(--bg); color: var(--ink); font-size: 16px; }
+h1 { font-size: 40px; }
+@media (min-width: 768px) { body { padding: 24px; } }
+</style></head>
+<body>
+<!--
+  <header><h1>Commented</h1></header>
+  <main><div style="color: #ff0000" class="bogus-cls">Unlock the power of \u{1F525}</div></main>
+-->
+<p>Plain visible text only.</p>
+</body></html>`,
+    );
+    // Without --fidelity, commented-out violations must NOT fail
+    const rCommNoFid = runPy(['--web-lint', commentedHtml, '--json']);
+    expect(rCommNoFid.status, rCommNoFid.stdout).toBe(0);
+    // With --fidelity, commented-out landmarks must NOT satisfy fidelity_landmarks
+    const rCommFid = runPy(['--web-lint', commentedHtml, '--fidelity', '--json']);
+    expect(rCommFid.status).toBe(1);
+    expect(
+      JSON.parse(rCommFid.stdout)
+        .checks.filter((c: { ok: boolean }) => !c.ok)
+        .map((c: { id: string }) => c.id),
+    ).toContain('fidelity_landmarks');
+
+    const commentedTsx = join(dir, 'wl-comments.tsx');
+    writeFileSync(
+      commentedTsx,
+      `export function CleanWithComment() {
+  return (
+    <section className="min-h-dvh">
+      {/*
+        <Button className="bg-red-500 p-[13px]" style={{ color: 'red' }}>Nope</Button>
+        <div className={\`bg-\${tone}-500\`} />
+      */}
+      <Button variant="brand">Real</Button>
+    </section>
+  );
+}`,
+    );
+    const rCommTsx = runPy(['--web-lint', commentedTsx, '--json']);
+    expect(rCommTsx.status, rCommTsx.stdout).toBe(0);
+
+    // 6. --fidelity rejected without --web-lint
+    const rBadFidelity = runPy(['--html', cleanWebHtml, '--fidelity', '--json']);
+    expect(rBadFidelity.status).not.toBe(0);
+    expect(rBadFidelity.stderr).toContain('--fidelity');
+
+    // 7. Directory scan skips node_modules and symlinks (both symlinked file and symlinked directory)
+    const scanDir = join(dir, 'wl-dir-scan');
+    const nmDir = join(scanDir, 'node_modules', 'pkg');
+    const externalBadDir = join(dir, 'wl-external-bad');
+    mkdirSync(nmDir, { recursive: true });
+    mkdirSync(externalBadDir, { recursive: true });
+    writeFileSync(join(scanDir, 'index.html'), readFileSync(cleanWebHtml, 'utf8'));
+    writeFileSync(join(nmDir, 'bad.html'), readFileSync(brokenHtml, 'utf8'));
+    const extBadFile = join(externalBadDir, 'bad-link.html');
+    writeFileSync(extBadFile, readFileSync(brokenHtml, 'utf8'));
+    if (process.platform !== 'win32') {
+      symlinkSync(extBadFile, join(scanDir, 'linked-bad.html'));
+      symlinkSync(externalBadDir, join(scanDir, 'linked-dir'));
+    }
+    const rDirScan = runPy(['--web-lint', scanDir, '--fidelity', '--json']);
+    expect(rDirScan.status, rDirScan.stdout).toBe(0);
+    const dirOut = JSON.parse(rDirScan.stdout);
+    const scannedChk = dirOut.checks.find((c: { id: string }) => c.id === 'web_lint_files_scanned');
+    expect(scannedChk.value).toBe(1);
+  }, 60_000);
 });

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Deterministic anti-slop HTML/CSS linter, DESIGN.md schema checker, art/VFX contract checker, and SVG logo checker.
+"""Deterministic anti-slop HTML/CSS linter, prescriptive web linter, DESIGN.md schema checker, art/VFX contract checker, and SVG logo checker.
 
   python3 -B check_design.py --html FILE_OR_DIR [--json]
+  python3 -B check_design.py --web-lint FILE_OR_DIR [--fidelity] [--json]
   python3 -B check_design.py --design-md DESIGN.md [--json]
   python3 -B check_design.py --iso ISO.json [--pre-render] [--json]
   python3 -B check_design.py --ink-anim INK.json [--pre-render] [--json]
@@ -2280,9 +2281,853 @@ def check_logo_svg(path, allow_draft_text=False, surface=None):
     return {"ok": ok, "checks": checks}
 
 
+WEB_LINT_EXTS = {".html", ".htm", ".css", ".jsx", ".tsx", ".svelte", ".vue"}
+HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?-->")
+JSX_COMMENT_RE = re.compile(r"\{\s*/\*[\s\S]*?\*/\s*\}")
+CUSTOM_PROP_KEY_RE = re.compile(r"^--[A-Za-z0-9_-]+$")
+REDUCED_MOTION_MEDIA_RE = re.compile(r"^@media\b[^;]*prefers-reduced-motion\s*:\s*reduce\b", re.I)
+RESPONSIVE_MEDIA_RE = re.compile(
+    r"@media\b[^{]*(?:width|height|orientation|aspect-ratio|pointer|hover)\b|@container\b",
+    re.I,
+)
+KEYFRAMES_RE = re.compile(r"@(?:-webkit-)?keyframes\b", re.I)
+TW_RAW_PALETTE_RE = re.compile(
+    r"^(?:[a-z0-9-]+:)*(?:bg|text|border|ring|fill|stroke|from|to|via|outline|decoration|accent|caret)-"
+    r"(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)"
+    r"-(?:50|[1-9]00|950)(?:/\d+)?$"
+)
+TW_ARB_COLOR_RE = re.compile(
+    r"^(?:[a-z0-9-]+:)*(?:bg|text|border|ring|fill|stroke|from|to|via)-\[(?:#|rgba?\(|hsla?\(|oklch\(|oklab\()[^\]]+\]$",
+    re.I,
+)
+TW_ARB_VAL_RE = re.compile(
+    r"^(?:[a-z0-9-]+:)*(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap|gap-x|gap-y|w|h|min-w|max-w|min-h|max-h|text|rounded|z|leading|tracking|border)-\[(?!var\(--)[^\]]+\]$"
+)
+TW_RESTYLE_PREFIX_RE = re.compile(
+    r"^(?:[a-z0-9-]+:)*(?:bg|text|p|px|py|pt|pr|pb|pl|rounded|border|shadow|font|tracking|leading|ring|fill|stroke)-"
+)
+TW_LAYOUT_PREFIX_RE = re.compile(
+    r"^(?:[a-z0-9-]+:)*(?:m|mx|my|mt|mr|mb|ml|w|h|min-w|max-w|min-h|max-h|col-span|row-span|col-start|row-start|self|justify-self|place-self|flex|grow|shrink|basis|order|static|relative|absolute|fixed|sticky|top|right|bottom|left|inset|z|block|inline|hidden|grid|sr-only)(?:-|$)"
+)
+TW_STANDARD_UTIL_RE = re.compile(
+    r"^(?:[a-z0-9-]+:)*(?:container|block|inline|inline-block|flex|inline-flex|grid|inline-grid|hidden|contents|flow-root|table|"
+    r"static|fixed|absolute|relative|sticky|visible|invisible|collapse|sr-only|not-sr-only|truncate|italic|not-italic|underline|no-underline|uppercase|lowercase|capitalize|antialiased|tabular-nums|"
+    r"grow|shrink|resize|select-none|pointer-events-none|cursor-pointer|appearance-none|transition|transform|group|peer|prose|"
+    r"(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap|gap-x|gap-y|space-x|space-y|w|h|size|min-w|max-w|min-h|max-h|inset|inset-x|inset-y|top|right|bottom|left|z|"
+    r"flex|grid-cols|grid-rows|col-span|row-span|col-start|col-end|row-start|row-end|auto-cols|auto-rows|items|justify|content|self|place-items|place-content|place-self|order|basis|grow|shrink|"
+    r"text|font|leading|tracking|align|whitespace|break|line-clamp|bg|from|via|to|border|divide|outline|ring|rounded|shadow|opacity|mix-blend|blur|backdrop|brightness|contrast|"
+    r"transition|duration|ease|delay|animate|scale|rotate|translate-x|translate-y|skew-x|skew-y|origin|overflow|overflow-x|overflow-y|overscroll|object|aspect|cursor|fill|stroke|accent|caret|scroll|snap)-[a-z0-9_./\[\]%()-]+)$"
+)
+HTML_CLASS_ATTR_RE = re.compile(r"\bclass(?:Name)?\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")
+JSX_TAG_NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
+JSX_ATTR_NAME_RE = re.compile(r"[A-Za-z_:][A-Za-z0-9_.:-]*")
+CSS_SCALE_ZERO_RE = re.compile(r"\bscale(?:3d)?\s*\(\s*0(?:\.0+)?(?:\s*,\s*0(?:\.0+)?)?(?:\s*,\s*[0-9.]+)?\s*\)", re.I)
+CSS_EASE_IN_ONLY_RE = re.compile(r"\bease-in\b(?!-out)", re.I)
+
+
+def _mask_newlines_only(match):
+    return re.sub(r"[^\n]", " ", match.group(0))
+
+
+def _strip_markup_comments(text, is_jsx=False):
+    out = HTML_COMMENT_RE.sub(_mask_newlines_only, text)
+    if is_jsx:
+        out = JSX_COMMENT_RE.sub(_mask_newlines_only, out)
+    return out
+
+
+def _edit_distance(a, b):
+    if a == b:
+        return 0
+    if len(a) < len(b):
+        a, b = b, a
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cost = 0 if ca == cb else 1
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost))
+        prev = cur
+    return prev[-1]
+
+
+def _closest_match(name, candidates, max_dist=3):
+    best = None
+    best_d = max_dist + 1
+    nl = name.lower()
+    for c in sorted(candidates):
+        d = _edit_distance(nl, c.lower())
+        if d < best_d:
+            best_d = d
+            best = c
+    return best
+
+
+def _line_of(text, offset):
+    return text.count("\n", 0, offset) + 1
+
+
+def _parse_css_px(val):
+    """Parse font-size px/rem/clamp(..., max) into finite positive px (assuming 16px root) or None."""
+    if not isinstance(val, str):
+        return None
+    s = val.strip().lower()
+    m_clamp = re.match(r"clamp\(([^,]+),([^,]+),([^)]+)\)", s)
+    if m_clamp:
+        return _parse_css_px(m_clamp.group(3))
+    m_px = re.match(r"([0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?)px\b", s)
+    if m_px:
+        try:
+            px_v = float(m_px.group(1))
+        except ValueError:
+            return None
+        return px_v if (math.isfinite(px_v) and px_v > 0) else None
+    m_rem = re.match(r"([0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?)rem\b", s)
+    if m_rem:
+        try:
+            px_v = float(m_rem.group(1)) * 16.0
+        except ValueError:
+            return None
+        return px_v if (math.isfinite(px_v) and px_v > 0) else None
+    return None
+
+
+def _scan_template_literal_end(text, start):
+    """Given text[start] == '`', return index just past the matching closing '`' or -1."""
+    n = len(text)
+    i = start + 1
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if ch == "$" and i + 1 < n and text[i + 1] == "{":
+            end_b = _scan_balanced_braces(text, i + 1)
+            if end_b < 0:
+                return -1
+            i = end_b + 1
+            continue
+        if ch == "`":
+            return i + 1
+        i += 1
+    return -1
+
+
+def _scan_balanced_braces(text, start):
+    """Given text[start] == '{', return index of matching '}' or -1 if unclosed."""
+    n = len(text)
+    if start >= n or text[start] != "{":
+        return -1
+    depth = 0
+    i = start
+    while i < n:
+        ch = text[i]
+        if ch in ("'", '"'):
+            q = ch
+            i += 1
+            while i < n:
+                if text[i] == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if text[i] == q:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "`":
+            end_t = _scan_template_literal_end(text, i)
+            if end_t < 0:
+                return -1
+            i = end_t
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            end_c = text.find("*/", i + 2)
+            if end_c < 0:
+                return -1
+            i = end_c + 2
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            nl = text.find("\n", i + 2)
+            i = n if nl < 0 else nl + 1
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _split_top_level(text, sep):
+    """Split text on single-char sep outside quotes, template literals, and (), [], {}."""
+    parts = []
+    cur = []
+    n = len(text)
+    i = 0
+    depth = 0
+    while i < n:
+        ch = text[i]
+        if ch in ("'", '"'):
+            q = ch
+            cur.append(ch)
+            i += 1
+            while i < n:
+                cur.append(text[i])
+                if text[i] == "\\" and i + 1 < n:
+                    i += 1
+                    cur.append(text[i])
+                    i += 1
+                    continue
+                if text[i] == q:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "`":
+            end_t = _scan_template_literal_end(text, i)
+            if end_t < 0:
+                cur.append(text[i:])
+                break
+            cur.append(text[i:end_t])
+            i = end_t
+            continue
+        if ch in "([{":
+            depth += 1
+            cur.append(ch)
+        elif ch in ")]}":
+            if depth > 0:
+                depth -= 1
+            cur.append(ch)
+        elif ch == sep and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    parts.append("".join(cur))
+    return parts
+
+
+def _iter_jsx_opening_tags(text):
+    """Yield (tag_name, tag_start, attrs) for JSX opening tags handling quoted strings and balanced {...}."""
+    n = len(text)
+    i = 0
+    while i < n:
+        lt = text.find("<", i)
+        if lt < 0:
+            break
+        if lt > 0 and (text[lt - 1].isalnum() or text[lt - 1] in "_$"):
+            i = lt + 1
+            continue
+        m_tag = JSX_TAG_NAME_RE.match(text, lt + 1)
+        if not m_tag:
+            i = lt + 1
+            continue
+        tag_name = m_tag.group(0)
+        pos = m_tag.end()
+        if pos >= n or text[pos] not in " \t\r\n/>":
+            i = lt + 1
+            continue
+        attrs = []
+        valid = False
+        while pos < n:
+            while pos < n and text[pos] in " \t\r\n":
+                pos += 1
+            if pos >= n:
+                break
+            if text[pos] == ">":
+                pos += 1
+                valid = True
+                break
+            if text[pos] == "/" and pos + 1 < n and text[pos + 1] == ">":
+                pos += 2
+                valid = True
+                break
+            if text[pos] == "{":
+                end_b = _scan_balanced_braces(text, pos)
+                if end_b < 0:
+                    break
+                pos = end_b + 1
+                continue
+            m_attr = JSX_ATTR_NAME_RE.match(text, pos)
+            if not m_attr:
+                break
+            attr_name = m_attr.group(0)
+            attr_start = pos
+            pos = m_attr.end()
+            while pos < n and text[pos] in " \t\r\n":
+                pos += 1
+            if pos < n and text[pos] == "=":
+                pos += 1
+                while pos < n and text[pos] in " \t\r\n":
+                    pos += 1
+                if pos >= n:
+                    break
+                if text[pos] in ('"', "'"):
+                    q = text[pos]
+                    val_start = pos + 1
+                    pos += 1
+                    while pos < n and text[pos] != q:
+                        pos += 1
+                    if pos >= n:
+                        break
+                    attrs.append((attr_name, attr_start, "string", text[val_start:pos]))
+                    pos += 1
+                elif text[pos] == "{":
+                    end_b = _scan_balanced_braces(text, pos)
+                    if end_b < 0:
+                        break
+                    attrs.append((attr_name, attr_start, "expr", text[pos + 1:end_b]))
+                    pos = end_b + 1
+                else:
+                    break
+            else:
+                attrs.append((attr_name, attr_start, "bool", ""))
+        if valid:
+            yield tag_name, lt, attrs
+            i = pos
+        else:
+            i = lt + 1
+
+
+def _has_dynamic_template_literal(expr):
+    """True iff expr contains any template literal with ${...} interpolation."""
+    n = len(expr)
+    i = 0
+    while i < n:
+        ch = expr[i]
+        if ch in ("'", '"'):
+            q = ch
+            i += 1
+            while i < n:
+                if expr[i] == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if expr[i] == q:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and expr[i + 1] == "*":
+            end_c = expr.find("*/", i + 2)
+            if end_c < 0:
+                return False
+            i = end_c + 2
+            continue
+        if ch == "/" and i + 1 < n and expr[i + 1] == "/":
+            nl = expr.find("\n", i + 2)
+            i = n if nl < 0 else nl + 1
+            continue
+        if ch == "`":
+            j = i + 1
+            while j < n:
+                c = expr[j]
+                if c == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if c == "$" and j + 1 < n and expr[j + 1] == "{":
+                    return True
+                if c == "`":
+                    j += 1
+                    break
+                j += 1
+            i = j
+            continue
+        i += 1
+    return False
+
+
+def _extract_jsx_class_strings(expr):
+    """Extract static string literals from a JSX className={...} expression."""
+    s = expr.strip()
+    if not s:
+        return []
+    if len(s) >= 2 and s[0] in ("'", '"') and s[-1] == s[0]:
+        i = 1
+        while i < len(s) - 1:
+            if s[i] == "\\" and i + 1 < len(s) - 1:
+                i += 2
+                continue
+            if s[i] == s[0]:
+                break
+            i += 1
+        if i == len(s) - 1:
+            return [s[1:-1]]
+    out = []
+    n = len(s)
+    i = 0
+    bracket_depth = 0
+    while i < n:
+        ch = s[i]
+        if ch == "[":
+            bracket_depth += 1
+            i += 1
+            continue
+        if ch == "]" and bracket_depth > 0:
+            bracket_depth -= 1
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and s[i + 1] == "*":
+            end_c = s.find("*/", i + 2)
+            i = n if end_c < 0 else end_c + 2
+            continue
+        if ch == "/" and i + 1 < n and s[i + 1] == "/":
+            nl = s.find("\n", i + 2)
+            i = n if nl < 0 else nl + 1
+            continue
+        if ch == "`":
+            end_t = _scan_template_literal_end(s, i)
+            if end_t < 0:
+                break
+            lit = s[i + 1:end_t - 1]
+            if "${" not in lit and bracket_depth == 0:
+                out.append(lit)
+            i = end_t
+            continue
+        if ch in ("'", '"'):
+            q = ch
+            str_start = i
+            i += 1
+            val_chars = []
+            while i < n:
+                if s[i] == "\\" and i + 1 < n:
+                    val_chars.append(s[i + 1])
+                    i += 2
+                    continue
+                if s[i] == q:
+                    i += 1
+                    break
+                val_chars.append(s[i])
+                i += 1
+            if bracket_depth == 0:
+                before = s[:str_start].rstrip()
+                after = s[i:].lstrip()
+                is_cmp = before.endswith(("===", "!==", "==", "!=")) or after.startswith(("===", "!==", "==", "!="))
+                if not is_cmp:
+                    out.append("".join(val_chars))
+            continue
+        i += 1
+    return out
+
+
+def _selector_targets_tag(sel_part, tags):
+    """True iff the rightmost compound selector targets one of the given HTML element tags (not a pseudo-element)."""
+    s = sel_part.strip().lower()
+    if not s:
+        return False
+    depth = 0
+    last_sep = -1
+    for idx, ch in enumerate(s):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]" and depth > 0:
+            depth -= 1
+        elif depth == 0 and ch in " \t\r\n>+~":
+            last_sep = idx
+    compound = s[last_sep + 1:]
+    if not compound or "::" in compound:
+        return False
+    m = re.match(r"^([a-z][a-z0-9]*)(?:$|[\.#:\[])", compound)
+    return bool(m and m.group(1) in tags)
+
+
+def _is_non_none_motion_val(val):
+    cleaned = re.sub(r"\s*!important\s*$", "", val, flags=re.I).strip().lower()
+    if not cleaned:
+        return False
+    items = [p.strip() for p in _split_top_level(cleaned, ",") if p.strip()]
+    return any(item != "none" for item in items)
+
+
+def _is_custom_prop_only_style(style_str, is_jsx=False):
+    """True iff inline style only assigns valid --custom-properties (no raw layout/color bypass)."""
+    s = style_str.strip()
+    if not s:
+        return True
+    if is_jsx:
+        parts = [p.strip() for p in _split_top_level(s, ",") if p.strip()]
+        if not parts:
+            return False
+        for p in parts:
+            if p.startswith("..."):
+                return False
+            kv = _split_top_level(p, ":")
+            if len(kv) < 2 or not kv[1].strip():
+                return False
+            raw_k = kv[0].strip()
+            if len(raw_k) >= 2 and raw_k[0] in ("'", '"') and raw_k[-1] == raw_k[0]:
+                k = raw_k[1:-1]
+            else:
+                k = raw_k
+            if not CUSTOM_PROP_KEY_RE.fullmatch(k):
+                return False
+        return True
+    parts = [p.strip() for p in _split_top_level(s, ";") if p.strip()]
+    if not parts:
+        return False
+    for p in parts:
+        kv = _split_top_level(p, ":")
+        if len(kv) < 2 or not kv[1].strip():
+            return False
+        k = kv[0].strip()
+        if not CUSTOM_PROP_KEY_RE.fullmatch(k):
+            return False
+    return True
+
+
+def check_web_lint(target, fidelity=False):
+    if not os.path.exists(target):
+        return {"ok": False, "findings": [], "checks": [_chk("web_lint_path_exists", False, target, "existing file or directory", "target path does not exist")]}
+    files = []
+    if os.path.isfile(target):
+        if os.path.splitext(target)[1].lower() in WEB_LINT_EXTS:
+            files.append((target, os.path.basename(target)))
+    elif os.path.isdir(target):
+        for root_d, dirs, names in os.walk(target):
+            dirs[:] = [
+                d for d in sorted(dirs)
+                if d not in SKIP_DIRS and not os.path.islink(os.path.join(root_d, d))
+            ]
+            for name in sorted(names):
+                p = os.path.join(root_d, name)
+                if os.path.islink(p):
+                    continue
+                if os.path.splitext(name)[1].lower() in WEB_LINT_EXTS:
+                    files.append((p, os.path.relpath(p, target)))
+    if not files:
+        return {"ok": False, "findings": [], "checks": [_chk("web_lint_files_scanned", False, 0, ">= 1 web file", f"no HTML/CSS/JSX/TSX files found under {target}")]}
+
+    # Pass 1: gather declared :root/@theme tokens and declared CSS classes across all scanned files
+    declared_tokens = set()
+    declared_classes = set()
+    file_texts = []
+    all_css_chunks = []
+    all_markup_chunks = []
+    for path, rel in files:
+        try:
+            text = open(path, encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError) as exc:
+            return {"ok": False, "findings": [], "checks": [_chk("web_lint_readable", False, str(exc), "UTF-8 text file", f"could not read {rel}")]}
+        ext = os.path.splitext(path)[1].lower()
+        is_jsx = ext in (".jsx", ".tsx")
+        scan_text = text if ext == ".css" else _strip_markup_comments(text, is_jsx=is_jsx)
+        file_texts.append((rel, ext, scan_text))
+        css_parts = []
+        if ext == ".css":
+            css_parts.append((0, scan_text))
+        else:
+            markup_no_style = STYLE_TAG_RE.sub(_mask_newlines_only, scan_text)
+            all_markup_chunks.append(markup_no_style)
+            for sm in STYLE_TAG_RE.finditer(scan_text):
+                css_parts.append((sm.start(1), sm.group(1)))
+        for _, css_raw in css_parts:
+            css_clean = CSS_COMMENT_RE.sub(_mask_newlines_only, css_raw)
+            all_css_chunks.append(css_clean)
+            for sel_stack, prop, _ in _iter_declarations(css_clean):
+                if prop.startswith("--") and (_is_root_theme_stack(sel_stack) or any(s.strip().lower().startswith("@theme") for s in sel_stack)):
+                    declared_tokens.add(prop)
+                for frame in sel_stack:
+                    if not frame.strip().startswith("@"):
+                        for cm in re.finditer(r"\.([A-Za-z_][A-Za-z0-9_-]*)", frame):
+                            declared_classes.add(cm.group(1))
+
+    has_css = bool(all_css_chunks)
+    token_hint = ", ".join(f"var({t})" for t in sorted(declared_tokens)[:8]) if declared_tokens else "declared :root tokens (e.g. var(--bg), var(--ink), var(--accent))"
+    findings = []
+
+    def add_finding(rule, rel, line, what, why, fix):
+        findings.append({"rule": rule, "file": rel, "line": line, "what": what, "why": why, "fix": fix})
+
+    # Pass 2: run all 6 @shadcn/lint prescriptive rules + micro-craft checks
+    has_h1_px = None
+    has_body_px = None
+    has_media_or_fluid = False
+    has_focus_visible = False
+    has_reduced_motion = False
+    has_motion = False
+    has_interactive = False
+
+    def audit_class_tokens(rel, line_no, cls_val, is_jsx_file):
+        for tok in cls_val.split():
+            if TW_RAW_PALETTE_RE.match(tok) or TW_ARB_COLOR_RE.match(tok):
+                add_finding(
+                    "no-raw-colors",
+                    rel,
+                    line_no,
+                    f'class "{tok}"',
+                    "raw palette/arbitrary colors drift from the design system",
+                    f"replace with a semantic token class or {token_hint}",
+                )
+            elif TW_ARB_VAL_RE.match(tok):
+                add_finding(
+                    "no-arbitrary-values",
+                    rel,
+                    line_no,
+                    f'class "{tok}"',
+                    "arbitrary bracket values break the spacing, type, and radius scale",
+                    "snap to the nearest declared spacing/type/radius scale step or define a named token in :root/@theme",
+                )
+            elif tok in ("h-screen", "min-h-screen"):
+                add_finding(
+                    "micro-craft",
+                    rel,
+                    line_no,
+                    f'class "{tok}"',
+                    "100vh/h-screen clips under mobile browser toolbars",
+                    f'replace "{tok}" with "{tok.replace("screen", "dvh")}"',
+                )
+            elif has_css and not is_jsx_file and tok not in declared_classes and not TW_STANDARD_UTIL_RE.match(tok):
+                near = _closest_match(tok, declared_classes) if declared_classes else None
+                fix_msg = (
+                    f'did you mean ".{near}"? Otherwise declare ".{tok}" in your stylesheet'
+                    if near
+                    else f'declare ".{tok}" in your stylesheet or remove the unused class'
+                )
+                add_finding(
+                    "no-unknown-classes",
+                    rel,
+                    line_no,
+                    f'class "{tok}"',
+                    "undeclared class name has no matching style rule",
+                    fix_msg,
+                )
+
+    for rel, ext, scan_text in file_texts:
+        is_jsx = ext in (".jsx", ".tsx")
+        markup_no_style = scan_text if ext == ".css" else STYLE_TAG_RE.sub(_mask_newlines_only, scan_text)
+
+        # 2a-2d for JSX/TSX via balanced opening-tag parser
+        if is_jsx:
+            if "focus-visible:" in markup_no_style:
+                has_focus_visible = True
+            for tag_name, tag_start, attrs in _iter_jsx_opening_tags(markup_no_style):
+                is_component = bool(tag_name and tag_name[0].isupper())
+                tag_line = _line_of(scan_text, tag_start)
+                for attr_name, attr_start, attr_kind, attr_val in attrs:
+                    attr_line = _line_of(scan_text, attr_start)
+                    if attr_name in ("className", "class"):
+                        cls_strings = []
+                        if attr_kind == "string":
+                            cls_strings.append(attr_val)
+                        elif attr_kind == "expr":
+                            if _has_dynamic_template_literal(attr_val):
+                                raw_snip = f"className={{{attr_val.strip()}}}"
+                                add_finding(
+                                    "require-static-classes",
+                                    rel,
+                                    attr_line,
+                                    raw_snip[:60],
+                                    "dynamic template-string class names break static scanning and Tailwind extraction",
+                                    f"replace {raw_snip[:50]} with a static Record<string, string> lookup map above the component (no template literal)",
+                                )
+                            cls_strings.extend(_extract_jsx_class_strings(attr_val))
+                        for cls_s in cls_strings:
+                            if is_component:
+                                for tok in cls_s.split():
+                                    if TW_RESTYLE_PREFIX_RE.match(tok) and not TW_LAYOUT_PREFIX_RE.match(tok):
+                                        add_finding(
+                                            "no-restyle",
+                                            rel,
+                                            tag_line,
+                                            f'<{tag_name} className="...{tok}...">',
+                                            f"<{tag_name}> owns its internal appearance and spacing",
+                                            f'DELETE "{tok}" from <{tag_name} className=...> (omit className if no layout classes remain) and use a declared variant/size prop on <{tag_name}> instead',
+                                        )
+                            audit_class_tokens(rel, attr_line, cls_s, True)
+                    elif attr_name == "style":
+                        if attr_kind == "string":
+                            if not _is_custom_prop_only_style(attr_val, is_jsx=False):
+                                add_finding(
+                                    "no-inline-styles",
+                                    rel,
+                                    attr_line,
+                                    f'style="{attr_val.strip()[:50]}"',
+                                    "inline styles bypass design tokens and component contracts",
+                                    f'DELETE style="{attr_val.strip()[:50]}" from the HTML tag and move it into a CSS class in <style> using {token_hint} (keep inline style ONLY for --custom-properties)',
+                                )
+                        elif attr_kind == "expr":
+                            st_expr = attr_val.strip()
+                            if st_expr.startswith("{") and _scan_balanced_braces(st_expr, 0) == len(st_expr) - 1:
+                                inner_obj = st_expr[1:-1]
+                                if not _is_custom_prop_only_style(inner_obj, is_jsx=True):
+                                    add_finding(
+                                        "no-inline-styles",
+                                        rel,
+                                        attr_line,
+                                        f"style={{{{{inner_obj.strip()[:45]}}}}}",
+                                        "inline style objects bypass design tokens and component contracts",
+                                        f"DELETE style={{{{{inner_obj.strip()[:45]}}}}} from the JSX element and move static styles to classes or component variants (keep style={{{{ '--var': val }}}} ONLY for dynamic CSS variables)",
+                                    )
+        elif ext != ".css":
+            # Non-JSX markup (.html, .htm, .svelte, .vue)
+            if INTERACTIVE_TAG_RE.search(markup_no_style):
+                has_interactive = True
+            if "focus-visible:" in markup_no_style:
+                has_focus_visible = True
+            for am in HTML_CLASS_ATTR_RE.finditer(markup_no_style):
+                cls_val = am.group(1) if am.group(1) is not None else am.group(2)
+                audit_class_tokens(rel, _line_of(scan_text, am.start()), cls_val, False)
+            for im in INLINE_STYLE_RE.finditer(markup_no_style):
+                st_val = im.group(1) if im.group(1) is not None else im.group(2)
+                if not _is_custom_prop_only_style(st_val, is_jsx=False):
+                    add_finding(
+                        "no-inline-styles",
+                        rel,
+                        _line_of(scan_text, im.start()),
+                        f'style="{st_val.strip()[:50]}"',
+                        "inline styles bypass design tokens and component contracts",
+                        f'DELETE style="{st_val.strip()[:50]}" from the HTML tag and move it into a CSS class in <style> using {token_hint} (keep inline style ONLY for --custom-properties)',
+                    )
+
+        # 2e. CSS checks (no-raw-colors, no-transition-all, safe-overflow, micro-craft scale(0)/ease-in)
+        css_blocks = [(0, scan_text)] if ext == ".css" else [(sm.start(1), sm.group(1)) for sm in STYLE_TAG_RE.finditer(scan_text)]
+        for base_off, css_raw in css_blocks:
+            css_clean = CSS_COMMENT_RE.sub(_mask_newlines_only, css_raw)
+            if RESPONSIVE_MEDIA_RE.search(css_clean) or "clamp(" in css_clean or "minmax(" in css_clean:
+                has_media_or_fluid = True
+            if ":focus-visible" in css_clean:
+                has_focus_visible = True
+            if KEYFRAMES_RE.search(css_clean):
+                has_motion = True
+            if VW_100_RE.search(css_clean):
+                add_finding(
+                    "safe-overflow",
+                    rel,
+                    _line_of(scan_text, base_off),
+                    "width: 100vw",
+                    "100vw causes horizontal scrollbar overflow on desktop and mobile",
+                    "replace 100vw with 100% and set overflow-x: clip on html, body",
+                )
+            for sel_stack, prop, v in _iter_declarations(css_clean):
+                in_reduced_motion = any(REDUCED_MOTION_MEDIA_RE.match(s.strip()) for s in sel_stack)
+                if in_reduced_motion:
+                    has_reduced_motion = True
+                if not in_reduced_motion and prop in ("transition", "animation", "transition-property", "animation-name"):
+                    if _is_non_none_motion_val(v):
+                        has_motion = True
+                is_root = _is_root_theme_stack(sel_stack) or any(s.strip().lower().startswith("@theme") for s in sel_stack)
+                is_ff = _is_font_face_stack(sel_stack)
+                non_at_frames = [s.strip().lower() for s in sel_stack if not s.strip().startswith("@")]
+                sel_leaf = non_at_frames[-1] if non_at_frames else ""
+                if prop == "font-size":
+                    px_v = _parse_css_px(v)
+                    if px_v is not None:
+                        parts = [p.strip() for p in _split_top_level(sel_leaf, ",") if p.strip()]
+                        if any(_selector_targets_tag(p, {"h1"}) for p in parts):
+                            has_h1_px = max(has_h1_px or 0.0, px_v)
+                        if any(_selector_targets_tag(p, {"body", "html", "p"}) for p in parts):
+                            has_body_px = px_v if has_body_px is None else min(has_body_px, px_v)
+                if prop.startswith("--") and is_root:
+                    continue
+                if not is_ff and prop != "content":
+                    scrubbed = QUOTED_STR_RE.sub(" ", URL_FUNC_RE.sub(" ", v))
+                    raw_hits = HEX_COLOR_RE.findall(scrubbed) + RGB_COLOR_RE.findall(scrubbed)
+                    if raw_hits:
+                        add_finding(
+                            "no-raw-colors",
+                            rel,
+                            _line_of(scan_text, base_off),
+                            f"{prop}: {v[:40]}",
+                            "raw color literal outside :root/@theme breaks theme consistency",
+                            f"replace {raw_hits[0]} with a declared token ({token_hint})",
+                        )
+                if prop in ("transition", "transition-property"):
+                    ta, lp = _is_bad_transition(prop, v)
+                    if ta or lp:
+                        add_finding(
+                            "no-transition-all",
+                            rel,
+                            _line_of(scan_text, base_off),
+                            f"{prop}: {v[:45]}",
+                            "transition: all or layout-property animation causes jank and unintended transitions",
+                            "animate transform or opacity explicitly (e.g. transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1))",
+                        )
+                    if CSS_EASE_IN_ONLY_RE.search(v):
+                        add_finding(
+                            "micro-craft",
+                            rel,
+                            _line_of(scan_text, base_off),
+                            f"{prop}: {v[:45]}",
+                            "ease-in starts sluggishly on UI entrances and interactions",
+                            "use ease-out or cubic-bezier(0.22, 1, 0.36, 1) under 300ms",
+                        )
+                if prop == "animation" and CSS_EASE_IN_ONLY_RE.search(v):
+                    add_finding(
+                        "micro-craft",
+                        rel,
+                        _line_of(scan_text, base_off),
+                        f"animation: {v[:45]}",
+                        "ease-in starts sluggishly on UI entrances",
+                        "use ease-out or cubic-bezier(0.22, 1, 0.36, 1)",
+                    )
+                if prop == "transform" and CSS_SCALE_ZERO_RE.search(v):
+                    add_finding(
+                        "micro-craft",
+                        rel,
+                        _line_of(scan_text, base_off),
+                        f"transform: {v[:40]}",
+                        "popping elements from scale(0) looks unnatural and harsh",
+                        "start from transform: scale(0.95) with opacity: 0 instead of scale(0)",
+                    )
+                if prop == "overflow-x":
+                    ov_clean = re.sub(r"\s*!important\s*$", "", v, flags=re.I).strip().lower()
+                    ov_toks = ov_clean.split()
+                    if ov_toks and ov_toks[0] == "hidden" and _is_html_body_stack(sel_stack):
+                        add_finding(
+                            "safe-overflow",
+                            rel,
+                            _line_of(scan_text, base_off),
+                            f"{sel_leaf} {{ overflow-x: hidden }}",
+                            "overflow-x: hidden on html/body breaks position: sticky",
+                            "use overflow-x: clip on html, body instead",
+                        )
+
+    if has_interactive and not has_focus_visible:
+        add_finding("focus-visible", files[0][1], 1, "interactive controls without :focus-visible", "keyboard users need a visible focus ring", "add a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }")
+    if has_motion and not has_reduced_motion:
+        add_finding("reduced-motion", files[0][1], 1, "motion without prefers-reduced-motion", "animations must respect OS reduced-motion preferences", "add @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none; transition: none; } }")
+
+    markup_blob = "\n".join(all_markup_chunks)
+    if all_css_chunks and PURPLE_BLUE_GRAD_RE.search("\n".join(all_css_chunks)):
+        add_finding("no-slop-patterns", files[0][1], 1, "purple-blue linear-gradient", "generic AI SaaS gradient slop", f"replace linear-gradient(...) with a solid surface token ({token_hint})")
+    if markup_blob:
+        if SLOP_COPY_RE.search(markup_blob):
+            add_finding("no-slop-patterns", files[0][1], 1, "filler slop copy", "generic placeholder/hype copy", "replace with concrete product facts from the brief")
+        if _has_emoji(markup_blob):
+            add_finding("no-slop-patterns", files[0][1], 1, "emoji used as UI icon", "emoji icons look inconsistent and generic", "use crisp monochrome SVG icons or typographic glyphs")
+
+    by_rule = {}
+    for f in findings:
+        by_rule.setdefault(f["rule"], []).append(f"{f['file']}:{f['line']} {f['what']} -> {f['fix']}")
+
+    checks = [_chk("web_lint_files_scanned", True, len(files), ">= 1 web file", "web files audited")]
+    for rule_name in ("no-restyle", "no-raw-colors", "no-arbitrary-values", "no-inline-styles", "no-unknown-classes", "require-static-classes", "micro-craft", "no-transition-all", "safe-overflow", "focus-visible", "reduced-motion", "no-slop-patterns"):
+        hits = by_rule.get(rule_name, [])
+        if hits or rule_name in ("no-restyle", "no-raw-colors", "no-arbitrary-values", "no-inline-styles", "no-unknown-classes", "require-static-classes", "micro-craft"):
+            checks.append(_chk(rule_name, not hits, hits[:5] if hits else "clean", "0 findings", f"{rule_name} prescriptive check"))
+
+    if fidelity:
+        checks.append(_chk("fidelity_tokens", len(declared_tokens) >= 4, len(declared_tokens), ">= 4 semantic :root/@theme tokens", "declare full semantic token system (ground, ink, hairline/surface, accent) rather than stripping styles"))
+        if has_h1_px is not None and has_body_px is not None and has_body_px > 0:
+            ratio = round(has_h1_px / has_body_px, 2)
+            checks.append(_chk("fidelity_type_scale", ratio >= 2.0, ratio, ">= 2.0 display/body ratio", "strong display-to-body typographic hierarchy"))
+        else:
+            checks.append(_chk("fidelity_type_scale", False, {"h1_px": has_h1_px, "body_px": has_body_px}, "explicit h1 and body font-size with ratio >= 2.0", "define explicit h1 and body font-size scale"))
+        checks.append(_chk("fidelity_responsive", has_media_or_fluid, has_media_or_fluid, True, "responsive @media query or fluid clamp()/minmax() layout required"))
+        has_lm = bool(re.search(r"<main\b", markup_blob, re.I)) and bool(re.search(r"<h1\b", markup_blob, re.I)) and bool(re.search(r"<(?:header|nav|section|article|footer)\b", markup_blob, re.I))
+        checks.append(_chk("fidelity_landmarks", has_lm, has_lm, True, "semantic landmarks (<main>, <h1>, plus <header>/<section>/<footer>)"))
+
+    ok = not findings and all(c["ok"] for c in checks)
+    return {"ok": ok, "findings": findings, "checks": checks}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--html", help="HTML/CSS file or directory to audit against anti-slop Floor rules")
+    ap.add_argument("--web-lint", help="HTML/CSS/JSX/TSX file or directory to audit with prescriptive self-repair diagnostics")
+    ap.add_argument("--fidelity", action="store_true", help="For --web-lint: also enforce anti-regression visual hierarchy/token/landmark fidelity checks")
     ap.add_argument("--design-md", help="DESIGN.md file to validate against token and reference schema")
     ap.add_argument("--iso", help="Isometric technical illustration contract JSON to verify")
     ap.add_argument("--ink-anim", help="Line-art SVG ink animation contract JSON to verify")
@@ -2294,11 +3139,15 @@ def main():
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 
-    modes = (a.html, a.design_md, a.iso, a.ink_anim, a.sakuga, a.logo)
+    modes = (a.html, a.web_lint, a.design_md, a.iso, a.ink_anim, a.sakuga, a.logo)
     if sum(bool(x) for x in modes) != 1:
-        ap.error("provide exactly one of --html, --design-md, --iso, --ink-anim, --sakuga, or --logo")
+        ap.error("provide exactly one of --html, --web-lint, --design-md, --iso, --ink-anim, --sakuga, or --logo")
+    if a.fidelity and not a.web_lint:
+        ap.error("--fidelity can only be used with --web-lint")
     if a.html:
         res = check_html_path(a.html)
+    elif a.web_lint:
+        res = check_web_lint(a.web_lint, fidelity=a.fidelity)
     elif a.design_md:
         res = check_design_md(a.design_md)
     elif a.iso:
@@ -2313,6 +3162,8 @@ def main():
     if a.json:
         print(json.dumps(res, indent=2))
     else:
+        for f in res.get("findings", []):
+            print(f"[{f['rule']}] {f['file']}:{f['line']} | {f['what']} | {f['why']} | Fix: {f['fix']}")
         for c in res["checks"]:
             print(f"{c['id']}: {c['value']} (limit {c['limit']})  {'OK' if c['ok'] else 'FIX: ' + c['detail']}")
         print("RESULT: " + ("all checks pass" if res["ok"] else "FIX the lines above"))
